@@ -38,6 +38,7 @@ class SeekBarView @JvmOverloads constructor(
         alpha = 72
     }
     private val rect = RectF()
+    private val thumbReach = (THUMB_RADIUS_DP + HALO_DP) * density
 
     // 0 = resting (thin, no thumb), 1 = focused (thick, thumb shown).
     private var focusAmount = 0f
@@ -85,8 +86,9 @@ class SeekBarView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         val cy = height / 2f
         val half = (2f + 2f * focusAmount) * density
-        val left = paddingLeft.toFloat()
-        val right = (width - paddingRight).toFloat()
+        // Inset by the focused thumb's halo so the thumb is never clipped at either end.
+        val left = paddingLeft + thumbReach
+        val right = width - paddingRight - thumbReach
         val span = right - left
 
         rect.set(left, cy - half, right, cy + half)
@@ -102,9 +104,14 @@ class SeekBarView @JvmOverloads constructor(
         canvas.drawRoundRect(rect, half, half, progressPaint)
 
         if (focusAmount > 0f) {
-            val radius = 9f * density * focusAmount
-            canvas.drawCircle(progressX, cy, radius + 4f * density, haloPaint)
+            val radius = THUMB_RADIUS_DP * density * focusAmount
+            canvas.drawCircle(progressX, cy, radius + HALO_DP * density, haloPaint)
             canvas.drawCircle(progressX, cy, radius, thumbPaint)
         }
+    }
+
+    private companion object {
+        const val THUMB_RADIUS_DP = 9f
+        const val HALO_DP = 4f
     }
 }
