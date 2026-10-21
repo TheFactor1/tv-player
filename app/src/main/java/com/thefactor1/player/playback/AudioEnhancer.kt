@@ -147,6 +147,8 @@ class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
         const val MID_GAIN = 1.25f
         const val SIDE_GAIN = 0.5f
         const val LIMIT_KNEE = 0.89f
+        /** Where the limiter tops out, short of full scale (float tanh reaches 1 for large overs). */
+        const val LIMIT_CEILING = 0.98f
 
         /** Android's channel order puts the centre third (L, R, C, ...) in these layouts; quad has none. */
         private val CENTRE_LAYOUTS = setOf(3, 5, 6, 7, 8)
@@ -165,7 +167,7 @@ class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
         fun softLimit(sample: Float): Float {
             val size = abs(sample)
             if (size <= LIMIT_KNEE) return sample
-            val headroom = 1f - LIMIT_KNEE
+            val headroom = LIMIT_CEILING - LIMIT_KNEE
             val limited = LIMIT_KNEE + headroom * tanh((size - LIMIT_KNEE) / headroom)
             return if (sample < 0f) -limited else limited
         }
