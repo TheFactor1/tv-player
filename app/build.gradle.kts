@@ -11,8 +11,8 @@ android {
         applicationId = "com.thefactor1.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.8.0"
+        versionCode = 12
+        versionName = "0.9.0"
 
         // TV boxes are ARM; x86_64 keeps the PC emulator working. Dropping 32-bit x86 trims the FFmpeg libraries.
         ndk {

@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -39,6 +40,10 @@ class StatsOverlay(
     var measuredFrameRate: Float = -1f
 
     val isVisible: Boolean get() = view.visibility == View.VISIBLE
+
+    /** Dolby or DTS is going out untouched, so nothing in the app can change the sound. */
+    val isPassthrough: Boolean
+        get() = audioOutputEncoding != C.ENCODING_INVALID && !Util.isEncodingLinearPcm(audioOutputEncoding)
 
     fun attach(exo: ExoPlayer) {
         player = exo

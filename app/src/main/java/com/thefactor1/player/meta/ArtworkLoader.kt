@@ -22,6 +22,8 @@ data class MetaDetails(
     /** "S1 E1 · Pilot" for an episode. */
     val episodeLine: String?,
     val description: String?,
+    /** The IMDb id ("tt0903747"), which skip times and subtitle search are keyed by. */
+    val imdbId: String? = null,
 )
 
 /**
@@ -77,7 +79,7 @@ class ArtworkLoader(context: Context) {
         if (!IMDB_ID.matches(match.id) || ticket != generation) return
 
         val meta = getJson("$CINEMETA/meta/$type/${match.id}.json").optJSONObject("meta") ?: return
-        val details = details(meta, query)
+        val details = details(meta, query).copy(imdbId = match.id)
         post(ticket) { listener.onDetails(details) }
 
         image(meta.optString("background").ifEmpty { "$METAHUB/background/medium/${match.id}/img" }, "${match.id}-bg", screenWidth)

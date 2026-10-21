@@ -380,6 +380,25 @@
         android:textSize="20sp"
         android:visibility="invisible" />
 
+    <!-- Skip intro / recap / credits: bottom right, like a streaming app; OK presses it while it shows. -->
+    <TextView
+        android:id="@+id/skip_prompt"
+        android:layout_width="wrap_content"
+        android:layout_height="52dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="64dp"
+        android:layout_marginBottom="64dp"
+        android:alpha="0"
+        android:background="@drawable/skip_prompt_bg"
+        android:elevation="6dp"
+        android:focusable="false"
+        android:gravity="center_vertical"
+        android:paddingStart="28dp"
+        android:paddingEnd="28dp"
+        android:textColor="@color/on_focus"
+        android:textSize="17sp"
+        android:visibility="invisible" />
+
     <TextView
         android:id="@+id/stats_overlay"
         android:layout_width="wrap_content"

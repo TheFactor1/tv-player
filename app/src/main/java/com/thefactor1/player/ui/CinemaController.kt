@@ -31,9 +31,15 @@ import com.thefactor1.player.R
 import com.thefactor1.player.meta.ArtworkLoader
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
+import com.thefactor1.player.meta.OnlineExtras
+import com.thefactor1.player.meta.OnlineSubtitle
+import com.thefactor1.player.meta.SubtitleLanguages
+import com.thefactor1.player.playback.AudioEnhancement
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.playback.StatsOverlay
+import com.thefactor1.player.playback.SubtitleDelay
 import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -42,7 +48,9 @@ import kotlin.math.abs
  * updates while hidden. Before playback, and after a while paused, the meta screen shows the
  * film's backdrop, logo and details from Stremio's catalogue.
  *
- * Remote, with controls hidden: OK pauses, Left/Right skip 10 s back / 30 s forward, Up shows the
+ * When the film is recognised, it also offers "Skip intro" and subtitles from OpenSubtitles.
+ *
+ * Remote, with controls hidden: OK pauses (or presses "Skip intro" while it shows), Left/Right skip 10 s back / 30 s forward, Up shows the
  * controls, Down opens subtitles, Back returns to the source app, Menu opens More. Back with
  * controls or a panel showing closes them.
  */
@@ -52,6 +60,8 @@ class CinemaController(
     private val playerView: PlayerView,
     private val prefs: PlayerPrefs,
     private val stats: StatsOverlay,
+    private val enhancement: AudioEnhancement,
+    private val subtitleDelay: SubtitleDelay,
     private val onExit: () -> Unit,
 ) {
     private enum class Panel { AUDIO, SUBTITLES, PICTURE, MORE }
@@ -124,6 +134,12 @@ class CinemaController(
     var onOpenElsewhere: (() -> Unit)? = null
     /** The lip-sync correction changed, in ms. */
     var onAudioDelayChanged: ((Int) -> Unit)? = null
+    /** Night mode or dialogue boost was switched on while audio is passed through, so it must be decoded. */
+    var onNeedsDecodedAudio: (() -> Unit)? = null
+    /** "Skip credits" at the end of the video: finish as if it had played out. */
+    var onSkipCredits: (() -> Unit)? = null
+    /** Add a subtitle file from the web as a track and switch to it. */
+    var onAddSubtitle: ((url: String, language: String?, label: String) -> Unit)? = null
 
     private var player: ExoPlayer? = null
     private var controlsVisible = false
@@ -142,6 +158,12 @@ class CinemaController(
     /** The detail the source app gave ("S1 E1", "2024"), shown until the catalogue says more. */
     private var launchDetail: String? = null
     private var pauseScreenShown = false
+    private val extras = OnlineExtras()
+    private val skipPrompt = SkipPrompt(activity.findViewById(R.id.skip_prompt)) { onSkipCredits?.invoke() }
+    private var onlineSearch = OnlineSearch.UNMATCHED
+    private var onlineSubtitles: List<OnlineSubtitle> = emptyList()
+
+    private enum class OnlineSearch { UNMATCHED, SEARCHING, DONE }
 
     // Keys handled on press have their release swallowed too, so nothing behind them reacts.
     private var swallowReleaseOf = KeyEvent.KEYCODE_UNKNOWN
@@ -152,7 +174,7 @@ class CinemaController(
 
     init {
         fonts.apply(fonts.bold, title, panelTitle, loadingTitle, skipBackAmount, skipForwardAmount, metaKicker)
-        fonts.apply(fonts.semibold, clock, metaClock, endsAt, elapsed, remaining, panelKicker, toast, focusLabel, miniTime,
+        fonts.apply(fonts.semibold, activity.findViewById<TextView>(R.id.skip_prompt), clock, metaClock, endsAt, elapsed, remaining, panelKicker, toast, focusLabel, miniTime,
             metaEpisode, loadingLine, retryButton, otherPlayerButton)
         fonts.apply(fonts.medium, source, loadingSource, metaDescription)
         retryButton.setOnClickListener { onRetry?.invoke() }
@@ -195,6 +217,8 @@ class CinemaController(
         exo.setPlaybackSpeed(SPEEDS[speedIndex])
         updatePlayButton()
         updateBadges(exo.currentTracks)
+        skipPrompt.attach(exo)
+        updateSkipPrompt()
     }
 
     fun detach() {
@@ -202,6 +226,7 @@ class CinemaController(
         player = null
         handler.removeCallbacksAndMessages(null)
         hidePauseScreen(animate = false)
+        skipPrompt.detach()
     }
 
     // ---- Meta screen: film art and details, for loading and for the pause screen ---------------
@@ -211,6 +236,10 @@ class CinemaController(
         if (query == artworkQuery) return
         artworkQuery = query
         artwork.cancel()
+        extras.cancel()
+        skipPrompt.setSegments(emptyList())
+        onlineSearch = OnlineSearch.UNMATCHED
+        onlineSubtitles = emptyList()
         details = null
         metaBackdrop.animate().cancel()
         metaBackdrop.alpha = 0f
@@ -224,6 +253,7 @@ class CinemaController(
             override fun onDetails(details: MetaDetails) {
                 this@CinemaController.details = details
                 showDetails()
+                details.imdbId?.let { loadExtras(it, query) }
             }
 
             override fun onBackdrop(bitmap: Bitmap) {
@@ -239,6 +269,27 @@ class CinemaController(
                 loadingTitle.visibility = View.GONE
             }
         })
+    }
+
+    /** Skip times and online subtitles for the recognised film or episode. */
+    private fun loadExtras(imdbId: String, query: MetaQuery) {
+        extras.skipSegments(imdbId, query.season, query.episode) { skipPrompt.setSegments(it) }
+        onlineSearch = OnlineSearch.SEARCHING
+        refreshSubtitlePanel()
+        extras.subtitles(imdbId, query.season, query.episode) { found ->
+            onlineSubtitles = found
+            onlineSearch = OnlineSearch.DONE
+            refreshSubtitlePanel()
+        }
+    }
+
+    private fun refreshSubtitlePanel() {
+        if (panel == Panel.SUBTITLES && page == null) buildPanel(focusIndex = panelItems.indexOfChild(panelItems.focusedChild))
+    }
+
+    /** The skip button gives way to anything else on screen. */
+    private fun updateSkipPrompt() {
+        skipPrompt.blocked = loading || controlsVisible || panel != null || pauseScreenShown
     }
 
     private fun showDetails() {
@@ -264,6 +315,7 @@ class CinemaController(
         if (loading || panel != null || exo.playWhenReady || exo.playbackState == Player.STATE_ENDED) return@Runnable
         hideControls()
         pauseScreenShown = true
+        updateSkipPrompt()
         showDetails()
         loadingSpinner.visibility = View.GONE
         loadingSource.visibility = View.GONE
@@ -301,6 +353,7 @@ class CinemaController(
         handler.removeCallbacks(showPauseScreen)
         if (!pauseScreenShown) return
         pauseScreenShown = false
+        updateSkipPrompt()
         metaBackdrop.animate().cancel()
         metaBackdrop.scaleX = 1f
         metaBackdrop.scaleY = 1f
@@ -325,6 +378,7 @@ class CinemaController(
      */
     fun showLoading(line: String = activity.getString(R.string.loading_connecting), waitForNewFrame: Boolean = true) {
         loading = true
+        updateSkipPrompt()
         errorShown = false
         errorActions.visibility = View.GONE
         if (waitForNewFrame) firstFrameRendered = false
@@ -371,6 +425,7 @@ class CinemaController(
             swallowReleaseOf = KeyEvent.KEYCODE_UNKNOWN
             if (isCenter(code) && centerPressedWhileHidden) {
                 centerPressedWhileHidden = false
+                if (skipPrompt.press()) return true
                 togglePlayPause()
                 showGlyph(if (player?.playWhenReady == true) R.drawable.ic_play else R.drawable.ic_pause)
                 showControls(playButton)
@@ -493,8 +548,9 @@ class CinemaController(
             hideMiniBar()
             reveal(infoBar, fromY = -18f)
             reveal(controlBar, fromY = 28f)
-            playerView.subtitleView?.setBottomPaddingFraction(SUBTITLE_LIFT_CONTROLS)
+            playerView.subtitleView?.setBottomPaddingFraction(subtitleLift())
             handler.post(progressTicker)
+            updateSkipPrompt()
         }
         focus.requestFocus()
         scheduleHide()
@@ -507,7 +563,8 @@ class CinemaController(
         handler.removeCallbacks(autoHide)
         conceal(infoBar, toY = -18f)
         conceal(controlBar, toY = 28f)
-        playerView.subtitleView?.setBottomPaddingFraction(SUBTITLE_LIFT_REST)
+        playerView.subtitleView?.setBottomPaddingFraction(subtitleLift())
+        updateSkipPrompt()
     }
 
     private fun reveal(view: View, fromY: Float) {
@@ -723,6 +780,7 @@ class CinemaController(
     private fun hideLoading() {
         if (!loading || holdLoading) return
         loading = false
+        updateSkipPrompt()
         loadingCard.animate().alpha(0f).setDuration(320).withLayer()
             .withEndAction { loadingCard.visibility = View.GONE }
             .start()
@@ -735,6 +793,7 @@ class CinemaController(
         panelOpener = opener
         panel = which
         page = null
+        updateSkipPrompt()
         handler.removeCallbacks(autoHide)
         hideControls()
         setPanelHeading()
@@ -779,6 +838,7 @@ class CinemaController(
         if (panel == null) return
         panel = null
         page = null
+        updateSkipPrompt()
         sidePanel.animate().cancel()
         sidePanel.animate().translationX(sidePanel.width.toFloat()).alpha(0f).setDuration(HIDE_MS).setInterpolator(easeOut)
             .withLayer()
@@ -882,7 +942,35 @@ class CinemaController(
                 }
             },
         )
+        items += Item(
+            activity.getString(R.string.night_mode),
+            activity.getString(R.string.night_mode_detail),
+            prefs.nightMode,
+            keepOpen = true,
+        ) {
+            prefs.nightMode = !prefs.nightMode
+            enhancement.nightMode = prefs.nightMode
+            if (prefs.nightMode) needDecodedAudio()
+        }
+        items += Item(
+            activity.getString(R.string.dialogue_boost),
+            activity.getString(R.string.dialogue_boost_detail),
+            prefs.dialogueBoost,
+            keepOpen = true,
+        ) {
+            prefs.dialogueBoost = !prefs.dialogueBoost
+            enhancement.dialogueBoost = prefs.dialogueBoost
+            if (prefs.dialogueBoost) needDecodedAudio()
+        }
         return items
+    }
+
+    /** Sound shaping only works on decoded audio; passthrough has to give way first. */
+    private fun needDecodedAudio() {
+        if (stats.isPassthrough) {
+            closePanel(showControlsAfter = false)
+            onNeedsDecodedAudio?.invoke()
+        }
     }
 
     private fun subtitleItems(): List<Item> {
@@ -907,6 +995,8 @@ class CinemaController(
             }
         }
         val size = PlayerPrefs.SUBTITLE_SIZES[prefs.subtitleSize]
+        val style = PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle]
+        val position = PlayerPrefs.SUBTITLE_POSITIONS[prefs.subtitlePosition]
         return buildList {
             add(Item(activity.getString(R.string.subs_off), activity.getString(R.string.subs_off_detail), !anySelected) {
                 player?.let {
@@ -916,6 +1006,30 @@ class CinemaController(
                 }
             })
             addAll(tracks)
+            add(findOnlineItem())
+            add(Item(
+                activity.getString(R.string.subs_timing),
+                subtitleTimingLabel(subtitleDelayMs),
+                checked = false,
+                opens = Page(activity.getString(R.string.subs_timing)) {
+                    PlayerPrefs.SUBTITLE_DELAYS_MS.map { ms ->
+                        Item(subtitleTimingLabel(ms), subtitleTimingHint(ms), subtitleDelayMs == ms) { setSubtitleDelay(ms) }
+                    }
+                },
+            ))
+            add(Item(
+                activity.getString(R.string.subs_style),
+                style.name,
+                checked = false,
+                opens = Page(activity.getString(R.string.subs_style)) {
+                    PlayerPrefs.SUBTITLE_STYLES.mapIndexed { index, choice ->
+                        Item(choice.name, choice.detail, prefs.subtitleStyle == index) {
+                            prefs.subtitleStyle = index
+                            applySubtitleStyle()
+                        }
+                    }
+                },
+            ))
             add(Item(
                 activity.getString(R.string.subs_size),
                 size.name,
@@ -929,7 +1043,85 @@ class CinemaController(
                     }
                 },
             ))
+            add(Item(
+                activity.getString(R.string.subs_position),
+                position.name,
+                checked = false,
+                opens = Page(activity.getString(R.string.subs_position)) {
+                    PlayerPrefs.SUBTITLE_POSITIONS.mapIndexed { index, choice ->
+                        Item(choice.name, choice.detail, prefs.subtitlePosition == index) {
+                            prefs.subtitlePosition = index
+                            applySubtitleStyle()
+                        }
+                    }
+                },
+            ))
         }
+    }
+
+    /** "Find subtitles online": a list of OpenSubtitles results once the search is back. */
+    private fun findOnlineItem(): Item {
+        val detail = when (onlineSearch) {
+            OnlineSearch.UNMATCHED -> activity.getString(R.string.subs_find_unmatched)
+            OnlineSearch.SEARCHING -> activity.getString(R.string.subs_find_searching)
+            OnlineSearch.DONE -> if (onlineSubtitles.isEmpty()) {
+                activity.getString(R.string.subs_find_none)
+            } else {
+                activity.getString(R.string.subs_find_count, onlineSubtitles.size)
+            }
+        }
+        val results = onlineResults()
+        return Item(
+            activity.getString(R.string.subs_find),
+            detail,
+            checked = false,
+            // With nothing to list, the row stays put instead of opening an empty page.
+            keepOpen = results.isEmpty(),
+            opens = if (results.isEmpty()) null else Page(activity.getString(R.string.subs_find_title)) { results },
+        )
+    }
+
+    /** The viewer's subtitle language first, then English, each numbered in the database's order. */
+    private fun onlineResults(): List<Item> {
+        val preferred = listOf(prefs.subtitleLanguage.ifEmpty { Locale.getDefault().language }, "en")
+        val counts = HashMap<String?, Int>()
+        return SubtitleLanguages.rank(onlineSubtitles, preferred, MAX_ONLINE_RESULTS).map { sub ->
+            val n = (counts[sub.language] ?: 0) + 1
+            counts[sub.language] = n
+            val name = languageName(sub.language)
+            Item(name, activity.getString(R.string.subs_find_source, n), checked = false) {
+                showToast(activity.getString(R.string.subs_adding), ADD_TOAST_MS)
+                onAddSubtitle?.invoke(sub.url, sub.language, "$name · OpenSubtitles $n")
+            }
+        }
+    }
+
+    private fun languageName(code: String?): String {
+        if (code.isNullOrEmpty()) return activity.getString(R.string.language_unknown)
+        PlayerPrefs.LANGUAGES.firstOrNull { it.code == code }?.let { return it.name }
+        return Locale(code).getDisplayLanguage(Locale.ENGLISH).replaceFirstChar { it.uppercase() }.ifEmpty { code }
+    }
+
+    // ---- Subtitle timing: per video, so it resets with the next one --------------------------------
+
+    private val subtitleDelayMs: Int get() = (subtitleDelay.offsetUs / 1_000).toInt()
+
+    private fun setSubtitleDelay(ms: Int) {
+        subtitleDelay.offsetUs = ms * 1_000L
+        // A seek in place drops the lines already shown, so the new timing applies from this moment.
+        player?.let { it.seekTo(it.currentPosition) }
+    }
+
+    private fun subtitleTimingLabel(ms: Int): String {
+        if (ms == 0) return activity.getString(R.string.subs_timing_none)
+        val seconds = String.format(Locale.US, "%.2f", abs(ms) / 1000f).trimEnd('0').trimEnd('.')
+        return activity.getString(if (ms > 0) R.string.subs_timing_later else R.string.subs_timing_earlier, seconds)
+    }
+
+    private fun subtitleTimingHint(ms: Int): String? = when {
+        ms > 0 -> activity.getString(R.string.subs_timing_later_hint)
+        ms < 0 -> activity.getString(R.string.subs_timing_earlier_hint)
+        else -> null
     }
 
     private fun speedItems(): List<Item> = SPEED_CHOICES.map { speed ->
@@ -1043,18 +1235,25 @@ class CinemaController(
 
     private fun applySubtitleStyle() {
         val view = playerView.subtitleView ?: return
+        val style = PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle]
         view.setStyle(
             CaptionStyleCompat(
-                0xFFFFFFFF.toInt(),
+                style.text,
+                style.background,
                 0x00000000,
-                0x00000000,
-                CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                style.edgeType,
                 0xFF000000.toInt(),
                 fonts.semibold,
             ),
         )
         view.setFractionalTextSize(PlayerPrefs.SUBTITLE_SIZES[prefs.subtitleSize].fraction)
-        view.setBottomPaddingFraction(if (controlsVisible) SUBTITLE_LIFT_CONTROLS else SUBTITLE_LIFT_REST)
+        view.setBottomPaddingFraction(subtitleLift())
+    }
+
+    /** Subtitles sit at the viewer's chosen height, and clear of the controls while they show. */
+    private fun subtitleLift(): Float {
+        val rest = PlayerPrefs.SUBTITLE_POSITIONS[prefs.subtitlePosition].lift
+        return if (controlsVisible) maxOf(rest, SUBTITLE_LIFT_CONTROLS) else rest
     }
 
     // ---- Player events -------------------------------------------------------------------------
@@ -1076,7 +1275,14 @@ class CinemaController(
 
         override fun onPlaybackStateChanged(state: Int) = updatePlayButton()
 
-        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = updatePlayButton()
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            updatePlayButton()
+            skipPrompt.refresh()
+        }
+
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            skipPrompt.refresh()
+        }
 
         override fun onTracksChanged(tracks: Tracks) {
             updateBadges(tracks)
@@ -1107,8 +1313,9 @@ class CinemaController(
         const val PAUSE_SCREEN_DELAY_MS = 8_000L
         const val DRIFT_MS = 40_000L
         const val DRIFT_SCALE = 1.06f
-        const val SUBTITLE_LIFT_REST = 0.08f
         const val SUBTITLE_LIFT_CONTROLS = 0.26f
+        const val MAX_ONLINE_RESULTS = 40
+        const val ADD_TOAST_MS = 1_500L
 
         fun formatTime(ms: Long): String {
             val total = (ms.coerceAtLeast(0) / 1000)

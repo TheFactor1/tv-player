@@ -13,10 +13,14 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         heading(R.string.settings_audio),
         item { audioLanguage() },
         item { audioSync() },
+        item { nightMode() },
+        item { dialogueBoost() },
         heading(R.string.settings_subtitles),
         item { subtitleMode() },
         item { subtitleLanguage() },
+        item { subtitleStyle() },
         item { subtitleSize() },
+        item { subtitlePosition() },
         heading(R.string.settings_picture),
         item { pictureFit() },
         item { matchFrameRate() },
@@ -43,6 +47,41 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
                 Option(AudioSyncNames.label(context, ms), AudioSyncNames.hint(context, ms), prefs.audioDelayMs == ms) {
                     prefs.audioDelayMs = ms
                 }
+            }
+        },
+    )
+
+    private fun nightMode() = Option(
+        context.getString(R.string.night_mode),
+        onOff(prefs.nightMode, R.string.night_mode_detail),
+        checked = prefs.nightMode,
+    ) { prefs.nightMode = !prefs.nightMode }
+
+    private fun dialogueBoost() = Option(
+        context.getString(R.string.dialogue_boost),
+        onOff(prefs.dialogueBoost, R.string.dialogue_boost_detail),
+        checked = prefs.dialogueBoost,
+    ) { prefs.dialogueBoost = !prefs.dialogueBoost }
+
+    private fun onOff(on: Boolean, detail: Int) =
+        context.getString(if (on) R.string.on else R.string.off) + " · " + context.getString(detail)
+
+    private fun subtitleStyle() = Option(
+        context.getString(R.string.subs_style),
+        PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle].name,
+        opens = OptionPage(context.getString(R.string.subs_style)) {
+            PlayerPrefs.SUBTITLE_STYLES.mapIndexed { index, style ->
+                Option(style.name, style.detail, prefs.subtitleStyle == index) { prefs.subtitleStyle = index }
+            }
+        },
+    )
+
+    private fun subtitlePosition() = Option(
+        context.getString(R.string.subs_position),
+        PlayerPrefs.SUBTITLE_POSITIONS[prefs.subtitlePosition].name,
+        opens = OptionPage(context.getString(R.string.subs_position)) {
+            PlayerPrefs.SUBTITLE_POSITIONS.mapIndexed { index, position ->
+                Option(position.name, position.detail, prefs.subtitlePosition == index) { prefs.subtitlePosition = index }
             }
         },
     )
