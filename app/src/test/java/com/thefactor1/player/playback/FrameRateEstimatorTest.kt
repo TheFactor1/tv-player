@@ -33,7 +33,7 @@ class FrameRateEstimatorTest {
     @Test
     fun pal25AndNtsc5994AreRecognised() {
         assertEquals(25f, estimate(times(25.0, 97, roundToMs = true))!!, 0.001f)
-        assertEquals(59.94f, estimate(times(60_000 / 1_001.0, 97, roundToMs = true))!!, 0.001f)
+        assertEquals(59.94f, estimate(times(60_000 / 1_001.0, 200, roundToMs = true))!!, 0.001f)
     }
 
     @Test
@@ -41,6 +41,12 @@ class FrameRateEstimatorTest {
         val before = times(24_000 / 1_001.0, 50, roundToMs = true)
         val after = times(24_000 / 1_001.0, 50, roundToMs = true, startUs = 600_000_000)
         assertEquals(23.976f, estimate(before + after)!!, 0.001f)
+    }
+
+    @Test
+    fun droppedFramesStillGiveTheRightRate() {
+        val everyThirdDropped = times(24_000 / 1_001.0, 120, roundToMs = true).filterIndexed { i, _ -> i % 3 != 2 }
+        assertEquals(23.976f, estimate(everyThirdDropped)!!, 0.001f)
     }
 
     @Test

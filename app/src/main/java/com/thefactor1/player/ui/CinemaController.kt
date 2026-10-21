@@ -102,6 +102,8 @@ class CinemaController(
     /** The error card's two ways out. */
     var onRetry: (() -> Unit)? = null
     var onOpenElsewhere: (() -> Unit)? = null
+    /** The lip-sync correction changed, in ms. */
+    var onAudioDelayChanged: ((Int) -> Unit)? = null
 
     private var player: ExoPlayer? = null
     private var controlsVisible = false
@@ -608,6 +610,19 @@ class CinemaController(
                 ) { selectTrack(group, i) }
             }
         }
+        items += Item(
+            activity.getString(R.string.audio_sync),
+            AudioSyncNames.label(activity, prefs.audioDelayMs),
+            checked = false,
+            opens = Page(activity.getString(R.string.audio_sync)) {
+                PlayerPrefs.AUDIO_DELAYS_MS.map { ms ->
+                    Item(AudioSyncNames.label(activity, ms), AudioSyncNames.hint(activity, ms), prefs.audioDelayMs == ms) {
+                        prefs.audioDelayMs = ms
+                        onAudioDelayChanged?.invoke(ms)
+                    }
+                }
+            },
+        )
         return items
     }
 

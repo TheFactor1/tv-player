@@ -35,8 +35,8 @@ class StatsOverlay(
     /** Fallbacks in use for this stream, shown so it's clear why the output differs. */
     var fallbackNote: String? = null
 
-    /** Frame rate measured from frame times, for streams that don't declare one. */
-    var measuredFrameRate: Float = -1f
+    /** Frame rate measured from frame times, for streams that don't declare one: 0 while measuring, -1 if it couldn't be. */
+    var measuredFrameRate: Float = 0f
 
     val isVisible: Boolean get() = view.visibility == View.VISIBLE
 
@@ -53,7 +53,7 @@ class StatsOverlay(
         videoDecoder = null
         audioDecoder = null
         audioOutputEncoding = C.ENCODING_INVALID
-        measuredFrameRate = -1f
+        measuredFrameRate = 0f
     }
 
     fun toggle() {
@@ -116,6 +116,7 @@ class StatsOverlay(
             val fps = when {
                 video.frameRate > 0 -> " · ${rate(video.frameRate)} fps"
                 measuredFrameRate > 0 -> " · ${rate(measuredFrameRate)} fps (measured)"
+                measuredFrameRate < 0 -> " · fps unknown"
                 else -> " · measuring fps"
             }
             rows += "Frame" to "${video.width}×${video.height}$fps"

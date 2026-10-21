@@ -34,6 +34,11 @@ class PlayerPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_DECODE_AUDIO, false)
         set(value) = prefs.edit { putBoolean(KEY_DECODE_AUDIO, value) }
 
+    /** Lip-sync correction in ms; positive when sound arrives after the picture. */
+    var audioDelayMs: Int
+        get() = prefs.getInt(KEY_AUDIO_DELAY, 0)
+        set(value) = prefs.edit { putInt(KEY_AUDIO_DELAY, value) }
+
     var subtitleMode: SubtitleMode
         get() = SubtitleMode.entries.getOrElse(prefs.getInt(KEY_SUB_MODE, 0)) { SubtitleMode.AUTO }
         set(value) = prefs.edit { putInt(KEY_SUB_MODE, value.ordinal) }
@@ -79,6 +84,9 @@ class PlayerPrefs(context: Context) {
         )
         private const val KEY_AUDIO_LANG = "audio_language"
         private const val KEY_DECODE_AUDIO = "decode_audio"
+        private const val KEY_AUDIO_DELAY = "audio_delay_ms"
+        /** Lip-sync choices, from sound early to sound late. */
+        val AUDIO_DELAYS_MS = (-300..500 step 50).toList()
         private const val KEY_SUB_MODE = "subtitle_mode"
         private const val KEY_SUB_LANG = "subtitle_language"
         private const val KEY_MATCH = "match_frame_rate"

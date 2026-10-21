@@ -71,6 +71,7 @@ class PlayerActivity : Activity() {
     private val frameRateEstimator = FrameRateEstimator()
     @Volatile private var measuring = false
     private var measureStartMs = 0L
+    private val audioDelay = AudioDelay()
     private var longPressConsumed = false
 
     // What the fallback chain has already tried for the current stream.
@@ -86,6 +87,7 @@ class PlayerActivity : Activity() {
         controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
+        controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
         // Android 13+ delivers Back through this callback instead of as a key event.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
@@ -177,7 +179,8 @@ class PlayerActivity : Activity() {
             .setReadTimeoutMs(20_000)
             .setDefaultRequestProperties(req.headers)
 
-        val renderers = PlayerRenderersFactory(this, tried.dolbyVisionAsHdr10, tried.pcmAudio || prefs.decodeAudio)
+        audioDelay.offsetUs = prefs.audioDelayMs * 1_000L
+        val renderers = PlayerRenderersFactory(this, tried.dolbyVisionAsHdr10, tried.pcmAudio || prefs.decodeAudio, audioDelay)
         stats.fallbackNote = listOfNotNull(
             getString(R.string.fallback_note_dolby_vision).takeIf { tried.dolbyVisionAsHdr10 },
             getString(R.string.fallback_note_pcm).takeIf { tried.pcmAudio },
@@ -471,6 +474,7 @@ class PlayerActivity : Activity() {
     private val measureTimeout = Runnable {
         if (!measuring) return@Runnable
         measuring = false
+        stats.measuredFrameRate = -1f
         player?.let { finishMeasuring(it, thenPlay = true) }
     }
 
@@ -535,6 +539,6 @@ class PlayerActivity : Activity() {
         const val LONG_PRESS_REPEATS = 1
 
         const val MEASURE_SPEED = 2f
-        const val MEASURE_TIMEOUT_MS = 8_000L
+        const val MEASURE_TIMEOUT_MS = 6_000L
     }
 }

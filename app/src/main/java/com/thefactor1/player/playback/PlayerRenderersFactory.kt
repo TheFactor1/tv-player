@@ -20,6 +20,7 @@ class PlayerRenderersFactory(
     context: Context,
     dolbyVisionAsHdr10: Boolean,
     private val pcmAudioOnly: Boolean,
+    private val audioDelay: AudioDelay,
 ) : DefaultRenderersFactory(context) {
 
     init {
@@ -36,14 +37,18 @@ class PlayerRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean,
     ): AudioSink? {
-        if (!pcmAudioOnly) return super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)
-        // Reporting plain stereo PCM capabilities turns passthrough off; every track gets decoded.
-        @Suppress("DEPRECATION")
-        return DefaultAudioSink.Builder(context)
-            .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
-            .setEnableFloatOutput(enableFloatOutput)
-            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-            .build()
+        val sink = if (!pcmAudioOnly) {
+            super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams) ?: return null
+        } else {
+            // Reporting plain stereo PCM capabilities turns passthrough off; every track gets decoded.
+            @Suppress("DEPRECATION")
+            DefaultAudioSink.Builder(context)
+                .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .build()
+        }
+        return AudioDelaySink(sink, audioDelay)
     }
 
     private companion object {

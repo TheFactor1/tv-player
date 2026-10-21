@@ -12,6 +12,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
     fun rows(): List<OptionList.RowSpec> = listOf(
         heading(R.string.settings_audio),
         item { audioLanguage() },
+        item { audioSync() },
         heading(R.string.settings_subtitles),
         item { subtitleMode() },
         item { subtitleLanguage() },
@@ -31,6 +32,18 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         languageName(prefs.audioLanguage, R.string.audio_language_auto),
         opens = languagePage(R.string.audio_default_language, R.string.audio_language_auto, { prefs.audioLanguage }) {
             prefs.audioLanguage = it
+        },
+    )
+
+    private fun audioSync() = Option(
+        context.getString(R.string.audio_sync),
+        AudioSyncNames.label(context, prefs.audioDelayMs),
+        opens = OptionPage(context.getString(R.string.audio_sync)) {
+            PlayerPrefs.AUDIO_DELAYS_MS.map { ms ->
+                Option(AudioSyncNames.label(context, ms), AudioSyncNames.hint(context, ms), prefs.audioDelayMs == ms) {
+                    prefs.audioDelayMs = ms
+                }
+            }
         },
     )
 
