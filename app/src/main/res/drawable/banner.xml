@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 320x180 TV home-screen banner: a play mark in the Cinema accent on black. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#0B0C0E" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#E9C46A" android:pathData="M140,62 L140,118 L186,90 Z" />
+</vector>

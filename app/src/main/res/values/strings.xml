@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Player</string>
+    <string name="home_title">Player is ready</string>
+    <string name="home_body">Open a stream in Stremio, Nuvio or another app and choose Player as the external player.</string>
+    <string name="error_no_stream">No stream was provided.</string>
+    <string name="error_playback">Can\'t play this stream: %1$s</string>
+</resources>
