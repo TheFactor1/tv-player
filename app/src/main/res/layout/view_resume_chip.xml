@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Resumed at 42:10   OK  Start over", bottom right for a few seconds after a resume. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/resume_chip"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="bottom|end"
+    android:layout_marginEnd="56dp"
+    android:layout_marginBottom="56dp"
+    android:alpha="0"
+    android:background="@drawable/toast_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="24dp"
+    android:paddingTop="12dp"
+    android:paddingEnd="14dp"
+    android:paddingBottom="12dp"
+    android:visibility="gone">
+
+    <TextView
+        android:id="@+id/resume_chip_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/ink"
+        android:textSize="20sp" />
+
+    <TextView
+        android:id="@+id/resume_chip_key"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:background="@drawable/resume_key_bg"
+        android:paddingStart="10dp"
+        android:paddingTop="2dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="2dp"
+        android:text="@string/resume_key_ok"
+        android:textColor="@color/ground"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/resume_chip_action"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:text="@string/resume_start_over"
+        android:textColor="@color/ink_secondary"
+        android:textSize="20sp" />
+</LinearLayout>

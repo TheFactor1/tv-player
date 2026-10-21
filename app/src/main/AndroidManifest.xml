@@ -26,12 +26,15 @@
             </intent-filter>
         </activity>
 
+        <!-- singleTop, not singleTask: a singleTask activity opens in its own task, and Android then
+             cancels the caller's startActivityForResult at once, so Stremio or Nuvio never get the
+             watched position back. -->
         <activity
             android:name=".playback.PlayerActivity"
             android:enableOnBackInvokedCallback="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
             android:exported="true"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.Player.Fullscreen">
 
