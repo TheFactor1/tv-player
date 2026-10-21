@@ -99,7 +99,6 @@
     <string name="night_mode_detail">Quieter explosions, clearer whispers</string>
     <string name="dialogue_boost">Dialogue boost</string>
     <string name="dialogue_boost_detail">Lifts voices over music and effects</string>
-    <string name="audio_switching_to_decode">Switching to decoded audio</string>
     <string name="subs_style">Subtitle style</string>
     <string name="subs_position">Subtitle position</string>
     <string name="subs_timing">Subtitle timing</string>

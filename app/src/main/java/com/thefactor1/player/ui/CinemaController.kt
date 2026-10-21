@@ -967,10 +967,7 @@ class CinemaController(
 
     /** Sound shaping only works on decoded audio; passthrough has to give way first. */
     private fun needDecodedAudio() {
-        if (stats.isPassthrough) {
-            closePanel(showControlsAfter = false)
-            onNeedsDecodedAudio?.invoke()
-        }
+        if (stats.isPassthrough) onNeedsDecodedAudio?.invoke()
     }
 
     private fun subtitleItems(): List<Item> {
@@ -1107,9 +1104,8 @@ class CinemaController(
     private val subtitleDelayMs: Int get() = (subtitleDelay.offsetUs / 1_000).toInt()
 
     private fun setSubtitleDelay(ms: Int) {
+        // Applies from the next line on, with no seek or stall.
         subtitleDelay.offsetUs = ms * 1_000L
-        // A seek in place drops the lines already shown, so the new timing applies from this moment.
-        player?.let { it.seekTo(it.currentPosition) }
     }
 
     private fun subtitleTimingLabel(ms: Int): String {

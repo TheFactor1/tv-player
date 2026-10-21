@@ -28,6 +28,7 @@ class PlayerRenderersFactory(
     private val audioDelay: AudioDelay,
     private val enhancement: AudioEnhancement,
     private val subtitleDelay: SubtitleDelay,
+    private val decodeSwitch: DecodeSwitch,
 ) : DefaultRenderersFactory(context) {
 
     init {
@@ -55,7 +56,7 @@ class PlayerRenderersFactory(
             builder.setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
         }
         val sink = builder.build()
-        return AudioDelaySink(sink, audioDelay)
+        return AudioDelaySink(DecodeSwitchSink(sink, decodeSwitch), audioDelay)
     }
 
     override fun buildTextRenderers(

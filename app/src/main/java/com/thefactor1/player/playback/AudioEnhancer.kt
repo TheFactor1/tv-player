@@ -72,9 +72,9 @@ class AudioEnhancerProcessor(private val settings: AudioEnhancement) : BaseAudio
  *
  * Dialogue boost lifts the centre channel, where films put the voices, over the rest of the mix; a
  * stereo mix has no centre, so it lifts what both speakers share and narrows the rest. Night mode
- * is a gentle compressor: loud passages come down and everything gets some makeup gain, so quiet
- * lines are audible without the explosions waking the house. A soft limiter keeps the extra gain
- * from clipping. Switching either on or off fades over a moment instead of clicking.
+ * is a firm compressor (6:1 above -40 dBFS) with makeup gain: explosions come well down and
+ * whispers come up, so the whole film plays at about one level. A soft limiter keeps the extra
+ * gain from clipping. Switching either on or off fades over a moment instead of clicking.
  */
 class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
     private val attack = smoothing(sampleRate, ATTACK_MS)
@@ -136,16 +136,16 @@ class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
     }
 
     companion object {
-        const val THRESHOLD_DB = -30f
-        const val RATIO = 3f
-        const val MAKEUP_DB = 8f
-        const val ATTACK_MS = 10f
-        const val RELEASE_MS = 250f
+        const val THRESHOLD_DB = -40f
+        const val RATIO = 6f
+        const val MAKEUP_DB = 14f
+        const val ATTACK_MS = 5f
+        const val RELEASE_MS = 150f
         const val FADE_MS = 300f
-        const val CENTRE_GAIN = 1.8f
-        const val SURROUND_GAIN = 0.8f
-        const val MID_GAIN = 1.25f
-        const val SIDE_GAIN = 0.5f
+        const val CENTRE_GAIN = 2.2f
+        const val SURROUND_GAIN = 0.6f
+        const val MID_GAIN = 1.4f
+        const val SIDE_GAIN = 0.3f
         const val LIMIT_KNEE = 0.89f
         /** Where the limiter tops out, short of full scale (float tanh reaches 1 for large overs). */
         const val LIMIT_CEILING = 0.98f

@@ -76,6 +76,7 @@ class PlayerActivity : Activity() {
     private val audioDelay = AudioDelay()
     private val enhancement = AudioEnhancement()
     private val subtitleDelay = SubtitleDelay()
+    private val decodeSwitch = DecodeSwitch()
     // Subtitles found online for this video, kept across player rebuilds; the newest is switched to once loaded.
     private val addedSubtitles = mutableListOf<MediaItem.SubtitleConfiguration>()
     private var pendingSubtitleId: String? = null
@@ -90,12 +91,13 @@ class PlayerActivity : Activity() {
         playerView = findViewById(R.id.player_view)
         switcher = DisplayModeSwitcher(this)
         stats = StatsOverlay(findViewById<TextView>(R.id.stats_overlay), switcher)
+        stats.enhancement = enhancement
         prefs = PlayerPrefs(this)
         controller = CinemaController(this, playerView, prefs, stats, enhancement, subtitleDelay, onExit = ::finish)
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
         controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
-        controller.onNeedsDecodedAudio = { rebuildPlayer(getString(R.string.audio_switching_to_decode)) }
+        controller.onNeedsDecodedAudio = ::switchToDecodedAudio
         controller.onAddSubtitle = ::addSubtitle
         controller.onSkipCredits = {
             completed = true
@@ -200,6 +202,7 @@ class PlayerActivity : Activity() {
         enhancement.dialogueBoost = prefs.dialogueBoost
         val renderers = PlayerRenderersFactory(
             this, tried.dolbyVisionAsHdr10, tried.pcmAudio || decodeByChoice(), audioDelay, enhancement, subtitleDelay,
+            decodeSwitch,
         )
         stats.fallbackNote = listOfNotNull(
             getString(R.string.fallback_note_dolby_vision).takeIf { tried.dolbyVisionAsHdr10 },
@@ -253,6 +256,26 @@ class PlayerActivity : Activity() {
 
     /** The viewer asked for decoded audio, directly or by switching on sound shaping that needs it. */
     private fun decodeByChoice() = prefs.decodeAudio || prefs.nightMode || prefs.dialogueBoost
+
+    /**
+     * Moves from passthrough to decoded audio without stopping: the sink stops accepting Dolby and
+     * DTS, and audio is switched off and on again so the renderers pick a decoder. The picture keeps
+     * playing; sound drops out for a moment, the way it does when changing audio track.
+     */
+    private fun switchToDecodedAudio() {
+        val exo = player ?: return
+        decodeSwitch.decode = true
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+            .build()
+        mainHandler.post {
+            player?.let {
+                it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .build()
+            }
+        }
+    }
 
     /**
      * Adds a subtitle file found online as a new track. Media3 only takes new side-loaded tracks
