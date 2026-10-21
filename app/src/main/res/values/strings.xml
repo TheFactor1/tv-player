@@ -3,7 +3,13 @@
     <string name="home_title">Player is ready</string>
     <string name="home_body">Open a stream in Stremio, Nuvio or another app and choose Player as the external player.</string>
     <string name="error_no_stream">No stream was provided.</string>
-    <string name="error_playback">Can\'t play this stream: %1$s</string>
+    <string name="error_playback">Can\'t play this stream.</string>
+    <string name="error_decoder">This device can\'t decode %1$s.</string>
+    <string name="error_network">Couldn\'t reach the stream. Check the connection and try again.</string>
+    <string name="error_http">The server refused the stream (HTTP %1$d). The link may have expired; try another source.</string>
+    <string name="error_parsing">This file looks damaged or isn\'t a video.</string>
+    <string name="error_footer">%1$s · Back to return</string>
+    <string name="another_app">another app</string>
     <string name="control_play">Play</string>
     <string name="control_pause">Pause</string>
     <string name="control_audio">Audio</string>

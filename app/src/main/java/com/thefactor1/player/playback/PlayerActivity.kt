@@ -16,15 +16,19 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
@@ -33,7 +37,9 @@ import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
+import com.thefactor1.player.launch.ReleaseName
 import com.thefactor1.player.ui.CinemaController
+import com.thefactor1.player.ui.FormatNames
 
 /**
  * Plays one stream handed over by another app, then returns the watched position to it.
@@ -184,7 +190,8 @@ class PlayerActivity : Activity() {
 
         exo.addListener(listener)
         stats.attach(exo)
-        controller.attach(exo, req.title, sourceAppName())
+        val name = ReleaseName.parse(req.title)
+        controller.attach(exo, name?.title, name?.detail, sourceAppName())
         playerView.player = exo
         player = exo
 
@@ -227,6 +234,51 @@ class PlayerActivity : Activity() {
     private fun capturePosition(exo: ExoPlayer) {
         lastPositionMs = exo.currentPosition
         if (exo.duration != C.TIME_UNSET) lastDurationMs = exo.duration
+    }
+
+    /** Says what went wrong in words a viewer can act on. */
+    private fun errorMessage(error: PlaybackException): String {
+        when (error.errorCode) {
+            PlaybackException.ERROR_CODE_DECODING_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> {
+                val format = (error as? ExoPlaybackException)?.rendererFormat
+                return getString(R.string.error_decoder, format?.let { describe(it) } ?: "this stream")
+            }
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> return getString(R.string.error_network)
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+                val status = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode ?: 0
+                return getString(R.string.error_http, status)
+            }
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+            PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> return getString(R.string.error_parsing)
+        }
+        return getString(R.string.error_playback)
+    }
+
+    /** "4K Dolby Vision HEVC", "1080p H.264", "TrueHD 7.1". */
+    private fun describe(format: Format): String {
+        if (format.height <= 0) return FormatNames.audioDetail(format)
+        val resolution = when {
+            format.height >= 2000 || format.width >= 3800 -> "4K"
+            else -> "${format.height}p"
+        }
+        val hdr = when {
+            format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION -> "Dolby Vision"
+            format.colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 -> "HDR10"
+            format.colorInfo?.colorTransfer == C.COLOR_TRANSFER_HLG -> "HLG"
+            else -> null
+        }
+        val codec = if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) {
+            if (format.codecs?.startsWith("dvav") == true || format.codecs?.startsWith("dva1") == true) "H.264" else "HEVC"
+        } else {
+            FormatNames.codec(format.sampleMimeType)
+        }
+        return listOfNotNull(resolution, hdr, codec).joinToString(" ")
     }
 
     /** The label of the app that opened us, e.g. "Stremio", for the info bar and loading card. */
@@ -325,7 +377,7 @@ class PlayerActivity : Activity() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            controller.showError(getString(R.string.error_playback, error.errorCodeName))
+            controller.showError(errorMessage(error), error.errorCodeName)
         }
     }
 

@@ -89,12 +89,14 @@ class CinemaController(
     private val loadingTitle: TextView = activity.findViewById(R.id.loading_title)
     private val loadingLine: TextView = activity.findViewById(R.id.loading_line)
     private val loadingSource: TextView = activity.findViewById(R.id.loading_source)
+    private val loadingSpinner: View = activity.findViewById(R.id.loading_spinner)
 
     private var player: ExoPlayer? = null
     private var controlsVisible = false
     private var panel: Panel? = null
     private var panelOpener: View? = null
     private var loading = true
+    private var sourceApp: String? = null
     private var firstFrameRendered = false
 
     // Keys handled on press have their release swallowed too, so nothing behind them reacts.
@@ -126,14 +128,17 @@ class CinemaController(
         applySubtitleStyle()
     }
 
-    fun attach(exo: ExoPlayer, titleText: String?, sourceApp: String?) {
+    /** [detail] is the episode or year shown under the title, e.g. "S1 E1". */
+    fun attach(exo: ExoPlayer, titleText: String?, detail: String?, sourceApp: String?) {
         player = exo
         exo.addListener(listener)
+        this.sourceApp = sourceApp
         title.text = titleText.orEmpty()
-        loadingTitle.text = titleText.orEmpty()
-        source.text = sourceApp?.let { activity.getString(R.string.source_from, it) }.orEmpty()
-        source.visibility = if (sourceApp == null) View.GONE else View.VISIBLE
-        loadingSource.text = activity.getString(R.string.loading_source, sourceApp ?: "another app")
+        loadingTitle.text = listOfNotNull(titleText, detail).joinToString("  ·  ")
+        val sourceLine = listOfNotNull(detail, sourceApp?.let { activity.getString(R.string.source_from, it) }).joinToString("  ·  ")
+        source.text = sourceLine
+        source.visibility = if (sourceLine.isEmpty()) View.GONE else View.VISIBLE
+        loadingSource.text = activity.getString(R.string.loading_source, sourceApp ?: activity.getString(R.string.another_app))
         exo.setPlaybackSpeed(SPEEDS[speedIndex])
         updatePlayButton()
         updateBadges(exo.currentTracks)
@@ -150,6 +155,9 @@ class CinemaController(
         loading = true
         firstFrameRendered = false
         loadingLine.text = line
+        loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink_secondary))
+        loadingSpinner.visibility = View.VISIBLE
+        loadingSource.text = activity.getString(R.string.loading_source, sourceApp ?: activity.getString(R.string.another_app))
         loadingCard.animate().cancel()
         loadingCard.alpha = 1f
         loadingCard.visibility = View.VISIBLE
@@ -159,11 +167,14 @@ class CinemaController(
         loadingLine.text = line
     }
 
-    /** Errors stay on screen until Back, so they can be read. */
-    fun showError(message: String) {
+    /** Errors stay on screen until Back, so they can be read; [code] is small print for bug reports. */
+    fun showError(message: String, code: String) {
         hideControls()
         closePanel(showControlsAfter = false)
         showLoading(message)
+        loadingSpinner.visibility = View.GONE
+        loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink))
+        loadingSource.text = activity.getString(R.string.error_footer, code)
     }
 
     // ---- Keys ----------------------------------------------------------------------------------
