@@ -444,6 +444,7 @@ class PlayerActivity : Activity() {
         frameRateEstimator.reset()
         measuring = true
         measureStartMs = exo.currentPosition
+        stats.measuredFrameRate = 0f
         controller.holdLoading = true
         controller.setLoadingLine(getString(R.string.loading_measuring))
         // Audio off (passthrough ignores volume) and double speed: the frames arrive in half the time.
