@@ -100,6 +100,7 @@ class CinemaController(
 
     private var player: ExoPlayer? = null
     private var controlsVisible = false
+    private var exitArmedAt = 0L
     private var panel: Panel? = null
     private var panelOpener: View? = null
     private var loading = true
@@ -288,7 +289,12 @@ class CinemaController(
             loading -> onExit()
             panel != null -> closePanel(showControlsAfter = false)
             controlsVisible -> hideControls()
-            else -> onExit()
+            SystemClock.uptimeMillis() - exitArmedAt < EXIT_CONFIRM_MS -> onExit()
+            else -> {
+                // A stray Back mid-film shouldn't drop you out; ask for a second press.
+                exitArmedAt = SystemClock.uptimeMillis()
+                showToast(activity.getString(R.string.toast_back_to_exit))
+            }
         }
     }
 
@@ -728,6 +734,7 @@ class CinemaController(
         val SPEEDS = floatArrayOf(1f, 1.25f, 1.5f, 2f, 0.75f)
         const val BACK_MS = 10_000L
         const val FORWARD_MS = 30_000L
+        const val EXIT_CONFIRM_MS = 2_500L
         const val AUTO_HIDE_MS = 4_000L
         const val PROGRESS_MS = 500L
         const val TOAST_MS = 800L

@@ -32,6 +32,7 @@
     <string name="source_from">From %1$s</string>
     <string name="ends_at">ends %1$s</string>
     <string name="toast_paused">Paused</string>
+    <string name="toast_back_to_exit">Press Back again to exit</string>
     <string name="toast_playing">Playing</string>
     <string name="panel_audio">Audio track</string>
     <string name="panel_subtitles">Subtitles</string>
