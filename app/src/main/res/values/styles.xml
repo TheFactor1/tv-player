@@ -1,19 +1,49 @@
 <resources>
+    <!-- A text button, for the error card: solid white with dark text when focused. -->
     <style name="ControlButton">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">52dp</item>
-        <item name="android:layout_marginEnd">10dp</item>
-        <item name="android:paddingStart">20dp</item>
-        <item name="android:paddingEnd">20dp</item>
+        <item name="android:layout_marginEnd">12dp</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:drawablePadding">10dp</item>
-        <item name="android:textColor">@color/ink</item>
+        <item name="android:textColor">@color/control_text</item>
         <item name="android:textSize">16sp</item>
         <item name="android:background">@drawable/control_button_bg</item>
         <item name="android:stateListAnimator">@animator/control_button_state</item>
-        <item name="android:alpha">0.72</item>
         <item name="android:focusable">true</item>
         <item name="android:clickable">true</item>
         <item name="android:maxLines">1</item>
+    </style>
+
+    <!-- A round icon-only control; its name shows under it while it has focus. -->
+    <style name="IconButton">
+        <item name="android:layout_width">56dp</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_marginEnd">14dp</item>
+        <item name="android:padding">16dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:tint">@color/control_icon</item>
+        <item name="android:background">@drawable/icon_button_bg</item>
+        <item name="android:stateListAnimator">@animator/icon_button_state</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
+
+    <style name="SkipGlyph">
+        <item name="android:layout_width">160dp</item>
+        <item name="android:layout_height">160dp</item>
+        <item name="android:alpha">0</item>
+        <item name="android:background">@drawable/skip_glow</item>
+        <item name="android:visibility">invisible</item>
+    </style>
+
+    <style name="SkipAmount">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_gravity">center</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textSize">22sp</item>
     </style>
 </resources>

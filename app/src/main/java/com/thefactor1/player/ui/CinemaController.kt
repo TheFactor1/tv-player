@@ -1,6 +1,7 @@
 package com.thefactor1.player.ui
 
 import android.app.Activity
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -18,7 +19,6 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
@@ -28,14 +28,19 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.thefactor1.player.R
+import com.thefactor1.player.meta.ArtworkLoader
+import com.thefactor1.player.meta.MetaDetails
+import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.playback.StatsOverlay
 import java.util.Date
 import kotlin.math.abs
 
 /**
- * The Cinema look: edge-to-edge scrims, a remote-first control bar and side panels for tracks
- * and picture. Nothing is drawn over the video unless asked for, and nothing updates while hidden.
+ * The Cinema look: edge-to-edge scrims, a remote-first control bar of round icon buttons and side
+ * panels for tracks and picture. Nothing is drawn over the video unless asked for, and nothing
+ * updates while hidden. Before playback, and after a while paused, the meta screen shows the
+ * film's backdrop, logo and details from Stremio's catalogue.
  *
  * Remote, with controls hidden: OK pauses, Left/Right skip 10 s back / 30 s forward, Up shows the
  * controls, Down opens subtitles, Back returns to the source app, Menu opens More. Back with
@@ -49,7 +54,7 @@ class CinemaController(
     private val stats: StatsOverlay,
     private val onExit: () -> Unit,
 ) {
-    private enum class Panel { AUDIO, SUBTITLES, PICTURE, SPEED, MORE }
+    private enum class Panel { AUDIO, SUBTITLES, PICTURE, MORE }
 
     private class Item(
         val label: String,
@@ -80,21 +85,36 @@ class CinemaController(
     private val source: TextView = activity.findViewById(R.id.source)
     private val badges: LinearLayout = activity.findViewById(R.id.badges)
     private val clock: TextView = activity.findViewById(R.id.clock)
+    private val endsAt: TextView = activity.findViewById(R.id.ends_at)
     private val elapsed: TextView = activity.findViewById(R.id.elapsed)
     private val remaining: TextView = activity.findViewById(R.id.remaining)
     private val seekBar: SeekBarView = activity.findViewById(R.id.seek_bar)
-    private val playButton: TextView = activity.findViewById(R.id.btn_play)
-    private val audioButton: TextView = activity.findViewById(R.id.btn_audio)
-    private val subtitlesButton: TextView = activity.findViewById(R.id.btn_subtitles)
-    private val speedButton: TextView = activity.findViewById(R.id.btn_speed)
-    private val pictureButton: TextView = activity.findViewById(R.id.btn_picture)
-    private val moreButton: TextView = activity.findViewById(R.id.btn_more)
+    private val playButton: ImageView = activity.findViewById(R.id.btn_play)
+    private val audioButton: ImageView = activity.findViewById(R.id.btn_audio)
+    private val subtitlesButton: ImageView = activity.findViewById(R.id.btn_subtitles)
+    private val pictureButton: ImageView = activity.findViewById(R.id.btn_picture)
+    private val moreButton: ImageView = activity.findViewById(R.id.btn_more)
+    private val focusLabel: TextView = activity.findViewById(R.id.focus_label)
     private val toast: TextView = activity.findViewById(R.id.center_toast)
+    private val centerGlyph: ImageView = activity.findViewById(R.id.center_glyph)
+    private val skipBack: View = activity.findViewById(R.id.skip_back)
+    private val skipForward: View = activity.findViewById(R.id.skip_forward)
+    private val skipBackAmount: TextView = activity.findViewById(R.id.skip_back_amount)
+    private val skipForwardAmount: TextView = activity.findViewById(R.id.skip_forward_amount)
+    private val miniBar: View = activity.findViewById(R.id.mini_bar)
+    private val miniSeek: SeekBarView = activity.findViewById(R.id.mini_seek)
+    private val miniTime: TextView = activity.findViewById(R.id.mini_time)
     private val loadingCard: View = activity.findViewById(R.id.loading_card)
     private val loadingTitle: TextView = activity.findViewById(R.id.loading_title)
     private val loadingLine: TextView = activity.findViewById(R.id.loading_line)
     private val loadingSource: TextView = activity.findViewById(R.id.loading_source)
     private val loadingSpinner: View = activity.findViewById(R.id.loading_spinner)
+    private val metaBackdrop: ImageView = activity.findViewById(R.id.meta_backdrop)
+    private val metaClock: TextView = activity.findViewById(R.id.meta_clock)
+    private val metaKicker: TextView = activity.findViewById(R.id.meta_kicker)
+    private val metaLogo: ImageView = activity.findViewById(R.id.meta_logo)
+    private val metaEpisode: TextView = activity.findViewById(R.id.meta_episode)
+    private val metaDescription: TextView = activity.findViewById(R.id.meta_description)
     private val errorActions: View = activity.findViewById(R.id.error_actions)
     private val retryButton: TextView = activity.findViewById(R.id.btn_retry)
     private val otherPlayerButton: TextView = activity.findViewById(R.id.btn_other_player)
@@ -116,6 +136,12 @@ class CinemaController(
     private var errorShown = false
     private var sourceApp: String? = null
     private var firstFrameRendered = false
+    private val artwork = ArtworkLoader(activity)
+    private var artworkQuery: MetaQuery? = null
+    private var details: MetaDetails? = null
+    /** The detail the source app gave ("S1 E1", "2024"), shown until the catalogue says more. */
+    private var launchDetail: String? = null
+    private var pauseScreenShown = false
 
     // Keys handled on press have their release swallowed too, so nothing behind them reacts.
     private var swallowReleaseOf = KeyEvent.KEYCODE_UNKNOWN
@@ -125,20 +151,24 @@ class CinemaController(
     private var speedIndex = 0
 
     init {
-        fonts.apply(fonts.bold, title, panelTitle, loadingTitle)
-        fonts.apply(fonts.semibold, clock, elapsed, remaining, panelKicker, toast, playButton, audioButton,
-            subtitlesButton, speedButton, pictureButton, moreButton)
-        fonts.apply(fonts.medium, source, loadingLine, loadingSource)
-        fonts.apply(fonts.semibold, retryButton, otherPlayerButton)
+        fonts.apply(fonts.bold, title, panelTitle, loadingTitle, skipBackAmount, skipForwardAmount, metaKicker)
+        fonts.apply(fonts.semibold, clock, metaClock, endsAt, elapsed, remaining, panelKicker, toast, focusLabel, miniTime,
+            metaEpisode, loadingLine, retryButton, otherPlayerButton)
+        fonts.apply(fonts.medium, source, loadingSource, metaDescription)
         retryButton.setOnClickListener { onRetry?.invoke() }
         otherPlayerButton.setOnClickListener { onOpenElsewhere?.invoke() }
 
         playButton.setOnClickListener { togglePlayPause(); scheduleHide() }
         audioButton.setOnClickListener { openPanel(Panel.AUDIO, it) }
         subtitlesButton.setOnClickListener { openPanel(Panel.SUBTITLES, it) }
-        speedButton.setOnClickListener { openPanel(Panel.SPEED, it) }
         pictureButton.setOnClickListener { openPanel(Panel.PICTURE, it) }
         moreButton.setOnClickListener { openPanel(Panel.MORE, it) }
+        for (button in listOf(playButton, audioButton, subtitlesButton, pictureButton, moreButton)) {
+            button.setOnFocusChangeListener { view, hasFocus -> if (hasFocus) labelFocused(view) }
+        }
+        // The skip progress line only shows position; it never takes focus.
+        miniSeek.isFocusable = false
+        seekBar.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) labelFocused(null) }
         seekBar.onScrub = { delta ->
             seekBy(delta)
             updateProgress()
@@ -155,7 +185,9 @@ class CinemaController(
         exo.addListener(listener)
         this.sourceApp = sourceApp
         title.text = titleText.orEmpty()
-        loadingTitle.text = listOfNotNull(titleText, detail).joinToString("  ·  ")
+        launchDetail = detail
+        showDetails()
+        loadArtwork(MetaQuery.from(titleText, detail))
         val sourceLine = listOfNotNull(detail, sourceApp?.let { activity.getString(R.string.source_from, it) }).joinToString("  ·  ")
         source.text = sourceLine
         source.visibility = if (sourceLine.isEmpty()) View.GONE else View.VISIBLE
@@ -169,6 +201,122 @@ class CinemaController(
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
+        hidePauseScreen(animate = false)
+    }
+
+    // ---- Meta screen: film art and details, for loading and for the pause screen ---------------
+
+    /** Re-attaching to the same film (after Home and back) keeps the art already on screen. */
+    private fun loadArtwork(query: MetaQuery?) {
+        if (query == artworkQuery) return
+        artworkQuery = query
+        artwork.cancel()
+        details = null
+        metaBackdrop.animate().cancel()
+        metaBackdrop.alpha = 0f
+        metaBackdrop.setImageDrawable(null)
+        metaLogo.setImageDrawable(null)
+        metaLogo.visibility = View.GONE
+        loadingTitle.visibility = if (loadingTitle.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        showDetails()
+        if (query == null) return
+        artwork.load(query, object : ArtworkLoader.Listener {
+            override fun onDetails(details: MetaDetails) {
+                this@CinemaController.details = details
+                showDetails()
+            }
+
+            override fun onBackdrop(bitmap: Bitmap) {
+                metaBackdrop.setImageBitmap(bitmap)
+                metaBackdrop.animate().alpha(1f).setDuration(ART_FADE_MS).setInterpolator(easeOut).start()
+            }
+
+            override fun onLogo(bitmap: Bitmap) {
+                metaLogo.setImageBitmap(bitmap)
+                metaLogo.alpha = 0f
+                metaLogo.visibility = View.VISIBLE
+                metaLogo.animate().alpha(1f).setDuration(ART_FADE_MS).start()
+                loadingTitle.visibility = View.GONE
+            }
+        })
+    }
+
+    private fun showDetails() {
+        val known = details
+        if (metaLogo.visibility != View.VISIBLE) {
+            loadingTitle.text = title.text
+            loadingTitle.visibility = if (title.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+        val kicker = known?.kicker ?: launchDetail?.takeIf { artworkQuery?.isSeries != true }
+        metaKicker.text = kicker?.uppercase()
+        metaKicker.visibility = if (kicker.isNullOrEmpty()) View.GONE else View.VISIBLE
+        val episode = known?.episodeLine ?: launchDetail?.takeIf { artworkQuery?.isSeries == true }
+        metaEpisode.text = episode
+        metaEpisode.visibility = if (episode.isNullOrEmpty()) View.GONE else View.VISIBLE
+        metaDescription.text = known?.description
+        // The synopsis is for the pause screen; while loading, the status line has the floor.
+        metaDescription.visibility = if (pauseScreenShown && !known?.description.isNullOrEmpty()) View.VISIBLE else View.GONE
+    }
+
+    /** After a while paused, the picture gives way to the film's art and synopsis, like a TV app's detail page. */
+    private val showPauseScreen = Runnable {
+        val exo = player ?: return@Runnable
+        if (loading || panel != null || exo.playWhenReady || exo.playbackState == Player.STATE_ENDED) return@Runnable
+        hideControls()
+        pauseScreenShown = true
+        showDetails()
+        loadingSpinner.visibility = View.GONE
+        loadingSource.visibility = View.GONE
+        metaClock.visibility = View.VISIBLE
+        metaClock.text = DateFormat.getTimeFormat(activity).format(Date())
+        val duration = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 }
+        loadingLine.text = if (duration != null) {
+            activity.getString(R.string.paused_at, formatTime(exo.currentPosition), formatTime(duration))
+        } else {
+            activity.getString(R.string.toast_paused)
+        }
+        // Without art the frozen frame shows through, dimmed, so the screen never goes blank.
+        loadingCard.setBackgroundColor(ContextCompat.getColor(activity, R.color.pause_veil))
+        loadingCard.animate().cancel()
+        loadingCard.alpha = 0f
+        loadingCard.visibility = View.VISIBLE
+        loadingCard.animate().alpha(1f).setDuration(PAUSE_FADE_MS).setInterpolator(easeOut).withLayer().start()
+        // A slow drift keeps the art alive; transform only, and it stops with the screen.
+        metaBackdrop.scaleX = 1f
+        metaBackdrop.scaleY = 1f
+        metaBackdrop.animate().scaleX(DRIFT_SCALE).scaleY(DRIFT_SCALE).setDuration(DRIFT_MS)
+            .setInterpolator(android.view.animation.LinearInterpolator()).start()
+        if (metaBackdrop.drawable != null) metaBackdrop.alpha = 1f
+    }
+
+    private fun schedulePauseScreen() {
+        handler.removeCallbacks(showPauseScreen)
+        val exo = player ?: return
+        if (!loading && !exo.playWhenReady && exo.playbackState != Player.STATE_ENDED) {
+            handler.postDelayed(showPauseScreen, PAUSE_SCREEN_DELAY_MS)
+        }
+    }
+
+    private fun hidePauseScreen(animate: Boolean = true) {
+        handler.removeCallbacks(showPauseScreen)
+        if (!pauseScreenShown) return
+        pauseScreenShown = false
+        metaBackdrop.animate().cancel()
+        metaBackdrop.scaleX = 1f
+        metaBackdrop.scaleY = 1f
+        metaClock.visibility = View.GONE
+        loadingSource.visibility = View.VISIBLE
+        loadingCard.animate().cancel()
+        val reset = Runnable {
+            loadingCard.visibility = View.GONE
+            loadingCard.setBackgroundColor(ContextCompat.getColor(activity, R.color.loading_ground))
+            showDetails()
+        }
+        if (animate) {
+            loadingCard.animate().alpha(0f).setDuration(HIDE_MS).withLayer().withEndAction(reset).start()
+        } else {
+            reset.run()
+        }
     }
 
     /**
@@ -180,8 +328,10 @@ class CinemaController(
         errorShown = false
         errorActions.visibility = View.GONE
         if (waitForNewFrame) firstFrameRendered = false
+        hidePauseScreen(animate = false)
+        loadingCard.setBackgroundColor(ContextCompat.getColor(activity, R.color.loading_ground))
         loadingLine.text = line
-        loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink_secondary))
+        loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink_dim))
         loadingSpinner.visibility = View.VISIBLE
         loadingSource.text = activity.getString(R.string.loading_source, sourceApp ?: activity.getString(R.string.another_app))
         loadingCard.animate().cancel()
@@ -222,12 +372,14 @@ class CinemaController(
             if (isCenter(code) && centerPressedWhileHidden) {
                 centerPressedWhileHidden = false
                 togglePlayPause()
-                showToast(activity.getString(if (player?.playWhenReady == true) R.string.toast_playing else R.string.toast_paused))
+                showGlyph(if (player?.playWhenReady == true) R.drawable.ic_play else R.drawable.ic_pause)
                 showControls(playButton)
             }
             return true
         }
         if (event.action != KeyEvent.ACTION_DOWN) return false
+        // Any press counts as someone watching; the pause screen waits for a quiet spell.
+        if (!pauseScreenShown) schedulePauseScreen()
 
         if (code == KeyEvent.KEYCODE_BACK) {
             if (event.repeatCount == 0) onBack()
@@ -250,6 +402,16 @@ class CinemaController(
             }
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> return swallow(code).also { skip(FORWARD_MS) }
             KeyEvent.KEYCODE_MEDIA_REWIND -> return swallow(code).also { skip(-BACK_MS) }
+        }
+
+        if (pauseScreenShown && isRemoteKey(code)) {
+            if (event.repeatCount == 0) {
+                // OK resumes straight from the pause screen; any other key brings back the controls.
+                if (isCenter(code)) player?.playWhenReady = true
+                hidePauseScreen()
+                showControls(playButton)
+            }
+            return swallow(code)
         }
 
         return when {
@@ -296,6 +458,7 @@ class CinemaController(
     fun onBack() {
         when {
             loading -> onExit()
+            pauseScreenShown -> { hidePauseScreen(); showControls(playButton) }
             page != null -> closePage()
             panel != null -> closePanel(showControlsAfter = false)
             controlsVisible -> hideControls()
@@ -327,6 +490,7 @@ class CinemaController(
             controlsVisible = true
             updatePlayButton()
             updateProgress()
+            hideMiniBar()
             reveal(infoBar, fromY = -18f)
             reveal(controlBar, fromY = 28f)
             playerView.subtitleView?.setBottomPaddingFraction(SUBTITLE_LIFT_CONTROLS)
@@ -384,19 +548,21 @@ class CinemaController(
         seekBar.update(position, exo.bufferedPosition, duration)
         elapsed.text = formatTime(position)
         clock.text = DateFormat.getTimeFormat(activity).format(Date())
-        remaining.text = if (duration > 0) {
+        if (duration > 0) {
             val left = ((duration - position) / exo.playbackParameters.speed).toLong()
-            val endsAt = DateFormat.getTimeFormat(activity).format(Date(System.currentTimeMillis() + left))
-            "−${formatTime(duration - position)}  ·  ${activity.getString(R.string.ends_at, endsAt)}"
+            remaining.text = "−${formatTime(duration - position)}"
+            endsAt.text = activity.getString(R.string.ends_at, DateFormat.getTimeFormat(activity).format(Date(System.currentTimeMillis() + left)))
         } else {
-            ""
+            remaining.text = ""
+            endsAt.text = ""
         }
     }
 
     private fun updatePlayButton() {
         val playing = player?.playWhenReady == true && player?.playbackState != Player.STATE_ENDED
-        playButton.setText(if (playing) R.string.control_pause else R.string.control_play)
-        playButton.setCompoundDrawablesRelativeWithIntrinsicBounds(if (playing) R.drawable.ic_pause else R.drawable.ic_play, 0, 0, 0)
+        playButton.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        playButton.contentDescription = activity.getString(if (playing) R.string.control_pause else R.string.control_play)
+        if (playButton.isFocused) focusLabel.text = playButton.contentDescription
     }
 
     private fun togglePlayPause() {
@@ -417,10 +583,103 @@ class CinemaController(
         skipTotalMs = if (now < skipShownUntil && (skipTotalMs > 0) == (deltaMs > 0)) skipTotalMs + deltaMs else deltaMs
         skipShownUntil = now + TOAST_MS
         seekBy(deltaMs)
-        val sign = if (skipTotalMs < 0) "−" else "+"
         val seconds = abs(skipTotalMs) / 1000
-        showToast(if (seconds < 60) "$sign $seconds s" else "$sign ${seconds / 60}:${"%02d".format(seconds % 60)}")
-        if (controlsVisible) updateProgress()
+        val amount = if (seconds < 60) "$seconds" else "${seconds / 60}:${"%02d".format(seconds % 60)}"
+        showSkip(forward = skipTotalMs > 0, amount = amount)
+        if (controlsVisible) updateProgress() else showMiniBar()
+    }
+
+    /** The skip glyph on the side that was pressed; the other side's glyph gives way at once. */
+    private fun showSkip(forward: Boolean, amount: String) {
+        val shown = if (forward) skipForward else skipBack
+        val other = if (forward) skipBack else skipForward
+        (if (forward) skipForwardAmount else skipBackAmount).text = amount
+        other.animate().cancel()
+        other.alpha = 0f
+        other.visibility = View.INVISIBLE
+        shown.animate().cancel()
+        val nudge = (if (forward) 10f else -10f) * density
+        if (shown.visibility != View.VISIBLE) {
+            shown.alpha = 0f
+            shown.translationX = -nudge
+            shown.visibility = View.VISIBLE
+        } else {
+            // A repeat press bumps the glyph again.
+            shown.translationX = -nudge / 2
+        }
+        shown.animate().alpha(1f).translationX(0f).setDuration(SKIP_IN_MS).setInterpolator(easeOut).start()
+        handler.removeCallbacks(hideSkip)
+        handler.postDelayed(hideSkip, TOAST_MS)
+    }
+
+    private val hideSkip = Runnable {
+        for (glyph in listOf(skipBack, skipForward)) {
+            if (glyph.visibility != View.VISIBLE) continue
+            glyph.animate().alpha(0f).setDuration(HIDE_MS).withEndAction { glyph.visibility = View.INVISIBLE }.start()
+        }
+    }
+
+    /** A slim progress line while skipping with the controls hidden. */
+    private fun showMiniBar() {
+        val exo = player ?: return
+        val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+        miniSeek.update(exo.currentPosition, exo.bufferedPosition, duration)
+        miniTime.text = formatTime(exo.currentPosition)
+        miniBar.animate().cancel()
+        if (miniBar.visibility != View.VISIBLE) {
+            miniBar.alpha = 0f
+            miniBar.visibility = View.VISIBLE
+        }
+        miniBar.animate().alpha(1f).setDuration(SKIP_IN_MS).start()
+        handler.removeCallbacks(hideMiniBarLater)
+        handler.postDelayed(hideMiniBarLater, MINI_BAR_MS)
+    }
+
+    private val hideMiniBarLater = Runnable { hideMiniBar() }
+
+    private fun hideMiniBar() {
+        handler.removeCallbacks(hideMiniBarLater)
+        if (miniBar.visibility != View.VISIBLE) return
+        miniBar.animate().cancel()
+        miniBar.animate().alpha(0f).setDuration(HIDE_MS).withEndAction { miniBar.visibility = View.INVISIBLE }.start()
+    }
+
+    /** Play or pause with the controls hidden: the new state's symbol pops in the middle and fades. */
+    private fun showGlyph(icon: Int) {
+        centerGlyph.setImageResource(icon)
+        centerGlyph.animate().cancel()
+        centerGlyph.alpha = 0f
+        centerGlyph.scaleX = 0.8f
+        centerGlyph.scaleY = 0.8f
+        centerGlyph.visibility = View.VISIBLE
+        // The view's animator keeps its settings between runs, so each run sets its own delay.
+        centerGlyph.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(0).setDuration(SKIP_IN_MS).setInterpolator(easeOut)
+            .withEndAction {
+                centerGlyph.animate().alpha(0f).scaleX(1.15f).scaleY(1.15f).setStartDelay(GLYPH_HOLD_MS).setDuration(HIDE_MS)
+                    .withEndAction { centerGlyph.visibility = View.INVISIBLE }
+                    .start()
+            }
+            .start()
+    }
+
+    /** Slides the one label under the focused round button; [button] null (the seek bar) hides it. */
+    private fun labelFocused(button: View?) {
+        focusLabel.animate().cancel()
+        if (button == null) {
+            focusLabel.animate().alpha(0f).setDuration(LABEL_MS).start()
+            return
+        }
+        focusLabel.text = button.contentDescription
+        focusLabel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val row = button.parent as View
+        val centre = row.left + button.left + button.width / 2f - (focusLabel.parent as View).left
+        val target = (centre - focusLabel.measuredWidth / 2f).coerceAtLeast(0f)
+        if (focusLabel.alpha == 0f) {
+            focusLabel.translationX = target
+            focusLabel.animate().alpha(1f).setDuration(LABEL_MS).start()
+        } else {
+            focusLabel.animate().alpha(1f).translationX(target).setDuration(LABEL_MS).setInterpolator(easeOut).start()
+        }
     }
 
     private fun setSpeed(speed: Float) {
@@ -483,7 +742,7 @@ class CinemaController(
 
         sidePanel.animate().cancel()
         if (sidePanel.visibility != View.VISIBLE) {
-            sidePanel.translationX = sidePanel.width.takeIf { it > 0 }?.toFloat() ?: (420 * density)
+            sidePanel.translationX = sidePanel.width.takeIf { it > 0 }?.toFloat() ?: (580 * density)
             sidePanel.alpha = 0f
             sidePanel.visibility = View.VISIBLE
         }
@@ -494,10 +753,11 @@ class CinemaController(
         val which = panel ?: return
         val current = page
         if (current == null) {
-            panelKicker.text = activity.getString(kickerFor(which)).uppercase()
+            panelKicker.visibility = View.GONE
             panelTitle.setText(titleFor(which))
         } else {
             panelKicker.text = activity.getString(titleFor(which)).uppercase()
+            panelKicker.visibility = View.VISIBLE
             panelTitle.text = current.title
         }
     }
@@ -589,7 +849,6 @@ class CinemaController(
         Panel.AUDIO -> audioItems()
         Panel.SUBTITLES -> subtitleItems()
         Panel.PICTURE -> pictureItems()
-        Panel.SPEED -> speedItems()
         Panel.MORE -> moreItems()
     }
 
@@ -728,19 +987,10 @@ class CinemaController(
             .build()
     }
 
-    private fun kickerFor(which: Panel) = when (which) {
-        Panel.AUDIO -> R.string.control_audio
-        Panel.SUBTITLES -> R.string.control_subtitles
-        Panel.PICTURE -> R.string.control_picture
-        Panel.SPEED -> R.string.control_speed
-        Panel.MORE -> R.string.control_more
-    }
-
     private fun titleFor(which: Panel) = when (which) {
         Panel.AUDIO -> R.string.panel_audio
         Panel.SUBTITLES -> R.string.panel_subtitles
         Panel.PICTURE -> R.string.panel_picture
-        Panel.SPEED -> R.string.more_speed
         Panel.MORE -> R.string.panel_more
     }
 
@@ -768,17 +1018,17 @@ class CinemaController(
         badges.removeAllViews()
         labels.forEach { text ->
             badges.addView(TextView(activity).apply {
-                this.text = text
-                textSize = 12f
+                this.text = text.uppercase()
+                textSize = 11f
                 typeface = fonts.bold
-                letterSpacing = 0.04f
+                letterSpacing = 0.08f
                 setTextColor(ContextCompat.getColor(activity, R.color.ink))
                 setBackgroundResource(R.drawable.badge_bg)
-                val h = (8 * density).toInt()
-                val v = (4 * density).toInt()
+                val h = (7 * density).toInt()
+                val v = (3 * density).toInt()
                 setPadding(h, v, h, v)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginStart = (8 * density).toInt()
+                marginStart = (6 * density).toInt()
             })
         }
     }
@@ -820,6 +1070,7 @@ class CinemaController(
             // Audio-only streams never render a frame.
             if (isPlaying && (firstFrameRendered || player?.videoFormat == null)) hideLoading()
             if (controlsVisible) scheduleHide()
+            if (isPlaying) hidePauseScreen() else schedulePauseScreen()
             updatePlayButton()
         }
 
@@ -832,9 +1083,6 @@ class CinemaController(
             if (page == null && (panel == Panel.AUDIO || panel == Panel.SUBTITLES)) buildPanel(focusIndex = panelItems.indexOfChild(panelItems.focusedChild))
         }
 
-        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
-            speedButton.text = if (playbackParameters.speed == 1f) activity.getString(R.string.control_speed) else speedLabel()
-        }
     }
 
     private companion object {
@@ -850,6 +1098,15 @@ class CinemaController(
         const val SHOW_MS = 240L
         const val HIDE_MS = 220L
         const val PANEL_MS = 320L
+        const val SKIP_IN_MS = 160L
+        const val GLYPH_HOLD_MS = 280L
+        const val LABEL_MS = 160L
+        const val MINI_BAR_MS = 1_600L
+        const val ART_FADE_MS = 600L
+        const val PAUSE_FADE_MS = 700L
+        const val PAUSE_SCREEN_DELAY_MS = 8_000L
+        const val DRIFT_MS = 40_000L
+        const val DRIFT_SCALE = 1.06f
         const val SUBTITLE_LIFT_REST = 0.08f
         const val SUBTITLE_LIFT_CONTROLS = 0.26f
 

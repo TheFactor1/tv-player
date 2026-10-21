@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shades the backdrop from the lower left, where the title and text sit, and leaves the rest of the art clear. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape>
+            <gradient android:angle="0" android:startColor="#E6000000" android:centerColor="#80000000" android:centerX="0.45" android:endColor="#0D000000" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <gradient android:angle="90" android:startColor="#D9000000" android:centerColor="#26000000" android:centerX="0.4" android:endColor="#00000000" />
+        </shape>
+    </item>
+</layer-list>
