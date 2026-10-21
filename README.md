@@ -8,13 +8,15 @@ Distributed as a sideloaded APK.
 
 ## Status
 
-Step 1 of 4: the app registers as an external player, accepts the stream, title, start position,
-HTTP headers and subtitles from the source app, plays it with Media3, and returns the position on exit.
+Step 2 of 4. The app registers as an external player, accepts the stream, title, start position,
+HTTP headers and subtitles from the source app, and returns the position on exit. It bitstreams Dolby
+and DTS audio when the TV or receiver supports it, decodes the rest with FFmpeg, switches the display
+to the video's frame rate before the first frame, and has a stats overlay (long-press OK, or Info).
 
 | Step | Scope |
 | --- | --- |
-| 1 | Project skeleton and handoff from Stremio/Nuvio (this) |
-| 2 | Dolby Vision / HDR10+ / Atmos / DTS passthrough, FFmpeg audio fallback, frame-rate matching, stats overlay |
+| 1 | Project skeleton and handoff from Stremio/Nuvio |
+| 2 | Dolby Vision / HDR10+ / Atmos / DTS passthrough, FFmpeg audio fallback, frame-rate matching, stats overlay (this) |
 | 3 | Cinema-style remote-first controls, track panels, subtitle styling |
 | 4 | Buffer tuning for 4K remuxes, device testing, signed release |
 

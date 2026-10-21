@@ -3,6 +3,8 @@ package com.thefactor1.player.playback
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
+import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.core.view.WindowCompat
@@ -14,6 +16,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -34,6 +37,8 @@ import com.thefactor1.player.launch.PlaybackResult
 class PlayerActivity : Activity() {
 
     private lateinit var playerView: PlayerView
+    private lateinit var switcher: DisplayModeSwitcher
+    private lateinit var stats: StatsOverlay
     private var player: ExoPlayer? = null
     private var request: LaunchRequest? = null
 
@@ -43,10 +48,16 @@ class PlayerActivity : Activity() {
     private var lastDurationMs = 0L
     private var completed = false
 
+    // Playback holds until we know the frame rate and the display has switched to match it.
+    private var awaitingDisplayMatch = false
+    private var longPressConsumed = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_player)
         playerView = findViewById(R.id.player_view)
+        switcher = DisplayModeSwitcher(this)
+        stats = StatsOverlay(findViewById<TextView>(R.id.stats_overlay), switcher)
         hideSystemBars()
         if (!loadRequest(intent)) return
         savedInstanceState?.getLong(STATE_POSITION, C.TIME_UNSET)?.let { resumePositionMs = it }
@@ -69,6 +80,28 @@ class PlayerActivity : Activity() {
     override fun onStop() {
         super.onStop()
         releasePlayer()
+        switcher.reset()
+    }
+
+    /** Long-press OK, or the Info key, toggles the stats overlay; everything else goes to the controls. */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_I -> {
+                if (event.action == KeyEvent.ACTION_UP) stats.toggle()
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == LONG_PRESS_REPEATS) {
+                    longPressConsumed = true
+                    stats.toggle()
+                }
+                if (longPressConsumed) {
+                    if (event.action == KeyEvent.ACTION_UP) longPressConsumed = false
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -109,6 +142,9 @@ class PlayerActivity : Activity() {
         val renderers = DefaultRenderersFactory(this)
             // If a hardware decoder fails to start, try the next one before giving up.
             .setEnableDecoderFallback(true)
+            // Platform decoders and passthrough come first; FFmpeg only decodes audio the device can't
+            // (TrueHD, DTS-HD and friends on TVs without them) to multichannel PCM.
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
 
         val exo = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
@@ -125,12 +161,14 @@ class PlayerActivity : Activity() {
             .build()
 
         exo.addListener(listener)
+        stats.attach(exo)
         playerView.player = exo
         player = exo
 
         val start = if (resumePositionMs != C.TIME_UNSET) resumePositionMs else req.startPositionMs
         exo.setMediaItem(buildMediaItem(req), start)
-        exo.playWhenReady = true
+        awaitingDisplayMatch = true
+        exo.playWhenReady = false
         exo.prepare()
     }
 
@@ -155,6 +193,7 @@ class PlayerActivity : Activity() {
         capturePosition(exo)
         resumePositionMs = exo.currentPosition
         exo.removeListener(listener)
+        stats.detach()
         playerView.player = null
         exo.release()
         player = null
@@ -173,8 +212,26 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** Matches the display to [frameRate] (unknown: -1) once, then starts playback. */
+    private fun matchDisplayThenPlay(frameRate: Float) {
+        if (!awaitingDisplayMatch) return
+        awaitingDisplayMatch = false
+        switcher.matchFrameRate(frameRate) { player?.playWhenReady = true }
+    }
+
     private val listener = object : Player.Listener {
+        override fun onTracksChanged(tracks: Tracks) {
+            if (!awaitingDisplayMatch || tracks.isEmpty) return
+            val video = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
+            val frameRate = video?.let { group ->
+                (0 until group.length).firstOrNull { group.isTrackSelected(it) }?.let { group.getTrackFormat(it).frameRate }
+            } ?: -1f
+            matchDisplayThenPlay(frameRate)
+        }
+
         override fun onPlaybackStateChanged(state: Int) {
+            // Some streams report no tracks before they are ready; never hold playback for them.
+            if (state == Player.STATE_READY) matchDisplayThenPlay(player?.videoFormat?.frameRate ?: -1f)
             if (state == Player.STATE_ENDED) {
                 completed = true
                 finish()
@@ -192,5 +249,8 @@ class PlayerActivity : Activity() {
 
     private companion object {
         const val STATE_POSITION = "position"
+
+        // Key repeats arrive about every 50 ms after a 500 ms delay; one repeat marks a long press.
+        const val LONG_PRESS_REPEATS = 1
     }
 }
