@@ -94,8 +94,8 @@ class OptionList(
         focusables.forEach { it.nextFocusLeftId = it.id; it.nextFocusRightId = it.id }
         (target ?: focusables.firstOrNull())?.let {
             it.requestFocus()
-            it.stateListAnimator?.jumpToCurrentState()
             it.jumpDrawablesToCurrentState()
+            scrollRowToTop(it)
         }
     }
 
