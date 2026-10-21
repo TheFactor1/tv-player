@@ -90,12 +90,20 @@ class CinemaController(
     private val loadingLine: TextView = activity.findViewById(R.id.loading_line)
     private val loadingSource: TextView = activity.findViewById(R.id.loading_source)
     private val loadingSpinner: View = activity.findViewById(R.id.loading_spinner)
+    private val errorActions: View = activity.findViewById(R.id.error_actions)
+    private val retryButton: TextView = activity.findViewById(R.id.btn_retry)
+    private val otherPlayerButton: TextView = activity.findViewById(R.id.btn_other_player)
+
+    /** The error card's two ways out. */
+    var onRetry: (() -> Unit)? = null
+    var onOpenElsewhere: (() -> Unit)? = null
 
     private var player: ExoPlayer? = null
     private var controlsVisible = false
     private var panel: Panel? = null
     private var panelOpener: View? = null
     private var loading = true
+    private var errorShown = false
     private var sourceApp: String? = null
     private var firstFrameRendered = false
 
@@ -111,6 +119,9 @@ class CinemaController(
         fonts.apply(fonts.semibold, clock, elapsed, remaining, panelKicker, toast, playButton, audioButton,
             subtitlesButton, speedButton, pictureButton, moreButton)
         fonts.apply(fonts.medium, source, loadingLine, loadingSource)
+        fonts.apply(fonts.semibold, retryButton, otherPlayerButton)
+        retryButton.setOnClickListener { onRetry?.invoke() }
+        otherPlayerButton.setOnClickListener { onOpenElsewhere?.invoke() }
 
         playButton.setOnClickListener { togglePlayPause(); scheduleHide() }
         audioButton.setOnClickListener { openPanel(Panel.AUDIO, it) }
@@ -150,10 +161,15 @@ class CinemaController(
         handler.removeCallbacksAndMessages(null)
     }
 
-    /** Shows the loading card again, e.g. for a new stream. */
-    fun showLoading(line: String = activity.getString(R.string.loading_connecting)) {
+    /**
+     * Shows the loading card again, e.g. for a new stream. [waitForNewFrame] is false when the
+     * same player is only re-preparing, which may not render a fresh first frame.
+     */
+    fun showLoading(line: String = activity.getString(R.string.loading_connecting), waitForNewFrame: Boolean = true) {
         loading = true
-        firstFrameRendered = false
+        errorShown = false
+        errorActions.visibility = View.GONE
+        if (waitForNewFrame) firstFrameRendered = false
         loadingLine.text = line
         loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink_secondary))
         loadingSpinner.visibility = View.VISIBLE
@@ -175,6 +191,9 @@ class CinemaController(
         loadingSpinner.visibility = View.GONE
         loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink))
         loadingSource.text = activity.getString(R.string.error_footer, code)
+        errorShown = true
+        errorActions.visibility = View.VISIBLE
+        retryButton.requestFocus()
     }
 
     // ---- Keys ----------------------------------------------------------------------------------
@@ -204,7 +223,8 @@ class CinemaController(
             if (event.repeatCount == 0) onBack()
             return swallow(code)
         }
-        if (loading) return swallow(code, isRemoteKey(code))
+        // On the error card the remote moves between its buttons; while loading it does nothing.
+        if (loading) return if (errorShown) false else swallow(code, isRemoteKey(code))
 
         when (code) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {

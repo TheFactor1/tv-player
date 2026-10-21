@@ -32,6 +32,9 @@ class StatsOverlay(
     private var audioDecoder: String? = null
     private var audioOutputEncoding: Int = C.ENCODING_INVALID
 
+    /** Fallbacks in use for this stream, shown so it's clear why the output differs. */
+    var fallbackNote: String? = null
+
     /** Frame rate measured from frame times, for streams that don't declare one. */
     var measuredFrameRate: Float = -1f
 
@@ -127,6 +130,7 @@ class StatsOverlay(
         if (bitrate != null) rows += "Bitrate" to String.format(Locale.US, "%.1f Mbps", bitrate / 1_000_000f)
         rows += "Buffer" to "${exo.totalBufferedDuration / 1000} s ahead"
         exo.videoDecoderCounters?.let { rows += "Dropped" to "${it.droppedBufferCount} frames" }
+        fallbackNote?.let { rows += "Fallback" to it }
 
         val width = rows.maxOf { it.first.length } + 2
         return rows.joinToString("\n") { (label, value) -> label.padEnd(width) + value }

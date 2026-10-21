@@ -10,6 +10,15 @@
     <string name="error_parsing">This file looks damaged or isn\'t a video.</string>
     <string name="error_footer">%1$s · Back to return</string>
     <string name="another_app">another app</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_other_player">Open in another player</string>
+    <string name="open_with">Open with</string>
+    <string name="no_other_player">No other video player is installed.</string>
+    <string name="fallback_reconnecting">Connection lost. Reconnecting (%1$d of %2$d)</string>
+    <string name="fallback_dolby_vision">Dolby Vision isn\'t supported here. Playing the HDR10 version.</string>
+    <string name="fallback_pcm">Passthrough failed. Decoding the audio instead.</string>
+    <string name="fallback_note_dolby_vision">Dolby Vision played as HDR10</string>
+    <string name="fallback_note_pcm">Audio decoded to PCM</string>
     <string name="control_play">Play</string>
     <string name="control_pause">Pause</string>
     <string name="control_audio">Audio</string>

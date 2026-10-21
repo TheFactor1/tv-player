@@ -1,6 +1,8 @@
 package com.thefactor1.player.playback
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -27,7 +29,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -35,6 +36,7 @@ import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
 import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
+import com.thefactor1.player.launch.IntentContract
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
 import com.thefactor1.player.launch.ReleaseName
@@ -69,6 +71,9 @@ class PlayerActivity : Activity() {
     @Volatile private var measuring = false
     private var longPressConsumed = false
 
+    // What the fallback chain has already tried for the current stream.
+    private var tried = FallbackPolicy.Tried()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_player)
@@ -77,6 +82,8 @@ class PlayerActivity : Activity() {
         stats = StatsOverlay(findViewById<TextView>(R.id.stats_overlay), switcher)
         prefs = PlayerPrefs(this)
         controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
+        controller.onRetry = ::retryFromScratch
+        controller.onOpenElsewhere = ::openInAnotherPlayer
         // Android 13+ delivers Back through this callback instead of as a key event.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
@@ -94,6 +101,7 @@ class PlayerActivity : Activity() {
         releasePlayer()
         resumePositionMs = C.TIME_UNSET
         completed = false
+        tried = FallbackPolicy.Tried()
         controller.showLoading()
         if (loadRequest(intent)) initializePlayer()
     }
@@ -167,12 +175,11 @@ class PlayerActivity : Activity() {
             .setReadTimeoutMs(20_000)
             .setDefaultRequestProperties(req.headers)
 
-        val renderers = DefaultRenderersFactory(this)
-            // If a hardware decoder fails to start, try the next one before giving up.
-            .setEnableDecoderFallback(true)
-            // Platform decoders and passthrough come first; FFmpeg only decodes audio the device can't
-            // (TrueHD, DTS-HD and friends on TVs without them) to multichannel PCM.
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        val renderers = PlayerRenderersFactory(this, tried.dolbyVisionAsHdr10, tried.pcmAudio)
+        stats.fallbackNote = listOfNotNull(
+            getString(R.string.fallback_note_dolby_vision).takeIf { tried.dolbyVisionAsHdr10 },
+            getString(R.string.fallback_note_pcm).takeIf { tried.pcmAudio },
+        ).joinToString(", ").ifEmpty { null }
 
         val exo = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
@@ -234,6 +241,98 @@ class PlayerActivity : Activity() {
     private fun capturePosition(exo: ExoPlayer) {
         lastPositionMs = exo.currentPosition
         if (exo.duration != C.TIME_UNSET) lastDurationMs = exo.duration
+    }
+
+    /** Tries the next fallback for [error], or shows the error card when none is left. */
+    private fun handleFailure(error: PlaybackException) {
+        val exo = player ?: return
+        val failingFormat = (error as? ExoPlaybackException)?.rendererFormat
+        val isDolbyVision = failingFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION ||
+            exo.videoFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION
+        when (val action = FallbackPolicy.next(classify(error, failingFormat), isDolbyVision, tried)) {
+            is FallbackPolicy.Action.Retry -> {
+                tried = tried.copy(networkRetries = action.attempt)
+                controller.showLoading(
+                    getString(R.string.fallback_reconnecting, action.attempt, FallbackPolicy.MAX_NETWORK_RETRIES),
+                    waitForNewFrame = false,
+                )
+                mainHandler.postDelayed({
+                    player?.let {
+                        it.prepare()
+                        it.playWhenReady = true
+                    }
+                }, action.delayMs)
+            }
+            FallbackPolicy.Action.RejoinLive -> {
+                exo.seekToDefaultPosition()
+                exo.prepare()
+            }
+            FallbackPolicy.Action.PlayDolbyVisionAsHdr10 -> {
+                tried = tried.copy(dolbyVisionAsHdr10 = true)
+                rebuildPlayer(getString(R.string.fallback_dolby_vision))
+            }
+            FallbackPolicy.Action.DecodeAudioToPcm -> {
+                tried = tried.copy(pcmAudio = true)
+                rebuildPlayer(getString(R.string.fallback_pcm))
+            }
+            FallbackPolicy.Action.GiveUp -> controller.showError(errorMessage(error), error.errorCodeName)
+        }
+    }
+
+    private fun classify(error: PlaybackException, failingFormat: Format?): FallbackPolicy.Failure = when (error.errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+        PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> FallbackPolicy.Failure.NETWORK
+        PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> FallbackPolicy.Failure.BEHIND_LIVE_WINDOW
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> FallbackPolicy.Failure.AUDIO_OUTPUT
+        PlaybackException.ERROR_CODE_DECODING_FAILED,
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ->
+            if (MimeTypes.isAudio(failingFormat?.sampleMimeType)) {
+                FallbackPolicy.Failure.AUDIO_OUTPUT
+            } else {
+                FallbackPolicy.Failure.VIDEO_DECODER
+            }
+        else -> FallbackPolicy.Failure.OTHER
+    }
+
+    /** A new player with the fallback switches flipped, carrying on from the same position. */
+    private fun rebuildPlayer(line: String) {
+        mainHandler.post {
+            releasePlayer()
+            controller.showLoading(line)
+            initializePlayer()
+        }
+    }
+
+    private fun retryFromScratch() {
+        tried = FallbackPolicy.Tried()
+        releasePlayer()
+        controller.showLoading()
+        initializePlayer()
+    }
+
+    /** Hands the stream, its headers and subtitles, and the current position to another player. */
+    private fun openInAnotherPlayer() {
+        val req = request ?: return
+        player?.let { capturePosition(it) }
+        val view = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(req.uri, intent.type ?: "video/*")
+            intent.extras?.let { putExtras(it) }
+            putExtra(IntentContract.EXTRA_POSITION, lastPositionMs.toInt())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(view, getString(R.string.open_with))
+            .putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(ComponentName(this, PlayerActivity::class.java)))
+        try {
+            startActivity(chooser)
+            finish()
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.no_other_player, Toast.LENGTH_LONG).show()
+        }
     }
 
     /** Says what went wrong in words a viewer can act on. */
@@ -376,9 +475,12 @@ class PlayerActivity : Activity() {
             }
         }
 
-        override fun onPlayerError(error: PlaybackException) {
-            controller.showError(errorMessage(error), error.errorCodeName)
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            // A stream that plays again has earned a fresh set of network retries.
+            if (isPlaying && tried.networkRetries > 0) tried = tried.copy(networkRetries = 0)
         }
+
+        override fun onPlayerError(error: PlaybackException) = handleFailure(error)
     }
 
     private companion object {

@@ -17,6 +17,11 @@ The Cinema controls are remote-first: with controls hidden, OK pauses, Left/Righ
 returns to the source app when nothing is showing. Side panels pick
 audio and subtitle tracks, subtitle size, picture mode and frame-rate matching.
 
+When playback fails it falls back before giving up: network drops reconnect up to three times
+(1, 2, 4 s apart) from the same position; Dolby Vision the device can't decode plays as its HDR10
+base layer; audio output that fails switches from passthrough to decoded PCM. If nothing works, the
+error card offers Try again and Open in another player (with the same headers, subtitles and position).
+
 | Step | Scope |
 | --- | --- |
 | 1 | Project skeleton and handoff from Stremio/Nuvio |
