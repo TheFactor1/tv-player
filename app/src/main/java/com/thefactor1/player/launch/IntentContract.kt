@@ -51,7 +51,7 @@ object IntentContract {
         }
     }
 
-    /** Only adaptive-stream types help the player; a generic "video/*" is left for it to sniff. */
+    /** Only adaptive-stream types help the player; a generic video type is left for it to sniff. */
     fun mediaMimeHint(intentType: String?): String? {
         val type = intentType?.lowercase() ?: return null
         return when {
