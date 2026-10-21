@@ -604,7 +604,7 @@ class CinemaController(
                 if (!group.isTrackSupported(i, /* allowExceedsCapabilities = */ true)) continue
                 val format = group.getTrackFormat(i)
                 items += Item(
-                    label = FormatNames.language(format) ?: activity.getString(R.string.track_unknown, number),
+                    label = uniqueName(FormatNames.language(format) ?: activity.getString(R.string.track_unknown, number), items),
                     detail = FormatNames.audioDetail(format),
                     checked = group.isTrackSelected(i),
                 ) { selectTrack(group, i) }
@@ -640,10 +640,9 @@ class CinemaController(
                 val format = group.getTrackFormat(i)
                 val selected = !textDisabled && group.isTrackSelected(i)
                 anySelected = anySelected || selected
-                val forced = if (format.selectionFlags and C.SELECTION_FLAG_FORCED != 0) " · forced" else ""
                 tracks += Item(
-                    label = FormatNames.language(format) ?: activity.getString(R.string.track_unknown, number),
-                    detail = FormatNames.textCodec(format) + forced,
+                    label = uniqueName(FormatNames.language(format) ?: activity.getString(R.string.subs_unknown, number), tracks),
+                    detail = null,
                     checked = selected,
                 ) { selectTrack(group, i) }
             }
@@ -712,6 +711,14 @@ class CinemaController(
             opens = Page(activity.getString(R.string.more_speed)) { speedItems() },
         ),
     )
+
+    /** Two tracks that clean up to the same name get numbered, so each row is still tellable apart. */
+    private fun uniqueName(name: String, existing: List<Item>): String {
+        if (existing.none { it.label == name }) return name
+        var n = 2
+        while (existing.any { it.label == "$name $n" }) n++
+        return "$name $n"
+    }
 
     private fun selectTrack(group: Tracks.Group, index: Int) {
         val exo = player ?: return

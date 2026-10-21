@@ -51,13 +51,14 @@ object FormatNames {
         else -> "$count ch"
     }
 
-    /** "English", or the track's own label, or null when neither is known. */
-    fun language(format: Format): String? {
-        format.label?.takeIf { it.isNotBlank() }?.let { return it }
-        val tag = format.language?.takeIf { it.isNotBlank() && it != C.LANGUAGE_UNDETERMINED } ?: return null
-        val name = Locale.forLanguageTag(tag).getDisplayLanguage(Locale.getDefault())
-        return name.ifBlank { tag }.replaceFirstChar { it.titlecase(Locale.getDefault()) }
-    }
+    /** A clean track name like "Spanish (Latin America)" or "English (SDH)", or null when unknown. */
+    fun language(format: Format): String? = TrackNames.name(
+        languageTag = format.language,
+        label = format.label,
+        forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+        hearingImpaired = format.roleFlags and C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND != 0,
+        commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0,
+    )
 
     fun audioDetail(format: Format): String =
         listOfNotNull(codec(format.sampleMimeType), channels(format.channelCount)).joinToString(" ")
