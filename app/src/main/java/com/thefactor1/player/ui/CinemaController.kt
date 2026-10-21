@@ -49,16 +49,21 @@ class CinemaController(
     private val stats: StatsOverlay,
     private val onExit: () -> Unit,
 ) {
-    private enum class Panel { AUDIO, SUBTITLES, PICTURE, MORE }
+    private enum class Panel { AUDIO, SUBTITLES, PICTURE, SPEED, MORE }
 
     private class Item(
         val label: String,
         val detail: String?,
         val checked: Boolean,
-        /** Toggles and cyclers keep the panel open; picking a track or a mode closes it. */
+        /** Toggles keep the panel open and update in place; picking a track or a mode closes it. */
         val keepOpen: Boolean = false,
-        val action: () -> Unit,
+        /** A setting with several choices opens them as a list instead of cycling on each click. */
+        val opens: Page? = null,
+        val action: () -> Unit = {},
     )
+
+    /** A list of choices one level down; picking one applies it and returns to the panel. */
+    private class Page(val title: String, val items: () -> List<Item>)
 
     private val fonts = Fonts(activity)
     private val handler = Handler(Looper.getMainLooper())
@@ -107,6 +112,8 @@ class CinemaController(
     private var exitArmedAt = 0L
     private var panel: Panel? = null
     private var panelOpener: View? = null
+    private var page: Page? = null
+    private var pageOpenerIndex = -1
     private var loading = true
     private var errorShown = false
     private var sourceApp: String? = null
@@ -131,7 +138,7 @@ class CinemaController(
         playButton.setOnClickListener { togglePlayPause(); scheduleHide() }
         audioButton.setOnClickListener { openPanel(Panel.AUDIO, it) }
         subtitlesButton.setOnClickListener { openPanel(Panel.SUBTITLES, it) }
-        speedButton.setOnClickListener { cycleSpeed(); scheduleHide() }
+        speedButton.setOnClickListener { openPanel(Panel.SPEED, it) }
         pictureButton.setOnClickListener { openPanel(Panel.PICTURE, it) }
         moreButton.setOnClickListener { openPanel(Panel.MORE, it) }
         seekBar.onScrub = { delta ->
@@ -279,7 +286,7 @@ class CinemaController(
     }
 
     private fun handlePanelKey(code: Int): Boolean = when (code) {
-        KeyEvent.KEYCODE_DPAD_LEFT -> swallow(code).also { closePanel(showControlsAfter = true) }
+        KeyEvent.KEYCODE_DPAD_LEFT -> swallow(code).also { if (page != null) closePage() else closePanel(showControlsAfter = true) }
         KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MENU -> swallow(code)
         else -> false
     }
@@ -291,6 +298,7 @@ class CinemaController(
     fun onBack() {
         when {
             loading -> onExit()
+            page != null -> closePage()
             panel != null -> closePanel(showControlsAfter = false)
             controlsVisible -> hideControls()
             SystemClock.uptimeMillis() - exitArmedAt < EXIT_CONFIRM_MS -> onExit()
@@ -417,16 +425,15 @@ class CinemaController(
         if (controlsVisible) updateProgress()
     }
 
-    private fun cycleSpeed() {
-        speedIndex = (speedIndex + 1) % SPEEDS.size
+    private fun setSpeed(speed: Float) {
+        speedIndex = SPEEDS.indexOfFirst { it == speed }.coerceAtLeast(0)
         player?.setPlaybackSpeed(SPEEDS[speedIndex])
-        showToast(speedLabel())
     }
 
-    private fun speedLabel(): String {
-        val speed = SPEEDS[speedIndex]
-        return if (speed == 1f) "1×" else "${speed.toString().trimEnd('0').trimEnd('.')}×"
-    }
+    private fun speedLabel(): String = speedName(SPEEDS[speedIndex])
+
+    private fun speedName(speed: Float): String =
+        if (speed == 1f) "1×" else "${speed.toString().trimEnd('0').trimEnd('.')}×"
 
     private fun showToast(text: String, durationMs: Long = TOAST_MS) {
         toast.text = text
@@ -460,10 +467,10 @@ class CinemaController(
     private fun openPanel(which: Panel, opener: View) {
         panelOpener = opener
         panel = which
+        page = null
         handler.removeCallbacks(autoHide)
         hideControls()
-        panelKicker.text = activity.getString(kickerFor(which)).uppercase()
-        panelTitle.setText(titleFor(which))
+        setPanelHeading()
         buildPanel(focusIndex = -1)
 
         sidePanel.animate().cancel()
@@ -475,9 +482,35 @@ class CinemaController(
         sidePanel.animate().translationX(0f).alpha(1f).setDuration(PANEL_MS).setInterpolator(easeOut).withLayer().start()
     }
 
+    private fun setPanelHeading() {
+        val which = panel ?: return
+        val current = page
+        if (current == null) {
+            panelKicker.text = activity.getString(kickerFor(which)).uppercase()
+            panelTitle.setText(titleFor(which))
+        } else {
+            panelKicker.text = activity.getString(titleFor(which)).uppercase()
+            panelTitle.text = current.title
+        }
+    }
+
+    private fun openPage(next: Page, fromIndex: Int) {
+        page = next
+        pageOpenerIndex = fromIndex
+        setPanelHeading()
+        buildPanel(focusIndex = -1)
+    }
+
+    private fun closePage() {
+        page = null
+        setPanelHeading()
+        buildPanel(focusIndex = pageOpenerIndex)
+    }
+
     private fun closePanel(showControlsAfter: Boolean) {
         if (panel == null) return
         panel = null
+        page = null
         sidePanel.animate().cancel()
         sidePanel.animate().translationX(sidePanel.width.toFloat()).alpha(0f).setDuration(HIDE_MS).setInterpolator(easeOut)
             .withLayer()
@@ -489,23 +522,29 @@ class CinemaController(
     /** Fills the open panel; [focusIndex] -1 focuses the checked row, or the first. */
     private fun buildPanel(focusIndex: Int) {
         val which = panel ?: return
-        val items = itemsFor(which)
+        val inPage = page
+        val items = inPage?.items?.invoke() ?: itemsFor(which)
         panelItems.removeAllViews()
         val inflater = LayoutInflater.from(activity)
         val rows = items.mapIndexed { index, item ->
             val row = inflater.inflate(R.layout.item_panel, panelItems, false)
             val label = row.findViewById<TextView>(R.id.item_label)
             val detail = row.findViewById<TextView>(R.id.item_detail)
-            label.text = item.label
             label.typeface = fonts.semibold
-            detail.text = item.detail
             detail.typeface = fonts.medium
-            detail.visibility = if (item.detail.isNullOrEmpty()) View.GONE else View.VISIBLE
-            row.findViewById<ImageView>(R.id.item_check).visibility = if (item.checked) View.VISIBLE else View.INVISIBLE
+            bindRow(row, item)
             row.id = View.generateViewId()
             row.setOnClickListener {
-                item.action()
-                if (item.keepOpen) buildPanel(focusIndex = index) else closePanel(showControlsAfter = true)
+                when {
+                    item.opens != null -> openPage(item.opens, fromIndex = index)
+                    inPage != null -> { item.action(); closePage() }
+                    item.keepOpen -> {
+                        item.action()
+                        // Refresh this row only; rebuilding the list makes the focused row jump.
+                        itemsFor(which).getOrNull(index)?.let { bindRow(row, it) }
+                    }
+                    else -> { item.action(); closePanel(showControlsAfter = true) }
+                }
             }
             (row.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin = (2 * density).toInt()
             panelItems.addView(row)
@@ -520,13 +559,29 @@ class CinemaController(
             focusIndex in rows.indices -> focusIndex
             else -> items.indexOfFirst { it.checked }.takeIf { it >= 0 } ?: 0
         }
-        rows.getOrNull(target)?.requestFocus()
+        rows.getOrNull(target)?.let {
+            it.requestFocus()
+            // Land already highlighted instead of growing into place on every rebuild.
+            it.stateListAnimator?.jumpToCurrentState()
+            it.jumpDrawablesToCurrentState()
+        }
+    }
+
+    private fun bindRow(row: View, item: Item) {
+        row.findViewById<TextView>(R.id.item_label).text = item.label
+        val detail = row.findViewById<TextView>(R.id.item_detail)
+        detail.text = item.detail
+        detail.visibility = if (item.detail.isNullOrEmpty()) View.GONE else View.VISIBLE
+        val check = row.findViewById<ImageView>(R.id.item_check)
+        check.setImageResource(if (item.opens != null) R.drawable.ic_chevron else R.drawable.ic_check)
+        check.visibility = if (item.checked || item.opens != null) View.VISIBLE else View.INVISIBLE
     }
 
     private fun itemsFor(which: Panel): List<Item> = when (which) {
         Panel.AUDIO -> audioItems()
         Panel.SUBTITLES -> subtitleItems()
         Panel.PICTURE -> pictureItems()
+        Panel.SPEED -> speedItems()
         Panel.MORE -> moreItems()
     }
 
@@ -551,30 +606,47 @@ class CinemaController(
             activity.getString(R.string.audio_default_language),
             languageName(prefs.audioLanguage, R.string.audio_language_auto),
             checked = false,
-            keepOpen = true,
-        ) {
-            prefs.audioLanguage = nextLanguage(prefs.audioLanguage)
-            onTrackDefaultsChanged?.invoke()
-        }
+            opens = languagePage(R.string.audio_default_language, R.string.audio_language_auto, { prefs.audioLanguage }) {
+                prefs.audioLanguage = it
+                onTrackDefaultsChanged?.invoke()
+            },
+        )
         items += Item(
             activity.getString(R.string.audio_output),
             activity.getString(if (prefs.decodeAudio) R.string.audio_output_decode else R.string.audio_output_passthrough),
             checked = false,
-        ) {
-            prefs.decodeAudio = !prefs.decodeAudio
-            onAudioOutputChanged?.invoke()
-        }
+            opens = Page(activity.getString(R.string.audio_output)) {
+                fun choice(label: Int, detail: Int, decode: Boolean) = Item(
+                    activity.getString(label), activity.getString(detail), prefs.decodeAudio == decode,
+                ) {
+                    if (prefs.decodeAudio != decode) {
+                        prefs.decodeAudio = decode
+                        onAudioOutputChanged?.invoke()
+                    }
+                }
+                listOf(
+                    choice(R.string.audio_output_passthrough, R.string.audio_output_passthrough_detail, decode = false),
+                    choice(R.string.audio_output_decode, R.string.audio_output_decode_detail, decode = true),
+                )
+            },
+        )
         return items
     }
+
+    private fun languagePage(title: Int, noPreference: Int, current: () -> String, pick: (String) -> Unit) =
+        Page(activity.getString(title)) {
+            PlayerPrefs.LANGUAGES.map { language ->
+                Item(
+                    language.name.ifEmpty { activity.getString(noPreference) },
+                    detail = null,
+                    checked = current() == language.code,
+                ) { pick(language.code) }
+            }
+        }
 
     private fun languageName(code: String, noPreference: Int) =
         PlayerPrefs.LANGUAGES.firstOrNull { it.code == code && code.isNotEmpty() }?.name ?: activity.getString(noPreference)
 
-    private fun nextLanguage(code: String): String {
-        val languages = PlayerPrefs.LANGUAGES
-        val index = languages.indexOfFirst { it.code == code }
-        return languages[(index + 1) % languages.size].code
-    }
 
     private fun subtitleItems(): List<Item> {
         val exo = player ?: return emptyList()
@@ -609,20 +681,43 @@ class CinemaController(
             })
             addAll(tracks)
             val mode = prefs.subtitleMode
-            add(Item(activity.getString(R.string.subs_default), activity.getString(subtitleModeLabel(mode)), checked = false, keepOpen = true) {
-                prefs.subtitleMode = PlayerPrefs.SubtitleMode.entries[(mode.ordinal + 1) % PlayerPrefs.SubtitleMode.entries.size]
-                onTrackDefaultsChanged?.invoke()
-            })
+            add(Item(
+                activity.getString(R.string.subs_default),
+                activity.getString(subtitleModeLabel(mode)),
+                checked = false,
+                opens = Page(activity.getString(R.string.subs_default)) {
+                    PlayerPrefs.SubtitleMode.entries.map { choice ->
+                        Item(activity.getString(subtitleModeLabel(choice)), activity.getString(subtitleModeDetail(choice)), prefs.subtitleMode == choice) {
+                            prefs.subtitleMode = choice
+                            onTrackDefaultsChanged?.invoke()
+                        }
+                    }
+                },
+            ))
             if (mode == PlayerPrefs.SubtitleMode.ALWAYS) {
-                add(Item(activity.getString(R.string.subs_language), languageName(prefs.subtitleLanguage, R.string.subs_language_device), checked = false, keepOpen = true) {
-                    prefs.subtitleLanguage = nextLanguage(prefs.subtitleLanguage)
-                    onTrackDefaultsChanged?.invoke()
-                })
+                add(Item(
+                    activity.getString(R.string.subs_language),
+                    languageName(prefs.subtitleLanguage, R.string.subs_language_device),
+                    checked = false,
+                    opens = languagePage(R.string.subs_language, R.string.subs_language_device, { prefs.subtitleLanguage }) {
+                        prefs.subtitleLanguage = it
+                        onTrackDefaultsChanged?.invoke()
+                    },
+                ))
             }
-            add(Item(activity.getString(R.string.subs_size), size.name, checked = false, keepOpen = true) {
-                prefs.subtitleSize = (prefs.subtitleSize + 1) % PlayerPrefs.SUBTITLE_SIZES.size
-                applySubtitleStyle()
-            })
+            add(Item(
+                activity.getString(R.string.subs_size),
+                size.name,
+                checked = false,
+                opens = Page(activity.getString(R.string.subs_size)) {
+                    PlayerPrefs.SUBTITLE_SIZES.mapIndexed { index, choice ->
+                        Item(choice.name, detail = null, checked = prefs.subtitleSize == index) {
+                            prefs.subtitleSize = index
+                            applySubtitleStyle()
+                        }
+                    }
+                },
+            ))
         }
     }
 
@@ -631,6 +726,17 @@ class CinemaController(
         PlayerPrefs.SubtitleMode.OFF -> R.string.subs_mode_off
         PlayerPrefs.SubtitleMode.FORCED_ONLY -> R.string.subs_mode_forced
         PlayerPrefs.SubtitleMode.ALWAYS -> R.string.subs_mode_always
+    }
+
+    private fun subtitleModeDetail(mode: PlayerPrefs.SubtitleMode) = when (mode) {
+        PlayerPrefs.SubtitleMode.AUTO -> R.string.subs_mode_auto_detail
+        PlayerPrefs.SubtitleMode.OFF -> R.string.subs_mode_off_detail
+        PlayerPrefs.SubtitleMode.FORCED_ONLY -> R.string.subs_mode_forced_detail
+        PlayerPrefs.SubtitleMode.ALWAYS -> R.string.subs_mode_always_detail
+    }
+
+    private fun speedItems(): List<Item> = SPEED_CHOICES.map { speed ->
+        Item(speedName(speed), detail = null, checked = SPEEDS[speedIndex] == speed) { setSpeed(speed) }
     }
 
     private fun pictureItems(): List<Item> {
@@ -660,7 +766,12 @@ class CinemaController(
             stats.isVisible,
             keepOpen = true,
         ) { stats.toggle() },
-        Item(activity.getString(R.string.more_speed), speedLabel(), checked = false, keepOpen = true) { cycleSpeed() },
+        Item(
+            activity.getString(R.string.more_speed),
+            speedLabel(),
+            checked = false,
+            opens = Page(activity.getString(R.string.more_speed)) { speedItems() },
+        ),
     )
 
     private fun selectTrack(group: Tracks.Group, index: Int) {
@@ -675,6 +786,7 @@ class CinemaController(
         Panel.AUDIO -> R.string.control_audio
         Panel.SUBTITLES -> R.string.control_subtitles
         Panel.PICTURE -> R.string.control_picture
+        Panel.SPEED -> R.string.control_speed
         Panel.MORE -> R.string.control_more
     }
 
@@ -682,6 +794,7 @@ class CinemaController(
         Panel.AUDIO -> R.string.panel_audio
         Panel.SUBTITLES -> R.string.panel_subtitles
         Panel.PICTURE -> R.string.panel_picture
+        Panel.SPEED -> R.string.more_speed
         Panel.MORE -> R.string.panel_more
     }
 
@@ -770,7 +883,7 @@ class CinemaController(
 
         override fun onTracksChanged(tracks: Tracks) {
             updateBadges(tracks)
-            if (panel == Panel.AUDIO || panel == Panel.SUBTITLES) buildPanel(focusIndex = panelItems.indexOfChild(panelItems.focusedChild))
+            if (page == null && (panel == Panel.AUDIO || panel == Panel.SUBTITLES)) buildPanel(focusIndex = panelItems.indexOfChild(panelItems.focusedChild))
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
@@ -780,6 +893,8 @@ class CinemaController(
 
     private companion object {
         val SPEEDS = floatArrayOf(1f, 1.25f, 1.5f, 2f, 0.75f)
+        /** The same speeds, slowest first, as the speed list shows them. */
+        val SPEED_CHOICES = SPEEDS.sorted()
         const val BACK_MS = 10_000L
         const val FORWARD_MS = 30_000L
         const val EXIT_CONFIRM_MS = 2_500L
