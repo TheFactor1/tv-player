@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The panel has no hard edge: it fades in from the video over its first fifth, well clear of the rows. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient android:angle="0" android:startColor="#00060608" android:centerColor="#EB060608" android:centerX="0.22" android:endColor="#F5060608" />
+</shape>

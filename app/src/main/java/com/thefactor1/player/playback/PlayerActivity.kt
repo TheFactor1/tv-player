@@ -105,6 +105,13 @@ class PlayerActivity : Activity() {
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
         controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
+        controller.onSpeedNeedsDecodedAudio = {
+            // Once per stream: a decoded player that still can't change speed isn't rebuilt again.
+            if (!tried.pcmAudio && !prefs.decodeAudio) {
+                tried = tried.copy(pcmAudio = true)
+                rebuildPlayer(getString(R.string.speed_decoding))
+            }
+        }
         // Android 13+ delivers Back through this callback instead of as a key event.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {

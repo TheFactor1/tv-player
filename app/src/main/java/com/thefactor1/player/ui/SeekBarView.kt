@@ -9,8 +9,6 @@ import android.util.AttributeSet
 import android.view.KeyEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
-import androidx.core.content.ContextCompat
-import com.thefactor1.player.R
 
 /**
  * A thin seek bar for the remote: Left and Right scrub while it has focus, and it thickens with a
@@ -31,12 +29,9 @@ class SeekBarView @JvmOverloads constructor(
     private val density = resources.displayMetrics.density
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x38FFFFFF }
     private val bufferPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x4DFFFFFF }
-    private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, R.color.accent) }
+    private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = ContextCompat.getColor(context, R.color.accent)
-        alpha = 72
-    }
+    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x40FFFFFF }
     private val rect = RectF()
     private val thumbReach = (THUMB_RADIUS_DP + HALO_DP) * density
 

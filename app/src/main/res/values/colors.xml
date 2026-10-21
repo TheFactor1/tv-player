@@ -1,12 +1,20 @@
 <resources>
-    <!-- Cinema palette, from the chosen prototype look. -->
+    <!-- Cinema palette. Chrome is monochrome; the gold accent is kept for the home screen only. -->
     <color name="ink">#F3F1EC</color>
+    <color name="ink_soft">#D9F3F1EC</color>
     <color name="ink_secondary">#C9CDD3</color>
+    <color name="ink_dim">#99F3F1EC</color>
+    <color name="ink_faint">#61F3F1EC</color>
     <color name="ink_quiet">#8B929C</color>
     <color name="accent">#E9C46A</color>
     <color name="ground">#0B0C0E</color>
     <color name="loading_ground">#05060A</color>
     <color name="panel_ground">#F00A0A0C</color>
-    <color name="focus_fill">#29FFFFFF</color>
-    <color name="row_focus_fill">#1FFFFFFF</color>
+    <!-- Behind the pause screen when there is no art: the frozen frame, dimmed. -->
+    <color name="pause_veil">#C7000000</color>
+    <!-- Focus is a solid fill with dark content on it, the way Apple TV does it; it reads on any projector. -->
+    <color name="focus_fill">@color/ink</color>
+    <color name="on_focus">#0B0C0E</color>
+    <color name="on_focus_secondary">#4A4E55</color>
+    <color name="control_rest_fill">#1FFFFFFF</color>
 </resources>
