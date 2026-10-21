@@ -27,11 +27,33 @@ jobs:
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
+      # The release key lives in repository secrets; without them the release APK is debug-signed.
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
       - name: Build APKs
+        env:
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleDebug assembleRelease
+
+      - name: Name the release APK
+        run: cp app/build/outputs/apk/release/app-release.apk "player-$(grep -m1 versionName app/build.gradle.kts | cut -d'"' -f2).apk"
 
       - uses: actions/upload-artifact@v5
         with:
-          name: player-apks
-          path: app/build/outputs/apk/**/*.apk
+          name: player-release
+          path: player-*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: player-debug
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

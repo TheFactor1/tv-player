@@ -31,8 +31,12 @@ error card offers Try again and Open in another player (with the same headers, s
 
 ## Install
 
-Every push builds APKs in GitHub Actions. Open the latest **Build** run, download `player-apks`, and
-sideload `app-release.apk` (for example with `adb install` or the Downloader app).
+Every push builds APKs in GitHub Actions. Open the latest **Build** run, download `player-release`,
+and sideload the `player-<version>.apk` inside (for example with `adb install`).
+
+Release builds are signed with the key in the repository secrets `SIGNING_KEYSTORE_BASE64`,
+`SIGNING_KEYSTORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD`. Keep a backup of that
+key: Android only installs updates signed with the same key.
 
 Then in Stremio: Settings → Player → External player, and pick **Player**. In Nuvio, choose it as the
 external player in its playback settings.
