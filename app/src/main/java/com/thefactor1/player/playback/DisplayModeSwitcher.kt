@@ -19,14 +19,12 @@ class DisplayModeSwitcher(private val activity: Activity) {
 
     val currentMode: Display.Mode get() = display().mode
 
+    /** True when [frameRate] would make the display change mode. */
+    fun wouldSwitch(frameRate: Float): Boolean = targetFor(frameRate) != null
+
     /** Calls [ready] once the display suits [frameRate]: at once when no switch is needed. */
     fun matchFrameRate(frameRate: Float, ready: () -> Unit) {
-        val display = display()
-        val target = DisplayModeMatcher.choose(
-            modes = display.supportedModes.map { it.toInfo() },
-            current = display.mode.toInfo(),
-            frameRate = frameRate,
-        )
+        val target = targetFor(frameRate)
         if (target == null) {
             ready()
             return
@@ -64,6 +62,15 @@ class DisplayModeSwitcher(private val activity: Activity) {
 
         override fun onDisplayAdded(displayId: Int) = Unit
         override fun onDisplayRemoved(displayId: Int) = Unit
+    }
+
+    private fun targetFor(frameRate: Float): ModeInfo? {
+        val display = display()
+        return DisplayModeMatcher.choose(
+            modes = display.supportedModes.map { it.toInfo() },
+            current = display.mode.toInfo(),
+            frameRate = frameRate,
+        )
     }
 
     @Suppress("DEPRECATION")

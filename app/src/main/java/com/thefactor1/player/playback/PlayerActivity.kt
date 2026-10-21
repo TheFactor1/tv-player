@@ -3,6 +3,8 @@ package com.thefactor1.player.playback
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.widget.TextView
 import android.widget.Toast
@@ -23,6 +25,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
 import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
@@ -50,6 +53,9 @@ class PlayerActivity : Activity() {
 
     // Playback holds until we know the frame rate and the display has switched to match it.
     private var awaitingDisplayMatch = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val frameRateEstimator = FrameRateEstimator()
+    @Volatile private var measuring = false
     private var longPressConsumed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -192,6 +198,7 @@ class PlayerActivity : Activity() {
         val exo = player ?: return
         capturePosition(exo)
         resumePositionMs = exo.currentPosition
+        stopMeasuring(exo)
         exo.removeListener(listener)
         stats.detach()
         playerView.player = null
@@ -212,11 +219,50 @@ class PlayerActivity : Activity() {
         }
     }
 
-    /** Matches the display to [frameRate] (unknown: -1) once, then starts playback. */
-    private fun matchDisplayThenPlay(frameRate: Float) {
+    /**
+     * Matches the display to [frameRate] once, then starts playback. When the stream has video but
+     * declares no frame rate, playback starts at once and the rate is measured from the first frames.
+     */
+    private fun matchDisplayThenPlay(frameRate: Float, hasVideo: Boolean) {
         if (!awaitingDisplayMatch) return
         awaitingDisplayMatch = false
+        if (frameRate <= 0f && hasVideo) {
+            player?.let { startMeasuring(it) }
+            player?.playWhenReady = true
+            return
+        }
         switcher.matchFrameRate(frameRate) { player?.playWhenReady = true }
+    }
+
+    private fun startMeasuring(exo: ExoPlayer) {
+        frameRateEstimator.reset()
+        measuring = true
+        exo.setVideoFrameMetadataListener(frameTimes)
+    }
+
+    private fun stopMeasuring(exo: ExoPlayer) {
+        measuring = false
+        exo.clearVideoFrameMetadataListener(frameTimes)
+        mainHandler.removeCallbacksAndMessages(null)
+    }
+
+    // Runs on the playback thread for every frame, so it only does arithmetic until it has an answer.
+    private val frameTimes = VideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+        if (!measuring) return@VideoFrameMetadataListener
+        val fps = frameRateEstimator.add(presentationTimeUs) ?: return@VideoFrameMetadataListener
+        measuring = false
+        mainHandler.post { onFrameRateMeasured(fps) }
+    }
+
+    /** A brief pause while the TV changes mode beats judder for the rest of the film. */
+    private fun onFrameRateMeasured(fps: Float) {
+        val exo = player ?: return
+        exo.clearVideoFrameMetadataListener(frameTimes)
+        stats.measuredFrameRate = fps
+        if (!switcher.wouldSwitch(fps)) return
+        val wasPlaying = exo.playWhenReady
+        exo.playWhenReady = false
+        switcher.matchFrameRate(fps) { if (wasPlaying) player?.playWhenReady = true }
     }
 
     private val listener = object : Player.Listener {
@@ -226,12 +272,15 @@ class PlayerActivity : Activity() {
             val frameRate = video?.let { group ->
                 (0 until group.length).firstOrNull { group.isTrackSelected(it) }?.let { group.getTrackFormat(it).frameRate }
             } ?: -1f
-            matchDisplayThenPlay(frameRate)
+            matchDisplayThenPlay(frameRate, hasVideo = video != null)
         }
 
         override fun onPlaybackStateChanged(state: Int) {
             // Some streams report no tracks before they are ready; never hold playback for them.
-            if (state == Player.STATE_READY) matchDisplayThenPlay(player?.videoFormat?.frameRate ?: -1f)
+            if (state == Player.STATE_READY) {
+                val video = player?.videoFormat
+                matchDisplayThenPlay(video?.frameRate ?: -1f, hasVideo = video != null)
+            }
             if (state == Player.STATE_ENDED) {
                 completed = true
                 finish()

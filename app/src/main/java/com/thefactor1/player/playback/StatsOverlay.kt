@@ -31,6 +31,9 @@ class StatsOverlay(
     private var audioDecoder: String? = null
     private var audioOutputEncoding: Int = C.ENCODING_INVALID
 
+    /** Frame rate measured from frame times, for streams that don't declare one. */
+    var measuredFrameRate: Float = -1f
+
     val isVisible: Boolean get() = view.visibility == View.VISIBLE
 
     fun attach(exo: ExoPlayer) {
@@ -46,6 +49,7 @@ class StatsOverlay(
         videoDecoder = null
         audioDecoder = null
         audioOutputEncoding = C.ENCODING_INVALID
+        measuredFrameRate = -1f
     }
 
     fun toggle() {
@@ -105,7 +109,11 @@ class StatsOverlay(
         if (video != null) {
             rows += "Video" to listOfNotNull(codecName(video.sampleMimeType), video.codecs).joinToString(" · ")
             videoDecoder?.let { rows += "Decoder" to it }
-            val fps = if (video.frameRate > 0) " · ${rate(video.frameRate)} fps" else ""
+            val fps = when {
+                video.frameRate > 0 -> " · ${rate(video.frameRate)} fps"
+                measuredFrameRate > 0 -> " · ${rate(measuredFrameRate)} fps (measured)"
+                else -> " · measuring fps"
+            }
             rows += "Frame" to "${video.width}×${video.height}$fps"
             rows += "HDR" to hdrName(video)
         }
