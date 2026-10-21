@@ -12,7 +12,6 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
     fun rows(): List<OptionList.RowSpec> = listOf(
         heading(R.string.settings_audio),
         item { audioLanguage() },
-        item { audioOutput() },
         heading(R.string.settings_subtitles),
         item { subtitleMode() },
         item { subtitleLanguage() },
@@ -20,6 +19,8 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         heading(R.string.settings_picture),
         item { pictureFit() },
         item { matchFrameRate() },
+        heading(R.string.settings_advanced),
+        item { audioOutput() },
     )
 
     private fun heading(text: Int) = OptionList.RowSpec.Heading(context.getString(text))

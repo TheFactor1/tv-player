@@ -86,8 +86,6 @@ class PlayerActivity : Activity() {
         controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
-        controller.onTrackDefaultsChanged = { player?.let(::applyTrackDefaults) }
-        controller.onAudioOutputChanged = { if (player != null) rebuildPlayer(getString(R.string.loading_audio_output)) }
         // Android 13+ delivers Back through this callback instead of as a key event.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {

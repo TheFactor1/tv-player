@@ -102,10 +102,6 @@ class CinemaController(
     /** The error card's two ways out. */
     var onRetry: (() -> Unit)? = null
     var onOpenElsewhere: (() -> Unit)? = null
-    /** A default audio or subtitle choice changed; reapply it to the playing stream. */
-    var onTrackDefaultsChanged: (() -> Unit)? = null
-    /** Passthrough was switched on or off, which needs a new audio output. */
-    var onAudioOutputChanged: (() -> Unit)? = null
 
     private var player: ExoPlayer? = null
     private var controlsVisible = false
@@ -612,51 +608,8 @@ class CinemaController(
                 ) { selectTrack(group, i) }
             }
         }
-        items += Item(
-            activity.getString(R.string.audio_default_language),
-            languageName(prefs.audioLanguage, R.string.audio_language_auto),
-            checked = false,
-            opens = languagePage(R.string.audio_default_language, R.string.audio_language_auto, { prefs.audioLanguage }) {
-                prefs.audioLanguage = it
-                onTrackDefaultsChanged?.invoke()
-            },
-        )
-        items += Item(
-            activity.getString(R.string.audio_output),
-            activity.getString(if (prefs.decodeAudio) R.string.audio_output_decode else R.string.audio_output_passthrough),
-            checked = false,
-            opens = Page(activity.getString(R.string.audio_output)) {
-                fun choice(label: Int, detail: Int, decode: Boolean) = Item(
-                    activity.getString(label), activity.getString(detail), prefs.decodeAudio == decode,
-                ) {
-                    if (prefs.decodeAudio != decode) {
-                        prefs.decodeAudio = decode
-                        onAudioOutputChanged?.invoke()
-                    }
-                }
-                listOf(
-                    choice(R.string.audio_output_passthrough, R.string.audio_output_passthrough_detail, decode = false),
-                    choice(R.string.audio_output_decode, R.string.audio_output_decode_detail, decode = true),
-                )
-            },
-        )
         return items
     }
-
-    private fun languagePage(title: Int, noPreference: Int, current: () -> String, pick: (String) -> Unit) =
-        Page(activity.getString(title)) {
-            PlayerPrefs.LANGUAGES.map { language ->
-                Item(
-                    language.name.ifEmpty { activity.getString(noPreference) },
-                    detail = null,
-                    checked = current() == language.code,
-                ) { pick(language.code) }
-            }
-        }
-
-    private fun languageName(code: String, noPreference: Int) =
-        PlayerPrefs.LANGUAGES.firstOrNull { it.code == code && code.isNotEmpty() }?.name ?: activity.getString(noPreference)
-
 
     private fun subtitleItems(): List<Item> {
         val exo = player ?: return emptyList()
@@ -690,31 +643,6 @@ class CinemaController(
                 }
             })
             addAll(tracks)
-            val mode = prefs.subtitleMode
-            add(Item(
-                activity.getString(R.string.subs_default),
-                activity.getString(subtitleModeLabel(mode)),
-                checked = false,
-                opens = Page(activity.getString(R.string.subs_default)) {
-                    PlayerPrefs.SubtitleMode.entries.map { choice ->
-                        Item(activity.getString(subtitleModeLabel(choice)), activity.getString(subtitleModeDetail(choice)), prefs.subtitleMode == choice) {
-                            prefs.subtitleMode = choice
-                            onTrackDefaultsChanged?.invoke()
-                        }
-                    }
-                },
-            ))
-            if (mode == PlayerPrefs.SubtitleMode.ALWAYS) {
-                add(Item(
-                    activity.getString(R.string.subs_language),
-                    languageName(prefs.subtitleLanguage, R.string.subs_language_device),
-                    checked = false,
-                    opens = languagePage(R.string.subs_language, R.string.subs_language_device, { prefs.subtitleLanguage }) {
-                        prefs.subtitleLanguage = it
-                        onTrackDefaultsChanged?.invoke()
-                    },
-                ))
-            }
             add(Item(
                 activity.getString(R.string.subs_size),
                 size.name,
@@ -729,20 +657,6 @@ class CinemaController(
                 },
             ))
         }
-    }
-
-    private fun subtitleModeLabel(mode: PlayerPrefs.SubtitleMode) = when (mode) {
-        PlayerPrefs.SubtitleMode.AUTO -> R.string.subs_mode_auto
-        PlayerPrefs.SubtitleMode.OFF -> R.string.subs_mode_off
-        PlayerPrefs.SubtitleMode.FORCED_ONLY -> R.string.subs_mode_forced
-        PlayerPrefs.SubtitleMode.ALWAYS -> R.string.subs_mode_always
-    }
-
-    private fun subtitleModeDetail(mode: PlayerPrefs.SubtitleMode) = when (mode) {
-        PlayerPrefs.SubtitleMode.AUTO -> R.string.subs_mode_auto_detail
-        PlayerPrefs.SubtitleMode.OFF -> R.string.subs_mode_off_detail
-        PlayerPrefs.SubtitleMode.FORCED_ONLY -> R.string.subs_mode_forced_detail
-        PlayerPrefs.SubtitleMode.ALWAYS -> R.string.subs_mode_always_detail
     }
 
     private fun speedItems(): List<Item> = SPEED_CHOICES.map { speed ->
