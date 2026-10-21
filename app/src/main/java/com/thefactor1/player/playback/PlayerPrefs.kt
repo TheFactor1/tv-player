@@ -5,6 +5,7 @@ import androidx.annotation.OptIn
 import androidx.core.content.edit
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 
 /** The few choices a viewer makes once and expects to stick. */
 @OptIn(UnstableApi::class)
@@ -39,6 +40,26 @@ class PlayerPrefs(context: Context) {
         get() = prefs.getInt(KEY_AUDIO_DELAY, 0)
         set(value) = prefs.edit { putInt(KEY_AUDIO_DELAY, value) }
 
+    /** Evens out loud and quiet passages; needs decoded audio. */
+    var nightMode: Boolean
+        get() = prefs.getBoolean(KEY_NIGHT_MODE, false)
+        set(value) = prefs.edit { putBoolean(KEY_NIGHT_MODE, value) }
+
+    /** Lifts voices over music and effects; needs decoded audio. */
+    var dialogueBoost: Boolean
+        get() = prefs.getBoolean(KEY_DIALOGUE_BOOST, false)
+        set(value) = prefs.edit { putBoolean(KEY_DIALOGUE_BOOST, value) }
+
+    /** Index into [SUBTITLE_STYLES]. */
+    var subtitleStyle: Int
+        get() = prefs.getInt(KEY_SUB_STYLE, 0).coerceIn(SUBTITLE_STYLES.indices)
+        set(value) = prefs.edit { putInt(KEY_SUB_STYLE, value) }
+
+    /** Index into [SUBTITLE_POSITIONS]. */
+    var subtitlePosition: Int
+        get() = prefs.getInt(KEY_SUB_POSITION, 0).coerceIn(SUBTITLE_POSITIONS.indices)
+        set(value) = prefs.edit { putInt(KEY_SUB_POSITION, value) }
+
     var subtitleMode: SubtitleMode
         get() = SubtitleMode.entries.getOrElse(prefs.getInt(KEY_SUB_MODE, 0)) { SubtitleMode.AUTO }
         set(value) = prefs.edit { putInt(KEY_SUB_MODE, value.ordinal) }
@@ -49,6 +70,11 @@ class PlayerPrefs(context: Context) {
         set(value) = prefs.edit { putString(KEY_SUB_LANG, value) }
 
     data class SubtitleSize(val name: String, val fraction: Float)
+
+    data class SubtitleStyle(val name: String, val detail: String, val text: Int, val background: Int, val edgeType: Int)
+
+    /** [lift] is the gap under the subtitles as a fraction of the picture's height. */
+    data class SubtitlePosition(val name: String, val detail: String, val lift: Float)
 
     data class Language(val code: String, val name: String)
 
@@ -66,6 +92,24 @@ class PlayerPrefs(context: Context) {
             SubtitleSize("Medium", 0.055f),
             SubtitleSize("Large", 0.068f),
         )
+        val SUBTITLE_STYLES = listOf(
+            SubtitleStyle("Outline", "White with a black edge", WHITE, CLEAR, CaptionStyleCompat.EDGE_TYPE_OUTLINE),
+            SubtitleStyle("Shadow", "White with a soft drop shadow", WHITE, CLEAR, CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW),
+            SubtitleStyle("Dark box", "White on a dark band, easiest to read on bright scenes", WHITE, BOX, CaptionStyleCompat.EDGE_TYPE_NONE),
+            SubtitleStyle("Yellow", "Yellow with a black edge, like DVD subtitles", YELLOW, CLEAR, CaptionStyleCompat.EDGE_TYPE_OUTLINE),
+        )
+        val SUBTITLE_POSITIONS = listOf(
+            SubtitlePosition("Bottom", "Close to the bottom edge", 0.08f),
+            SubtitlePosition("Raised", "A little higher, clear of a projector's edge", 0.14f),
+            SubtitlePosition("Higher", "Well inside the picture, for screens that crop", 0.20f),
+        )
+        /** Subtitle timing choices for one video, from lines early to lines late. */
+        val SUBTITLE_DELAYS_MS = (-5_000..5_000 step 250).toList()
+        private const val WHITE = 0xFFFFFFFF.toInt()
+        private const val YELLOW = 0xFFFFE14D.toInt()
+        private const val CLEAR = 0x00000000
+        private const val BOX = 0xB3000000.toInt()
+
         /** The first entry (empty code) means "no preference" and is labelled by each setting. */
         val LANGUAGES = listOf(
             Language("", ""),
@@ -87,6 +131,10 @@ class PlayerPrefs(context: Context) {
         private const val KEY_AUDIO_DELAY = "audio_delay_ms"
         /** Lip-sync choices, from sound early to sound late. */
         val AUDIO_DELAYS_MS = (-300..500 step 50).toList()
+        private const val KEY_NIGHT_MODE = "night_mode"
+        private const val KEY_DIALOGUE_BOOST = "dialogue_boost"
+        private const val KEY_SUB_STYLE = "subtitle_style"
+        private const val KEY_SUB_POSITION = "subtitle_position"
         private const val KEY_SUB_MODE = "subtitle_mode"
         private const val KEY_SUB_LANG = "subtitle_language"
         private const val KEY_MATCH = "match_frame_rate"

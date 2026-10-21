@@ -1,19 +1,24 @@
 package com.thefactor1.player.playback
 
 import android.content.Context
+import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.text.TextOutput
+import androidx.media3.exoplayer.text.TextRenderer
 
 /**
  * Renderers with the two switches the fallback chain can flip: Dolby Vision decoded as its HDR10
  * base layer by a plain HEVC decoder, and audio always decoded to PCM instead of passed through.
+ * Decoded audio goes through night mode and dialogue boost; subtitles can be shifted in time.
  */
 @OptIn(UnstableApi::class)
 class PlayerRenderersFactory(
@@ -21,6 +26,9 @@ class PlayerRenderersFactory(
     dolbyVisionAsHdr10: Boolean,
     private val pcmAudioOnly: Boolean,
     private val audioDelay: AudioDelay,
+    private val enhancement: AudioEnhancement,
+    private val subtitleDelay: SubtitleDelay,
+    private val decodeSwitch: DecodeSwitch,
 ) : DefaultRenderersFactory(context) {
 
     init {
@@ -37,18 +45,28 @@ class PlayerRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean,
     ): AudioSink? {
-        val sink = if (!pcmAudioOnly) {
-            super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams) ?: return null
-        } else {
+        val builder = DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            // Float output would skip the processors, so night mode always gets 16-bit PCM.
+            .setAudioProcessors(arrayOf(AudioEnhancerProcessor(enhancement)))
+        if (pcmAudioOnly) {
             // Reporting plain stereo PCM capabilities turns passthrough off; every track gets decoded.
             @Suppress("DEPRECATION")
-            DefaultAudioSink.Builder(context)
-                .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
-                .setEnableFloatOutput(enableFloatOutput)
-                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                .build()
+            builder.setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
         }
-        return AudioDelaySink(sink, audioDelay)
+        val sink = builder.build()
+        return AudioDelaySink(DecodeSwitchSink(sink, decodeSwitch), audioDelay)
+    }
+
+    override fun buildTextRenderers(
+        context: Context,
+        output: TextOutput,
+        outputLooper: Looper,
+        extensionRendererMode: Int,
+        out: ArrayList<Renderer>,
+    ) {
+        out.add(DelayedTextRenderer(TextRenderer(output, outputLooper), subtitleDelay))
     }
 
     private companion object {

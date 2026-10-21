@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -32,6 +33,9 @@ class StatsOverlay(
     private var audioDecoder: String? = null
     private var audioOutputEncoding: Int = C.ENCODING_INVALID
 
+    /** Night mode and dialogue boost, listed when on so it's clear the sound is being shaped. */
+    var enhancement: AudioEnhancement? = null
+
     /** Fallbacks in use for this stream, shown so it's clear why the output differs. */
     var fallbackNote: String? = null
 
@@ -39,6 +43,10 @@ class StatsOverlay(
     var measuredFrameRate: Float = -1f
 
     val isVisible: Boolean get() = view.visibility == View.VISIBLE
+
+    /** Dolby or DTS is going out untouched, so nothing in the app can change the sound. */
+    val isPassthrough: Boolean
+        get() = audioOutputEncoding != C.ENCODING_INVALID && !Util.isEncodingLinearPcm(audioOutputEncoding)
 
     fun attach(exo: ExoPlayer) {
         player = exo
@@ -126,6 +134,7 @@ class StatsOverlay(
         if (audio != null) {
             rows += "Audio" to "${FormatNames.audioDetail(audio)} · ${audioOutput()}"
             FormatNames.language(audio)?.let { rows += "Language" to it }
+            soundShaping()?.let { rows += "Sound" to it }
         }
         val bitrate = video?.bitrate?.takeIf { it > 0 } ?: video?.averageBitrate?.takeIf { it > 0 }
         if (bitrate != null) rows += "Bitrate" to String.format(Locale.US, "%.1f Mbps", bitrate / 1_000_000f)
@@ -135,6 +144,13 @@ class StatsOverlay(
 
         val width = rows.maxOf { it.first.length } + 2
         return rows.joinToString("\n") { (label, value) -> label.padEnd(width) + value }
+    }
+
+    private fun soundShaping(): String? {
+        val on = enhancement ?: return null
+        val names = listOfNotNull("night mode".takeIf { on.nightMode }, "dialogue boost".takeIf { on.dialogueBoost })
+        if (names.isEmpty()) return null
+        return names.joinToString(" · ") + if (isPassthrough) " (waiting for decoded audio)" else ""
     }
 
     private fun audioOutput(): String = when (audioOutputEncoding) {

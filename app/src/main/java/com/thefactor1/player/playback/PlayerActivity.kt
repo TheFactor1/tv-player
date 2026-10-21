@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -24,6 +25,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -87,6 +89,12 @@ class PlayerActivity : Activity() {
     @Volatile private var measuring = false
     private var measureStartMs = 0L
     private val audioDelay = AudioDelay()
+    private val enhancement = AudioEnhancement()
+    private val subtitleDelay = SubtitleDelay()
+    private val decodeSwitch = DecodeSwitch()
+    // Subtitles found online for this video, kept across player rebuilds; the newest is switched to once loaded.
+    private val addedSubtitles = mutableListOf<MediaItem.SubtitleConfiguration>()
+    private var pendingSubtitleId: String? = null
     private var longPressConsumed = false
 
     // What the fallback chain has already tried for the current stream.
@@ -98,19 +106,25 @@ class PlayerActivity : Activity() {
         playerView = findViewById(R.id.player_view)
         switcher = DisplayModeSwitcher(this)
         stats = StatsOverlay(findViewById<TextView>(R.id.stats_overlay), switcher)
+        stats.enhancement = enhancement
         prefs = PlayerPrefs(this)
         resumeStore = ResumeStore(this)
-        controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
+        controller = CinemaController(this, playerView, prefs, stats, enhancement, subtitleDelay, onExit = ::finish)
         resumeChip = ResumeChip(this, Fonts(this))
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
         controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
-        controller.onSpeedNeedsDecodedAudio = {
-            // Once per stream: a decoded player that still can't change speed isn't rebuilt again.
-            if (!tried.pcmAudio && !prefs.decodeAudio) {
-                tried = tried.copy(pcmAudio = true)
-                rebuildPlayer(getString(R.string.speed_decoding))
+        controller.onNeedsDecodedAudio = { switchToDecodedAudio() }
+        controller.onSpeedNeedsDecodedAudio = { speed ->
+            // Once per stream: decoded audio that still can't change speed isn't switched again.
+            if (!decodeSwitch.decode && !tried.pcmAudio && !prefs.decodeAudio) {
+                switchToDecodedAudio { player?.setPlaybackSpeed(speed) }
             }
+        }
+        controller.onAddSubtitle = ::addSubtitle
+        controller.onSkipCredits = {
+            completed = true
+            finish()
         }
         // Android 13+ delivers Back through this callback instead of as a key event.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -130,6 +144,9 @@ class PlayerActivity : Activity() {
         resumePositionMs = C.TIME_UNSET
         completed = false
         tried = FallbackPolicy.Tried()
+        addedSubtitles.clear()
+        pendingSubtitleId = null
+        subtitleDelay.offsetUs = 0
         controller.showLoading()
         if (loadRequest(intent)) initializePlayer()
     }
@@ -301,7 +318,12 @@ class PlayerActivity : Activity() {
             .setDefaultRequestProperties(req.headers)
 
         audioDelay.offsetUs = prefs.audioDelayMs * 1_000L
-        val renderers = PlayerRenderersFactory(this, tried.dolbyVisionAsHdr10, tried.pcmAudio || prefs.decodeAudio, audioDelay)
+        enhancement.nightMode = prefs.nightMode
+        enhancement.dialogueBoost = prefs.dialogueBoost
+        val renderers = PlayerRenderersFactory(
+            this, tried.dolbyVisionAsHdr10, tried.pcmAudio || decodeByChoice(), audioDelay, enhancement, subtitleDelay,
+            decodeSwitch,
+        )
         stats.fallbackNote = listOfNotNull(
             getString(R.string.fallback_note_dolby_vision).takeIf { tried.dolbyVisionAsHdr10 },
             getString(R.string.fallback_note_pcm).takeIf { tried.pcmAudio },
@@ -346,13 +368,74 @@ class PlayerActivity : Activity() {
                 .setLabel(sub.name)
                 .setSelectionFlags(if (sub.selected) C.SELECTION_FLAG_DEFAULT else 0)
                 .build()
-        }
+        } + addedSubtitles
         return MediaItem.Builder()
             .setUri(req.uri)
             .setMimeType(req.mimeHint)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(req.title).build())
             .setSubtitleConfigurations(subtitles)
             .build()
+    }
+
+    /** The viewer asked for decoded audio, directly or by switching on sound shaping that needs it. */
+    private fun decodeByChoice() = prefs.decodeAudio || prefs.nightMode || prefs.dialogueBoost
+
+    /**
+     * Moves from passthrough to decoded audio without stopping: the sink stops accepting Dolby and
+     * DTS, and audio is switched off and on again so the renderers pick a decoder. The picture keeps
+     * playing; sound drops out for a moment, the way it does when changing audio track.
+     */
+    private fun switchToDecodedAudio(then: () -> Unit = {}) {
+        val exo = player ?: return
+        decodeSwitch.decode = true
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+            .build()
+        mainHandler.post {
+            player?.let {
+                it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .build()
+                then()
+            }
+        }
+    }
+
+    /**
+     * Adds a subtitle file found online as a new track. Media3 only takes new side-loaded tracks
+     * with a new media item, so the stream re-opens at the same spot, and the new track is selected
+     * once it shows up.
+     */
+    private fun addSubtitle(url: String, language: String?, label: String) {
+        val exo = player ?: return
+        val req = request ?: return
+        val id = "online-${addedSubtitles.size + 1}"
+        addedSubtitles += MediaItem.SubtitleConfiguration.Builder(Uri.parse(url))
+            .setId(id)
+            .setMimeType(IntentContract.subtitleMimeType(url))
+            .setLanguage(language)
+            .setLabel(label)
+            .build()
+        pendingSubtitleId = id
+        exo.setMediaItem(buildMediaItem(req), exo.currentPosition)
+        exo.prepare()
+    }
+
+    private fun selectPendingSubtitle(exo: ExoPlayer, tracks: Tracks) {
+        val id = pendingSubtitleId ?: return
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_TEXT) continue
+            for (i in 0 until group.length) {
+                val trackId = group.getTrackFormat(i).id ?: continue
+                if (trackId != id && !trackId.endsWith(":$id")) continue
+                pendingSubtitleId = null
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
+                    .build()
+                return
+            }
+        }
     }
 
     private fun releasePlayer() {
@@ -385,7 +468,7 @@ class PlayerActivity : Activity() {
         val isDolbyVision = failingFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION ||
             exo.videoFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION
         // A viewer who already chose to decode audio has nothing left to fall back to there.
-        val alreadyTried = tried.copy(pcmAudio = tried.pcmAudio || prefs.decodeAudio)
+        val alreadyTried = tried.copy(pcmAudio = tried.pcmAudio || decodeByChoice())
         when (val action = FallbackPolicy.next(classify(error, failingFormat), isDolbyVision, alreadyTried)) {
             is FallbackPolicy.Action.Retry -> {
                 tried = tried.copy(networkRetries = action.attempt)
@@ -634,6 +717,7 @@ class PlayerActivity : Activity() {
 
     private val listener = object : Player.Listener {
         override fun onTracksChanged(tracks: Tracks) {
+            player?.let { selectPendingSubtitle(it, tracks) }
             if (!awaitingDisplayMatch || tracks.isEmpty) return
             val video = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
             val frameRate = video?.let { group ->
