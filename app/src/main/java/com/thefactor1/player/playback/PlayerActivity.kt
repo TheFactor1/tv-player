@@ -97,7 +97,13 @@ class PlayerActivity : Activity() {
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
         controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
-        controller.onNeedsDecodedAudio = ::switchToDecodedAudio
+        controller.onNeedsDecodedAudio = { switchToDecodedAudio() }
+        controller.onSpeedNeedsDecodedAudio = { speed ->
+            // Once per stream: decoded audio that still can't change speed isn't switched again.
+            if (!decodeSwitch.decode && !tried.pcmAudio && !prefs.decodeAudio) {
+                switchToDecodedAudio { player?.setPlaybackSpeed(speed) }
+            }
+        }
         controller.onAddSubtitle = ::addSubtitle
         controller.onSkipCredits = {
             completed = true
@@ -262,7 +268,7 @@ class PlayerActivity : Activity() {
      * DTS, and audio is switched off and on again so the renderers pick a decoder. The picture keeps
      * playing; sound drops out for a moment, the way it does when changing audio track.
      */
-    private fun switchToDecodedAudio() {
+    private fun switchToDecodedAudio(then: () -> Unit = {}) {
         val exo = player ?: return
         decodeSwitch.decode = true
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
@@ -273,6 +279,7 @@ class PlayerActivity : Activity() {
                 it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                     .build()
+                then()
             }
         }
     }

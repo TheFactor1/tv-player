@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
@@ -106,6 +107,7 @@ class CinemaController(
     private val moreButton: ImageView = activity.findViewById(R.id.btn_more)
     private val focusLabel: TextView = activity.findViewById(R.id.focus_label)
     private val toast: TextView = activity.findViewById(R.id.center_toast)
+    private val exitHint: TextView = activity.findViewById(R.id.exit_hint)
     private val centerGlyph: ImageView = activity.findViewById(R.id.center_glyph)
     private val skipBack: View = activity.findViewById(R.id.skip_back)
     private val skipForward: View = activity.findViewById(R.id.skip_forward)
@@ -132,6 +134,12 @@ class CinemaController(
     /** The error card's two ways out. */
     var onRetry: (() -> Unit)? = null
     var onOpenElsewhere: (() -> Unit)? = null
+    /**
+     * A speed other than 1× was picked but the audio is passed through, which can only play at 1×,
+     * so the sink put the speed back. The player answers by switching to decoded audio, then
+     * applies the speed it is given again.
+     */
+    var onSpeedNeedsDecodedAudio: ((speed: Float) -> Unit)? = null
     /** The lip-sync correction changed, in ms. */
     var onAudioDelayChanged: ((Int) -> Unit)? = null
     /** Night mode or dialogue boost was switched on while audio is passed through, so it must be decoded. */
@@ -176,7 +184,7 @@ class CinemaController(
         fonts.apply(fonts.bold, title, panelTitle, loadingTitle, skipBackAmount, skipForwardAmount, metaKicker)
         fonts.apply(fonts.semibold, activity.findViewById<TextView>(R.id.skip_prompt), clock, metaClock, endsAt, elapsed, remaining, panelKicker, toast, focusLabel, miniTime,
             metaEpisode, loadingLine, retryButton, otherPlayerButton)
-        fonts.apply(fonts.medium, source, loadingSource, metaDescription)
+        fonts.apply(fonts.medium, source, loadingSource, metaDescription, exitHint)
         retryButton.setOnClickListener { onRetry?.invoke() }
         otherPlayerButton.setOnClickListener { onOpenElsewhere?.invoke() }
 
@@ -521,7 +529,7 @@ class CinemaController(
             else -> {
                 // A stray Back mid-film shouldn't drop you out; ask for a second press.
                 exitArmedAt = SystemClock.uptimeMillis()
-                showToast(activity.getString(R.string.toast_back_to_exit), EXIT_CONFIRM_MS)
+                showExitHint()
             }
         }
     }
@@ -763,6 +771,22 @@ class CinemaController(
         handler.postDelayed(hideToast, durationMs)
     }
 
+    /** "Back again to exit": a quiet line in the corner, so the film stays the only thing on screen. */
+    private fun showExitHint() {
+        exitHint.animate().cancel()
+        if (exitHint.visibility != View.VISIBLE) {
+            exitHint.alpha = 0f
+            exitHint.visibility = View.VISIBLE
+        }
+        exitHint.animate().alpha(1f).setDuration(LABEL_MS).start()
+        handler.removeCallbacks(hideExitHint)
+        handler.postDelayed(hideExitHint, EXIT_CONFIRM_MS)
+    }
+
+    private val hideExitHint = Runnable {
+        exitHint.animate().alpha(0f).setDuration(HIDE_MS).withEndAction { exitHint.visibility = View.INVISIBLE }.start()
+    }
+
     private val hideToast = Runnable {
         toast.animate().alpha(0f).setDuration(220).withEndAction { toast.visibility = View.INVISIBLE }.start()
     }
@@ -781,6 +805,8 @@ class CinemaController(
         if (!loading || holdLoading) return
         loading = false
         updateSkipPrompt()
+        // Measuring the frame rate borrows the speed; give the viewer's choice back.
+        player?.let { if (it.playbackParameters.speed != SPEEDS[speedIndex]) it.setPlaybackSpeed(SPEEDS[speedIndex]) }
         loadingCard.animate().alpha(0f).setDuration(320).withLayer()
             .withEndAction { loadingCard.visibility = View.GONE }
             .start()
@@ -889,9 +915,9 @@ class CinemaController(
         }
         rows.getOrNull(target)?.let {
             it.requestFocus()
-            // Land already highlighted instead of growing into place on every rebuild.
-            it.stateListAnimator?.jumpToCurrentState()
+            // Land already highlighted instead of fading into place on every rebuild.
             it.jumpDrawablesToCurrentState()
+            scrollRowToTop(it)
         }
     }
 
@@ -1278,6 +1304,12 @@ class CinemaController(
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
             skipPrompt.refresh()
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            if (!loading && SPEEDS[speedIndex] != 1f && playbackParameters.speed == 1f) {
+                onSpeedNeedsDecodedAudio?.invoke(SPEEDS[speedIndex])
+            }
         }
 
         override fun onTracksChanged(tracks: Tracks) {
