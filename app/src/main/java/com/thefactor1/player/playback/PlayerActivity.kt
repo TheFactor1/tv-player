@@ -31,6 +31,7 @@ import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
+import com.thefactor1.player.ui.CinemaController
 
 /**
  * Plays one stream handed over by another app, then returns the watched position to it.
@@ -42,6 +43,8 @@ class PlayerActivity : Activity() {
     private lateinit var playerView: PlayerView
     private lateinit var switcher: DisplayModeSwitcher
     private lateinit var stats: StatsOverlay
+    private lateinit var prefs: PlayerPrefs
+    private lateinit var controller: CinemaController
     private var player: ExoPlayer? = null
     private var request: LaunchRequest? = null
 
@@ -64,6 +67,8 @@ class PlayerActivity : Activity() {
         playerView = findViewById(R.id.player_view)
         switcher = DisplayModeSwitcher(this)
         stats = StatsOverlay(findViewById<TextView>(R.id.stats_overlay), switcher)
+        prefs = PlayerPrefs(this)
+        controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
         hideSystemBars()
         if (!loadRequest(intent)) return
         savedInstanceState?.getLong(STATE_POSITION, C.TIME_UNSET)?.let { resumePositionMs = it }
@@ -75,6 +80,7 @@ class PlayerActivity : Activity() {
         releasePlayer()
         resumePositionMs = C.TIME_UNSET
         completed = false
+        controller.showLoading()
         if (loadRequest(intent)) initializePlayer()
     }
 
@@ -99,6 +105,7 @@ class PlayerActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == LONG_PRESS_REPEATS) {
                     longPressConsumed = true
+                    controller.cancelPendingPress()
                     stats.toggle()
                 }
                 if (longPressConsumed) {
@@ -107,6 +114,7 @@ class PlayerActivity : Activity() {
                 }
             }
         }
+        if (controller.handleKey(event)) return true
         return super.dispatchKeyEvent(event)
     }
 
@@ -168,6 +176,7 @@ class PlayerActivity : Activity() {
 
         exo.addListener(listener)
         stats.attach(exo)
+        controller.attach(exo, req.title, sourceAppName())
         playerView.player = exo
         player = exo
 
@@ -201,6 +210,7 @@ class PlayerActivity : Activity() {
         stopMeasuring(exo)
         exo.removeListener(listener)
         stats.detach()
+        controller.detach()
         playerView.player = null
         exo.release()
         player = null
@@ -210,6 +220,20 @@ class PlayerActivity : Activity() {
         lastPositionMs = exo.currentPosition
         if (exo.duration != C.TIME_UNSET) lastDurationMs = exo.duration
     }
+
+    /** The label of the app that opened us, e.g. "Stremio", for the info bar and loading card. */
+    private fun sourceAppName(): String? {
+        val pkg = referrer?.takeIf { it.scheme == "android-app" }?.host ?: callingPackage ?: return null
+        if (pkg == packageName) return null
+        return try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun formatRate(rate: Float): String =
+        String.format(java.util.Locale.US, "%.3f", rate).trimEnd('0').trimEnd('.')
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -226,11 +250,16 @@ class PlayerActivity : Activity() {
     private fun matchDisplayThenPlay(frameRate: Float, hasVideo: Boolean) {
         if (!awaitingDisplayMatch) return
         awaitingDisplayMatch = false
+        if (!prefs.matchFrameRate) {
+            player?.playWhenReady = true
+            return
+        }
         if (frameRate <= 0f && hasVideo) {
             player?.let { startMeasuring(it) }
             player?.playWhenReady = true
             return
         }
+        if (switcher.wouldSwitch(frameRate)) controller.setLoadingLine(getString(R.string.loading_matching, formatRate(frameRate)))
         switcher.matchFrameRate(frameRate) { player?.playWhenReady = true }
     }
 
@@ -288,11 +317,7 @@ class PlayerActivity : Activity() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            Toast.makeText(
-                this@PlayerActivity,
-                getString(R.string.error_playback, error.errorCodeName),
-                Toast.LENGTH_LONG,
-            ).show()
+            controller.showError(getString(R.string.error_playback, error.errorCodeName))
         }
     }
 

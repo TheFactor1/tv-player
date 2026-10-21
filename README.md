@@ -8,16 +8,19 @@ Distributed as a sideloaded APK.
 
 ## Status
 
-Step 2 of 4. The app registers as an external player, accepts the stream, title, start position,
+Step 3 of 4. The app registers as an external player, accepts the stream, title, start position,
 HTTP headers and subtitles from the source app, and returns the position on exit. It bitstreams Dolby
 and DTS audio when the TV or receiver supports it, decodes the rest with FFmpeg, switches the display
 to the video's frame rate before the first frame, and has a stats overlay (long-press OK, or Info).
+The Cinema controls are remote-first: with controls hidden, OK pauses, Left/Right skip 10 s back /
+30 s forward, Up shows the controls, Down opens subtitles, and Back twice exits. Side panels pick
+audio and subtitle tracks, subtitle size, picture mode and frame-rate matching.
 
 | Step | Scope |
 | --- | --- |
 | 1 | Project skeleton and handoff from Stremio/Nuvio |
-| 2 | Dolby Vision / HDR10+ / Atmos / DTS passthrough, FFmpeg audio fallback, frame-rate matching, stats overlay (this) |
-| 3 | Cinema-style remote-first controls, track panels, subtitle styling |
+| 2 | Dolby Vision / HDR10+ / Atmos / DTS passthrough, FFmpeg audio fallback, frame-rate matching, stats overlay |
+| 3 | Cinema-style remote-first controls, track panels, subtitle styling (this) |
 | 4 | Buffer tuning for 4K remuxes, device testing, signed release |
 
 ## Install

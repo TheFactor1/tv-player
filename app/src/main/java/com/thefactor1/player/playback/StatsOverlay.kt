@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
+import com.thefactor1.player.ui.FormatNames
 import java.util.Locale
 
 /**
@@ -107,7 +108,7 @@ class StatsOverlay(
         val rows = mutableListOf<Pair<String, String>>()
 
         if (video != null) {
-            rows += "Video" to listOfNotNull(codecName(video.sampleMimeType), video.codecs).joinToString(" · ")
+            rows += "Video" to listOfNotNull(FormatNames.codec(video.sampleMimeType), video.codecs).joinToString(" · ")
             videoDecoder?.let { rows += "Decoder" to it }
             val fps = when {
                 video.frameRate > 0 -> " · ${rate(video.frameRate)} fps"
@@ -119,9 +120,8 @@ class StatsOverlay(
         }
         rows += "Display" to "${mode.physicalWidth}×${mode.physicalHeight} @ ${rate(mode.refreshRate)} Hz"
         if (audio != null) {
-            val channels = if (audio.channelCount > 0) " ${channelLayout(audio.channelCount)}" else ""
-            rows += "Audio" to "${codecName(audio.sampleMimeType)}$channels · ${audioOutput()}"
-            audio.language?.let { rows += "Language" to it }
+            rows += "Audio" to "${FormatNames.audioDetail(audio)} · ${audioOutput()}"
+            FormatNames.language(audio)?.let { rows += "Language" to it }
         }
         val bitrate = video?.bitrate?.takeIf { it > 0 } ?: video?.averageBitrate?.takeIf { it > 0 }
         if (bitrate != null) rows += "Bitrate" to String.format(Locale.US, "%.1f Mbps", bitrate / 1_000_000f)
@@ -148,25 +148,6 @@ class StatsOverlay(
         }
     }
 
-    private fun codecName(mime: String?): String = when (mime) {
-        MimeTypes.VIDEO_H265 -> "HEVC"
-        MimeTypes.VIDEO_H264 -> "H.264"
-        MimeTypes.VIDEO_AV1 -> "AV1"
-        MimeTypes.VIDEO_VP9 -> "VP9"
-        MimeTypes.VIDEO_DOLBY_VISION -> "Dolby Vision"
-        MimeTypes.AUDIO_TRUEHD -> "TrueHD"
-        MimeTypes.AUDIO_E_AC3_JOC -> "DD+ Atmos"
-        MimeTypes.AUDIO_E_AC3 -> "Dolby Digital+"
-        MimeTypes.AUDIO_AC3 -> "Dolby Digital"
-        MimeTypes.AUDIO_DTS -> "DTS"
-        MimeTypes.AUDIO_DTS_HD -> "DTS-HD"
-        MimeTypes.AUDIO_DTS_X -> "DTS:X"
-        MimeTypes.AUDIO_AAC -> "AAC"
-        MimeTypes.AUDIO_OPUS -> "Opus"
-        MimeTypes.AUDIO_FLAC -> "FLAC"
-        else -> mime?.substringAfter('/')?.uppercase(Locale.US) ?: "unknown"
-    }
-
     private fun encodingName(encoding: Int): String = when (encoding) {
         C.ENCODING_AC3 -> "Dolby Digital"
         C.ENCODING_E_AC3 -> "Dolby Digital+"
@@ -176,14 +157,6 @@ class StatsOverlay(
         C.ENCODING_DTS_HD -> "DTS-HD"
         C.ENCODING_DTS_UHD_P2 -> "DTS:X"
         else -> "encoding $encoding"
-    }
-
-    private fun channelLayout(count: Int): String = when (count) {
-        1 -> "mono"
-        2 -> "stereo"
-        6 -> "5.1"
-        8 -> "7.1"
-        else -> "$count ch"
     }
 
     private fun rate(value: Float): String =

@@ -1,19 +1,263 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Step 1 uses Media3's stock controller; the Cinema overlay replaces it in step 3.
-     surface_type stays surface_view so HDR and Dolby Vision metadata reach the display untouched. -->
+<!-- One screen, layered: video, info bar, control bar, side panel, toast, stats, loading card.
+     The video stays on a SurfaceView so HDR and Dolby Vision metadata reach the display untouched. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black"
+    android:clipChildren="false"
     android:keepScreenOn="true">
 
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:show_buffering="when_playing"
-        app:surface_type="surface_view" />
+        android:focusable="false"
+        app:show_buffering="never"
+        app:surface_type="surface_view"
+        app:use_controller="false" />
+
+    <LinearLayout
+        android:id="@+id/info_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:alpha="0"
+        android:background="@drawable/scrim_top"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="56dp"
+        android:paddingTop="34dp"
+        android:paddingEnd="56dp"
+        android:paddingBottom="90dp"
+        android:visibility="invisible">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/ink"
+                android:textSize="26sp" />
+
+            <TextView
+                android:id="@+id/source"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:maxLines="1"
+                android:textColor="@color/ink_secondary"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/badges"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal" />
+
+        <TextView
+            android:id="@+id/clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="20dp"
+            android:fontFeatureSettings="tnum"
+            android:textColor="@color/ink"
+            android:textSize="18sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/control_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:alpha="0"
+        android:background="@drawable/scrim_bottom"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingStart="56dp"
+        android:paddingTop="110dp"
+        android:paddingEnd="56dp"
+        android:paddingBottom="40dp"
+        android:visibility="invisible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/elapsed"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFeatureSettings="tnum"
+                android:minWidth="76dp"
+                android:textColor="@color/ink"
+                android:textSize="16sp" />
+
+            <com.thefactor1.player.ui.SeekBarView
+                android:id="@+id/seek_bar"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="18dp"
+                android:layout_marginEnd="18dp"
+                android:layout_weight="1"
+                android:focusable="true"
+                android:nextFocusDown="@+id/btn_play" />
+
+            <TextView
+                android:id="@+id/remaining"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFeatureSettings="tnum"
+                android:gravity="end"
+                android:textColor="@color/ink_secondary"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/btn_play"
+                    style="@style/ControlButton"
+                    android:drawableStart="@drawable/ic_pause"
+                    android:nextFocusUp="@id/seek_bar"
+                    android:nextFocusLeft="@id/btn_play"
+                    android:text="@string/control_pause" />
+
+                <TextView
+                    android:id="@+id/btn_audio"
+                    style="@style/ControlButton"
+                    android:drawableStart="@drawable/ic_audio"
+                    android:nextFocusUp="@id/seek_bar"
+                    android:text="@string/control_audio" />
+
+                <TextView
+                    android:id="@+id/btn_subtitles"
+                    style="@style/ControlButton"
+                    android:drawableStart="@drawable/ic_subtitles"
+                    android:nextFocusUp="@id/seek_bar"
+                    android:text="@string/control_subtitles" />
+
+                <TextView
+                    android:id="@+id/btn_speed"
+                    style="@style/ControlButton"
+                    android:drawableStart="@drawable/ic_speed"
+                    android:nextFocusUp="@id/seek_bar"
+                    android:text="@string/control_speed" />
+
+                <TextView
+                    android:id="@+id/btn_picture"
+                    style="@style/ControlButton"
+                    android:drawableStart="@drawable/ic_picture"
+                    android:nextFocusUp="@id/seek_bar"
+                    android:text="@string/control_picture" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/btn_more"
+                style="@style/ControlButton"
+                android:layout_marginEnd="0dp"
+                android:drawableStart="@drawable/ic_more"
+                android:nextFocusRight="@id/btn_more"
+                android:nextFocusUp="@id/seek_bar"
+                android:text="@string/control_more" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/side_panel"
+        android:layout_width="420dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@color/panel_ground"
+        android:orientation="vertical"
+        android:paddingStart="28dp"
+        android:paddingTop="56dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="40dp"
+        android:visibility="invisible">
+
+        <TextView
+            android:id="@+id/panel_kicker"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:letterSpacing="0.1"
+            android:textColor="@color/accent"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/panel_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="14dp"
+            android:textColor="@color/ink"
+            android:textSize="26sp" />
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:fadingEdgeLength="24dp"
+            android:requiresFadingEdge="vertical"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/panel_items"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipChildren="false"
+                android:orientation="vertical"
+                android:padding="4dp" />
+        </ScrollView>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/center_toast"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:alpha="0"
+        android:background="@drawable/toast_bg"
+        android:paddingStart="26dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="26dp"
+        android:paddingBottom="14dp"
+        android:textColor="@color/ink"
+        android:textSize="26sp"
+        android:visibility="invisible" />
 
     <TextView
         android:id="@+id/stats_overlay"
@@ -28,4 +272,49 @@
         android:textColor="#D7DBE0"
         android:textSize="13sp"
         android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/loading_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/loading_ground"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <ProgressBar
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/accent" />
+
+        <TextView
+            android:id="@+id/loading_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:ellipsize="end"
+            android:maxWidth="900dp"
+            android:maxLines="1"
+            android:textColor="@color/ink"
+            android:textSize="28sp" />
+
+        <TextView
+            android:id="@+id/loading_line"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:maxWidth="900dp"
+            android:text="@string/loading_connecting"
+            android:textColor="#A9AFB8"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/loading_source"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:textColor="#6F7680"
+            android:textSize="13sp" />
+    </LinearLayout>
 </FrameLayout>
