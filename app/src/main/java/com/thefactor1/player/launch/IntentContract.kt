@@ -17,6 +17,17 @@ object IntentContract {
     const val EXTRA_SUBS_ENABLE = "subs.enable"
     const val EXTRA_RETURN_RESULT = "return_result"
     const val EXTRA_END_BY = "end_by"
+    const val EXTRA_FILENAME = "filename"
+
+    /** VLC's "ignore any saved position" switch. */
+    const val EXTRA_FROM_START = "from_start"
+
+    /** Vimu's start position, in ms. */
+    const val EXTRA_START_FROM = "startfrom"
+
+    /** VLC's result keys, as Longs. Apps written against VLC read these instead of [EXTRA_POSITION]. */
+    const val EXTRA_VLC_POSITION = "extra_position"
+    const val EXTRA_VLC_DURATION = "extra_duration"
 
     /** Android's own header bundle, used by some apps instead of [EXTRA_HEADERS]. */
     const val EXTRA_HTTP_HEADERS_BUNDLE = "android.media.intent.extra.HTTP_HEADERS"
@@ -61,10 +72,16 @@ object IntentContract {
         }
     }
 
-    /** A positive start position in milliseconds, from either an Int or a Long extra. */
+    /**
+     * A positive time in milliseconds. Apps disagree on the type, so Int, Long, Double and
+     * numeric Strings are all accepted; anything else is 0.
+     */
     fun positionFrom(value: Any?): Long = when (value) {
         is Int -> value.toLong()
         is Long -> value
+        is Float -> value.toLong()
+        is Double -> value.toLong()
+        is String -> value.trim().toDoubleOrNull()?.toLong() ?: 0L
         else -> 0L
     }.coerceAtLeast(0L)
 }

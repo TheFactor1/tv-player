@@ -50,7 +50,9 @@ class IntentContractTest {
         assertEquals(42_000L, IntentContract.positionFrom(42_000))
         assertEquals(5_000_000_000L, IntentContract.positionFrom(5_000_000_000L))
         assertEquals(0L, IntentContract.positionFrom(-5))
-        assertEquals(0L, IntentContract.positionFrom("12"))
+        assertEquals(12L, IntentContract.positionFrom("12"))
+        assertEquals(1_500L, IntentContract.positionFrom(1_500.7))
+        assertEquals(0L, IntentContract.positionFrom("soon"))
         assertEquals(0L, IntentContract.positionFrom(null))
     }
 }

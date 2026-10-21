@@ -116,4 +116,9 @@
     <string name="subs_find_source">OpenSubtitles · #%1$d</string>
     <string name="language_unknown">Unknown language</string>
     <string name="subs_adding">Adding subtitles</string>
+    <string name="resume_from_app">Resumed at %1$s</string>
+    <string name="resume_from_memory">Resumed at %1$s, where you left off</string>
+    <string name="resume_key_ok">OK</string>
+    <string name="resume_start_over">Start over</string>
+    <string name="resume_starting_over">Starting over</string>
 </resources>
