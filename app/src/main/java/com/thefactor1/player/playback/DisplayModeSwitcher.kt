@@ -48,7 +48,7 @@ class DisplayModeSwitcher(private val activity: Activity) {
         }
     }
 
-    private val finishSwitch = Runnable {
+    private val finishSwitch: Runnable = Runnable {
         displayManager.unregisterDisplayListener(listener)
         handler.removeCallbacksAndMessages(null)
         val ready = onReady ?: return@Runnable
@@ -57,7 +57,7 @@ class DisplayModeSwitcher(private val activity: Activity) {
         handler.postDelayed(ready, SETTLE_MS)
     }
 
-    private val listener = object : DisplayManager.DisplayListener {
+    private val listener: DisplayManager.DisplayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayChanged(displayId: Int) {
             if (displayId == display().displayId && display().mode.modeId == targetModeId) finishSwitch.run()
         }
