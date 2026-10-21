@@ -293,7 +293,7 @@ class CinemaController(
             else -> {
                 // A stray Back mid-film shouldn't drop you out; ask for a second press.
                 exitArmedAt = SystemClock.uptimeMillis()
-                showToast(activity.getString(R.string.toast_back_to_exit))
+                showToast(activity.getString(R.string.toast_back_to_exit), EXIT_CONFIRM_MS)
             }
         }
     }
@@ -424,7 +424,7 @@ class CinemaController(
         return if (speed == 1f) "1×" else "${speed.toString().trimEnd('0').trimEnd('.')}×"
     }
 
-    private fun showToast(text: String) {
+    private fun showToast(text: String, durationMs: Long = TOAST_MS) {
         toast.text = text
         toast.animate().cancel()
         if (toast.visibility != View.VISIBLE) {
@@ -435,7 +435,7 @@ class CinemaController(
         }
         toast.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180).setInterpolator(easeOut).start()
         handler.removeCallbacks(hideToast)
-        handler.postDelayed(hideToast, TOAST_MS)
+        handler.postDelayed(hideToast, durationMs)
     }
 
     private val hideToast = Runnable {
