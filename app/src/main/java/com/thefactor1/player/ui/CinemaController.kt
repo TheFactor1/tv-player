@@ -189,10 +189,11 @@ class CinemaController(
         }
         if (event.action != KeyEvent.ACTION_DOWN) return false
 
-        if (loading) {
-            if (code == KeyEvent.KEYCODE_BACK) onExit()
-            return swallow(code, isRemoteKey(code))
+        if (code == KeyEvent.KEYCODE_BACK) {
+            if (event.repeatCount == 0) onBack()
+            return swallow(code)
         }
+        if (loading) return swallow(code, isRemoteKey(code))
 
         when (code) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
@@ -226,11 +227,6 @@ class CinemaController(
             code == KeyEvent.KEYCODE_DPAD_UP -> showControls(playButton)
             code == KeyEvent.KEYCODE_DPAD_DOWN -> openPanel(Panel.SUBTITLES, subtitlesButton)
             code == KeyEvent.KEYCODE_MENU -> openPanel(Panel.MORE, moreButton)
-            code == KeyEvent.KEYCODE_BACK -> {
-                exitArmedUntil = SystemClock.uptimeMillis() + EXIT_WINDOW_MS
-                showToast(activity.getString(R.string.toast_back_again))
-                showControls(playButton)
-            }
             else -> return false
         }
         return swallow(code)
@@ -239,7 +235,6 @@ class CinemaController(
     private fun handleVisibleKey(code: Int): Boolean {
         scheduleHide()
         when (code) {
-            KeyEvent.KEYCODE_BACK -> if (SystemClock.uptimeMillis() < exitArmedUntil) onExit() else hideControls()
             KeyEvent.KEYCODE_MENU -> openPanel(Panel.MORE, moreButton)
             // Everything else is focus movement and clicks, which the views handle themselves.
             else -> return false
@@ -248,9 +243,26 @@ class CinemaController(
     }
 
     private fun handlePanelKey(code: Int): Boolean = when (code) {
-        KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_DPAD_LEFT -> swallow(code).also { closePanel(showControlsAfter = true) }
+        KeyEvent.KEYCODE_DPAD_LEFT -> swallow(code).also { closePanel(showControlsAfter = true) }
         KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MENU -> swallow(code)
         else -> false
+    }
+
+    /**
+     * Back, from the key or from Android's back callback: closes a panel, otherwise the first press
+     * shows the controls and a second press within two seconds exits. While loading it exits at once.
+     */
+    fun onBack() {
+        when {
+            loading -> onExit()
+            panel != null -> closePanel(showControlsAfter = true)
+            SystemClock.uptimeMillis() < exitArmedUntil -> onExit()
+            else -> {
+                exitArmedUntil = SystemClock.uptimeMillis() + EXIT_WINDOW_MS
+                showToast(activity.getString(R.string.toast_back_again))
+                showControls(playButton)
+            }
+        }
     }
 
     private fun swallow(code: Int, swallowIt: Boolean = true): Boolean {

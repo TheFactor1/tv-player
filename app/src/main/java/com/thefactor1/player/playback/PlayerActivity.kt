@@ -2,12 +2,14 @@ package com.thefactor1.player.playback
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.widget.TextView
 import android.widget.Toast
+import android.window.OnBackInvokedDispatcher
 import androidx.annotation.OptIn
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -69,6 +71,12 @@ class PlayerActivity : Activity() {
         stats = StatsOverlay(findViewById<TextView>(R.id.stats_overlay), switcher)
         prefs = PlayerPrefs(this)
         controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
+        // Android 13+ delivers Back through this callback instead of as a key event.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
+                controller.onBack()
+            }
+        }
         hideSystemBars()
         if (!loadRequest(intent)) return
         savedInstanceState?.getLong(STATE_POSITION, C.TIME_UNSET)?.let { resumePositionMs = it }
