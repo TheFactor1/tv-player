@@ -38,7 +38,8 @@ import kotlin.math.abs
  * and picture. Nothing is drawn over the video unless asked for, and nothing updates while hidden.
  *
  * Remote, with controls hidden: OK pauses, Left/Right skip 10 s back / 30 s forward, Up shows the
- * controls, Down opens subtitles, Back shows the controls (and a second Back exits), Menu opens More.
+ * controls, Down opens subtitles, Back returns to the source app, Menu opens More. Back with
+ * controls or a panel showing closes them.
  */
 @OptIn(UnstableApi::class)
 class CinemaController(
@@ -99,7 +100,6 @@ class CinemaController(
     // Keys handled on press have their release swallowed too, so nothing behind them reacts.
     private var swallowReleaseOf = KeyEvent.KEYCODE_UNKNOWN
     private var centerPressedWhileHidden = false
-    private var exitArmedUntil = 0L
     private var skipTotalMs = 0L
     private var skipShownUntil = 0L
     private var speedIndex = 0
@@ -249,19 +249,15 @@ class CinemaController(
     }
 
     /**
-     * Back, from the key or from Android's back callback: closes a panel, otherwise the first press
-     * shows the controls and a second press within two seconds exits. While loading it exits at once.
+     * Back, from the key or from Android's back callback: closes whatever is on screen (a panel or
+     * the controls); with nothing showing, or while loading, it returns to the source app.
      */
     fun onBack() {
         when {
             loading -> onExit()
-            panel != null -> closePanel(showControlsAfter = true)
-            SystemClock.uptimeMillis() < exitArmedUntil -> onExit()
-            else -> {
-                exitArmedUntil = SystemClock.uptimeMillis() + EXIT_WINDOW_MS
-                showToast(activity.getString(R.string.toast_back_again))
-                showControls(playButton)
-            }
+            panel != null -> closePanel(showControlsAfter = false)
+            controlsVisible -> hideControls()
+            else -> onExit()
         }
     }
 
@@ -704,7 +700,6 @@ class CinemaController(
         const val AUTO_HIDE_MS = 4_000L
         const val PROGRESS_MS = 500L
         const val TOAST_MS = 800L
-        const val EXIT_WINDOW_MS = 2_000L
         const val SHOW_MS = 240L
         const val HIDE_MS = 220L
         const val PANEL_MS = 320L

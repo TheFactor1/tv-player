@@ -13,7 +13,8 @@ HTTP headers and subtitles from the source app, and returns the position on exit
 and DTS audio when the TV or receiver supports it, decodes the rest with FFmpeg, switches the display
 to the video's frame rate before the first frame, and has a stats overlay (long-press OK, or Info).
 The Cinema controls are remote-first: with controls hidden, OK pauses, Left/Right skip 10 s back /
-30 s forward, Up shows the controls, Down opens subtitles, and Back twice exits. Side panels pick
+30 s forward, Up shows the controls, Down opens subtitles, and Back closes the controls or panel, or
+returns to the source app when nothing is showing. Side panels pick
 audio and subtitle tracks, subtitle size, picture mode and frame-rate matching.
 
 | Step | Scope |

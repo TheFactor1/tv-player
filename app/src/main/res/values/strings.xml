@@ -18,7 +18,6 @@
     <string name="ends_at">ends %1$s</string>
     <string name="toast_paused">Paused</string>
     <string name="toast_playing">Playing</string>
-    <string name="toast_back_again">Press Back again to exit</string>
     <string name="panel_audio">Audio track</string>
     <string name="panel_subtitles">Subtitles</string>
     <string name="panel_picture">Picture</string>
