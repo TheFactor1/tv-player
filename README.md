@@ -49,13 +49,35 @@ Follows the MX Player / Just Player convention.
 | --- | --- | --- |
 | data URI | `Uri` | The stream (`http`, `https`, `file`, `content`) |
 | `title` | String | Shown in the player |
-| `position` | int or long, ms | Start position |
+| `position` | int, long or numeric string, ms | Start position (`startfrom`, Vimu's key, also works) |
+| `from_start` | boolean | Ignore any saved position (VLC's switch) |
+| `duration` / `extra_duration` | int or long, ms | Length, if the app already knows it |
+| `filename` | String | Release file name, used to recognise the title |
 | `headers` | String[] | `key, value, key, value` sent with every request |
 | `android.media.intent.extra.HTTP_HEADERS` | Bundle | Alternative header form |
 | `subs` / `subs.name` / `subs.filename` / `subs.enable` | Uri[] / String[] / String[] / Uri[] | External subtitles |
 
-On exit the result intent (`com.mxtech.intent.result.VIEW`) carries `position` (only if stopped early),
-`duration` and `end_by` (`user` or `playback_completion`).
+On exit the result intent (`com.mxtech.intent.result.VIEW`, with the stream as its data) carries
+both result styles apps copy: MX Player's Int `position` and `duration` with `end_by` (`user` or
+`playback_completion`), and VLC's Long `extra_position` and `extra_duration`. A finished video reports
+its full length as the position, because some apps drop a result without one.
+
+The player is `singleTop`, not `singleTask`: Android cancels a `startActivityForResult` into a
+`singleTask` activity straight away, and the source app would never see the position.
+
+## Resume
+
+The source app's position always wins. When it sends none, the player uses its own memory of the
+title, kept on the device and saved every 10 s and on exit. A position is filed under several keys,
+strongest first: the stream URL without its token, an IMDb id (with season and episode) if one
+appears in the extras or URL, the title the app sent, and the release name in the file. So a
+different addon, debrid link or release of the same episode still resumes. A remembered position is
+dropped if the new stream's length differs by more than 5% (at least a minute), so a different cut
+or episode starts from the top. Positions under 30 s, and anything within the last 8% or final
+minute, are forgotten.
+
+After a resume a note shows "Resumed at 42:10" for a few seconds; OK starts over, any other key
+dismisses it.
 
 ## Build locally
 
