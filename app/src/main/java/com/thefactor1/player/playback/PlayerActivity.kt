@@ -40,8 +40,13 @@ import com.thefactor1.player.launch.IntentContract
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
 import com.thefactor1.player.launch.ReleaseName
+import com.thefactor1.player.resume.ResumePolicy
+import com.thefactor1.player.resume.ResumeStore
+import com.thefactor1.player.resume.TitleKeys
 import com.thefactor1.player.ui.CinemaController
 import com.thefactor1.player.ui.FormatNames
+import com.thefactor1.player.ui.Fonts
+import com.thefactor1.player.ui.ResumeChip
 import java.util.Locale
 
 /**
@@ -56,8 +61,18 @@ class PlayerActivity : Activity() {
     private lateinit var stats: StatsOverlay
     private lateinit var prefs: PlayerPrefs
     private lateinit var controller: CinemaController
+    private lateinit var resumeStore: ResumeStore
+    private lateinit var resumeChip: ResumeChip
     private var player: ExoPlayer? = null
     private var request: LaunchRequest? = null
+
+    // Where this title starts, the keys its position is saved under, and the saved entry used.
+    private var titleKeys: List<String> = emptyList()
+    private var start = ResumePolicy.Start(0L, ResumePolicy.Source.NONE)
+    private var savedEntry: ResumeStore.Entry? = null
+    private var startChecked = false
+    private var chipShown = false
+    private var chipTookOk = false
 
     // Survive onStop/onStart (e.g. the home button) without restarting from the beginning.
     private var resumePositionMs = C.TIME_UNSET
@@ -84,7 +99,9 @@ class PlayerActivity : Activity() {
         switcher = DisplayModeSwitcher(this)
         stats = StatsOverlay(findViewById<TextView>(R.id.stats_overlay), switcher)
         prefs = PlayerPrefs(this)
+        resumeStore = ResumeStore(this)
         controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
+        resumeChip = ResumeChip(this, Fonts(this))
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
         controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
@@ -130,6 +147,7 @@ class PlayerActivity : Activity() {
 
     /** Long-press OK, or the Info key, toggles the stats overlay; everything else goes to the controls. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (handleResumeChipKey(event)) return true
         when (event.keyCode) {
             KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_I -> {
                 if (event.action == KeyEvent.ACTION_UP) stats.toggle()
@@ -153,26 +171,122 @@ class PlayerActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putLong(STATE_POSITION, player?.currentPosition ?: resumePositionMs)
+        outState.putLong(STATE_POSITION, player?.let { playbackPosition(it) } ?: resumePositionMs)
     }
 
     override fun finish() {
         player?.let { capturePosition(it) }
-        if (request != null) {
-            setResult(RESULT_OK, PlaybackResult.build(lastPositionMs, lastDurationMs, completed))
+        request?.let { req ->
+            val duration = lastDurationMs.takeIf { it > 0 } ?: req.durationHintMs
+            rememberPosition()
+            setResult(RESULT_OK, PlaybackResult.build(req.uri, lastPositionMs, duration, completed))
         }
         super.finish()
     }
 
     private fun loadRequest(intent: Intent): Boolean {
-        request = LaunchRequest.from(intent)
-        if (request == null) {
+        val req = LaunchRequest.from(intent)
+        request = req
+        if (req == null) {
             Toast.makeText(this, R.string.error_no_stream, Toast.LENGTH_LONG).show()
             setResult(RESULT_CANCELED)
             super.finish()
             return false
         }
+        titleKeys = TitleKeys.from(req.title, req.fileName, req.uri.toString(), req.textExtras)
+        savedEntry = resumeStore.find(titleKeys)
+        start = ResumePolicy.start(req.startPositionMs, req.fromStart, savedEntry)
+        startChecked = false
+        chipShown = false
         return true
+    }
+
+    /** Files the current position under every key for this title, or forgets it once watched. */
+    private fun rememberPosition() {
+        if (titleKeys.isEmpty()) return
+        val duration = lastDurationMs.takeIf { it > 0 }
+            ?: request?.durationHintMs?.takeIf { it > 0 }
+            ?: savedEntry?.durationMs
+            ?: 0L
+        if (ResumePolicy.shouldForget(lastPositionMs, duration, completed)) {
+            resumeStore.forget(titleKeys)
+        } else {
+            resumeStore.save(titleKeys, lastPositionMs, duration)
+        }
+    }
+
+    // Saved every few seconds as well as on exit, so a crash or a pulled plug loses little.
+    private val saveTick = object : Runnable {
+        override fun run() {
+            val exo = player ?: return
+            if (exo.isPlaying && !measuring) {
+                capturePosition(exo)
+                rememberPosition()
+            }
+            mainHandler.postDelayed(this, SAVE_EVERY_MS)
+        }
+    }
+
+    /**
+     * Once the stream's length is known, checks the start fits it. A position remembered from
+     * another stream of a different length (another cut, a mismatched episode) or one past the
+     * end (an app sending another unit) starts from the top instead.
+     */
+    private fun checkStart(exo: ExoPlayer) {
+        if (startChecked || exo.duration == C.TIME_UNSET) return
+        startChecked = true
+        if (start.source == ResumePolicy.Source.NONE) return
+        val duration = exo.duration
+        val saved = savedEntry
+        val pastEnd = start.positionMs >= duration - END_MARGIN_MS
+        val wrongStream = start.source == ResumePolicy.Source.LOCAL && saved != null &&
+            (!ResumePolicy.sameLength(saved.durationMs, duration) || ResumePolicy.isWatched(start.positionMs, duration))
+        if (pastEnd || wrongStream) startOverInstead(exo)
+    }
+
+    private fun startOverInstead(exo: ExoPlayer) {
+        start = ResumePolicy.Start(0L, ResumePolicy.Source.NONE)
+        restartFromBeginning(exo)
+    }
+
+    private fun restartFromBeginning(exo: ExoPlayer) {
+        // While the frame rate is measured, the measurement returns to measureStartMs when done.
+        if (measuring) measureStartMs = 0L else exo.seekTo(0L)
+    }
+
+    /** Once per launch, a few moments after the picture appears, says where playback resumed. */
+    private fun maybeShowResumeChip(exo: ExoPlayer) {
+        if (chipShown || measuring || start.source == ResumePolicy.Source.NONE) return
+        if (start.positionMs < ResumePolicy.MIN_RESUME_MS) return
+        chipShown = true
+        val time = ResumeChip.formatTime(start.positionMs)
+        val text = if (start.source == ResumePolicy.Source.LOCAL) {
+            getString(R.string.resume_from_memory, time)
+        } else {
+            getString(R.string.resume_from_app, time)
+        }
+        mainHandler.postDelayed({ if (player === exo && exo.isPlaying) resumeChip.show(text) }, CHIP_DELAY_MS)
+    }
+
+    /** OK while the chip shows starts over; any other key puts the chip away and carries on. */
+    private fun handleResumeChipKey(event: KeyEvent): Boolean {
+        val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
+        if (chipTookOk && isOk) {
+            if (event.action == KeyEvent.ACTION_UP) chipTookOk = false
+            return true
+        }
+        if (!resumeChip.isShowing) return false
+        if (!isOk) {
+            if (event.action == KeyEvent.ACTION_DOWN) resumeChip.hide()
+            return false
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            chipTookOk = true
+            player?.let { restartFromBeginning(it) }
+            resumeChip.confirm(getString(R.string.resume_starting_over))
+            return true
+        }
+        return false
     }
 
     private fun initializePlayer() {
@@ -215,11 +329,14 @@ class PlayerActivity : Activity() {
         playerView.player = exo
         player = exo
 
-        val start = if (resumePositionMs != C.TIME_UNSET) resumePositionMs else req.startPositionMs
-        exo.setMediaItem(buildMediaItem(req), start)
+        // A rebuilt player (fallback, retry, coming back from Home) carries on where the last one was.
+        val startAt = if (resumePositionMs != C.TIME_UNSET) resumePositionMs else start.positionMs
+        exo.setMediaItem(buildMediaItem(req), startAt)
         awaitingDisplayMatch = true
         exo.playWhenReady = false
         exo.prepare()
+        mainHandler.removeCallbacks(saveTick)
+        mainHandler.postDelayed(saveTick, SAVE_EVERY_MS)
     }
 
     private fun buildMediaItem(req: LaunchRequest): MediaItem {
@@ -241,7 +358,9 @@ class PlayerActivity : Activity() {
     private fun releasePlayer() {
         val exo = player ?: return
         capturePosition(exo)
-        resumePositionMs = exo.currentPosition
+        resumePositionMs = lastPositionMs
+        if (request != null) rememberPosition()
+        resumeChip.hide()
         stopMeasuring(exo)
         exo.removeListener(listener)
         stats.detach()
@@ -252,9 +371,12 @@ class PlayerActivity : Activity() {
     }
 
     private fun capturePosition(exo: ExoPlayer) {
-        lastPositionMs = exo.currentPosition
+        lastPositionMs = playbackPosition(exo)
         if (exo.duration != C.TIME_UNSET) lastDurationMs = exo.duration
     }
+
+    /** The viewer's position; while the frame rate is measured, the spot it will return to. */
+    private fun playbackPosition(exo: ExoPlayer): Long = if (measuring) measureStartMs else exo.currentPosition
 
     /** Tries the next fallback for [error], or shows the error card when none is left. */
     private fun handleFailure(error: PlaybackException) {
@@ -523,10 +645,18 @@ class PlayerActivity : Activity() {
         override fun onPlaybackStateChanged(state: Int) {
             // Some streams report no tracks before they are ready; never hold playback for them.
             if (state == Player.STATE_READY) {
+                player?.let { checkStart(it) }
                 val video = player?.videoFormat
                 matchDisplayThenPlay(video?.frameRate ?: -1f, hasVideo = video != null)
             }
             if (state == Player.STATE_ENDED) {
+                // A start past the end can finish before the length is ever known.
+                val exo = player
+                if (!startChecked && start.positionMs > 0 && exo != null) {
+                    startChecked = true
+                    startOverInstead(exo)
+                    return
+                }
                 completed = true
                 finish()
             }
@@ -535,6 +665,7 @@ class PlayerActivity : Activity() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             // A stream that plays again has earned a fresh set of network retries.
             if (isPlaying && tried.networkRetries > 0) tried = tried.copy(networkRetries = 0)
+            if (isPlaying) player?.let { maybeShowResumeChip(it) }
         }
 
         override fun onPlayerError(error: PlaybackException) = handleFailure(error)
@@ -545,6 +676,10 @@ class PlayerActivity : Activity() {
 
         // Key repeats arrive about every 50 ms after a 500 ms delay; one repeat marks a long press.
         const val LONG_PRESS_REPEATS = 1
+
+        const val SAVE_EVERY_MS = 10_000L
+        const val END_MARGIN_MS = 5_000L
+        const val CHIP_DELAY_MS = 700L
 
         const val MEASURE_SPEED = 2f
         const val MEASURE_TIMEOUT_MS = 6_000L
