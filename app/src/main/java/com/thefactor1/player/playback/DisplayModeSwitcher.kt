@@ -80,6 +80,6 @@ class DisplayModeSwitcher(private val activity: Activity) {
 
     private companion object {
         const val SWITCH_TIMEOUT_MS = 4_000L
-        const val SETTLE_MS = 500L
+        const val SETTLE_MS = 1_200L
     }
 }

@@ -27,6 +27,7 @@
     <string name="control_picture">Picture</string>
     <string name="control_more">More</string>
     <string name="loading_connecting">Connecting to stream</string>
+    <string name="loading_measuring">Checking frame rate</string>
     <string name="loading_matching">Matching display to %1$s Hz</string>
     <string name="loading_source">Opened from %1$s · Back to cancel</string>
     <string name="source_from">From %1$s</string>

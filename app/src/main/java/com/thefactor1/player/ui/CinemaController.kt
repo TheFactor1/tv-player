@@ -453,8 +453,18 @@ class CinemaController(
         toast.animate().alpha(0f).setDuration(220).withEndAction { toast.visibility = View.INVISIBLE }.start()
     }
 
+    /**
+     * While held, the loading card stays up even once frames play, so the player can measure the
+     * frame rate and switch the display out of sight.
+     */
+    var holdLoading = false
+        set(value) {
+            field = value
+            if (!value && loading && firstFrameRendered && player?.isPlaying == true) hideLoading()
+        }
+
     private fun hideLoading() {
-        if (!loading) return
+        if (!loading || holdLoading) return
         loading = false
         loadingCard.animate().alpha(0f).setDuration(320).withLayer()
             .withEndAction { loadingCard.visibility = View.GONE }

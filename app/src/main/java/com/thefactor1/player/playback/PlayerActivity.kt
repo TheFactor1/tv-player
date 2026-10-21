@@ -70,6 +70,7 @@ class PlayerActivity : Activity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val frameRateEstimator = FrameRateEstimator()
     @Volatile private var measuring = false
+    private var measureStartMs = 0L
     private var longPressConsumed = false
 
     // What the fallback chain has already tried for the current stream.
@@ -420,7 +421,8 @@ class PlayerActivity : Activity() {
 
     /**
      * Matches the display to [frameRate] once, then starts playback. When the stream has video but
-     * declares no frame rate, playback starts at once and the rate is measured from the first frames.
+     * declares no frame rate, the first frames play silently behind the loading card to measure it,
+     * so any display switch happens before the viewer sees a picture.
      */
     private fun matchDisplayThenPlay(frameRate: Float, hasVideo: Boolean) {
         if (!awaitingDisplayMatch) return
@@ -431,7 +433,6 @@ class PlayerActivity : Activity() {
         }
         if (frameRate <= 0f && hasVideo) {
             player?.let { startMeasuring(it) }
-            player?.playWhenReady = true
             return
         }
         if (switcher.wouldSwitch(frameRate)) controller.setLoadingLine(getString(R.string.loading_matching, formatRate(frameRate)))
@@ -441,12 +442,44 @@ class PlayerActivity : Activity() {
     private fun startMeasuring(exo: ExoPlayer) {
         frameRateEstimator.reset()
         measuring = true
+        measureStartMs = exo.currentPosition
+        controller.holdLoading = true
+        controller.setLoadingLine(getString(R.string.loading_measuring))
+        // Audio off (passthrough ignores volume) and double speed: the frames arrive in half the time.
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+            .build()
+        exo.setPlaybackSpeed(MEASURE_SPEED)
         exo.setVideoFrameMetadataListener(frameTimes)
+        exo.playWhenReady = true
+        mainHandler.postDelayed(measureTimeout, MEASURE_TIMEOUT_MS)
+    }
+
+    /** Puts audio, speed and position back as they were and lets the picture show. */
+    private fun finishMeasuring(exo: ExoPlayer, thenPlay: Boolean) {
+        mainHandler.removeCallbacks(measureTimeout)
+        exo.clearVideoFrameMetadataListener(frameTimes)
+        exo.playWhenReady = false
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .build()
+        exo.setPlaybackSpeed(1f)
+        exo.seekTo(measureStartMs)
+        controller.holdLoading = false
+        if (thenPlay) exo.playWhenReady = true
+    }
+
+    // A stream too irregular to measure plays at the current rate rather than waiting forever.
+    private val measureTimeout = Runnable {
+        if (!measuring) return@Runnable
+        measuring = false
+        player?.let { finishMeasuring(it, thenPlay = true) }
     }
 
     private fun stopMeasuring(exo: ExoPlayer) {
         measuring = false
         exo.clearVideoFrameMetadataListener(frameTimes)
+        controller.holdLoading = false
         mainHandler.removeCallbacksAndMessages(null)
     }
 
@@ -458,15 +491,13 @@ class PlayerActivity : Activity() {
         mainHandler.post { onFrameRateMeasured(fps) }
     }
 
-    /** A brief pause while the TV changes mode beats judder for the rest of the film. */
+    /** Switches the display while the loading card still covers the screen, then starts from the top. */
     private fun onFrameRateMeasured(fps: Float) {
         val exo = player ?: return
-        exo.clearVideoFrameMetadataListener(frameTimes)
         stats.measuredFrameRate = fps
-        if (!switcher.wouldSwitch(fps)) return
-        val wasPlaying = exo.playWhenReady
-        exo.playWhenReady = false
-        switcher.matchFrameRate(fps) { if (wasPlaying) player?.playWhenReady = true }
+        finishMeasuring(exo, thenPlay = false)
+        if (switcher.wouldSwitch(fps)) controller.setLoadingLine(getString(R.string.loading_matching, formatRate(fps)))
+        switcher.matchFrameRate(fps) { player?.playWhenReady = true }
     }
 
     private val listener = object : Player.Listener {
@@ -504,5 +535,8 @@ class PlayerActivity : Activity() {
 
         // Key repeats arrive about every 50 ms after a 500 ms delay; one repeat marks a long press.
         const val LONG_PRESS_REPEATS = 1
+
+        const val MEASURE_SPEED = 2f
+        const val MEASURE_TIMEOUT_MS = 8_000L
     }
 }
