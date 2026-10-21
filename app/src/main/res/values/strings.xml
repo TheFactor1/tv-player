@@ -1,7 +1,16 @@
 <resources>
     <string name="app_name">Player</string>
-    <string name="home_title">Player is ready</string>
-    <string name="home_body">Open a stream in Stremio, Nuvio or another app and choose Player as the external player.</string>
+    <string name="home_kicker">PLAYER</string>
+    <string name="home_title">Ready when you are</string>
+    <string name="home_this_tv">THIS TV</string>
+    <string name="settings_kicker">SETTINGS</string>
+    <string name="settings_title">Every video</string>
+    <string name="settings_audio">Audio</string>
+    <string name="settings_subtitles">Subtitles</string>
+    <string name="settings_picture">Picture</string>
+    <string name="settings_picture_size">Picture size</string>
+    <string name="settings_subs_language_note">used when Always on</string>
+    <string name="home_body">Open a stream in Stremio, Nuvio or another app and choose Player as the external player. The settings here apply to every video, and you can still change them during playback.</string>
     <string name="error_no_stream">No stream was provided.</string>
     <string name="error_playback">Can\'t play this stream.</string>
     <string name="error_decoder">This device can\'t decode %1$s.</string>
