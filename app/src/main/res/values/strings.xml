@@ -55,4 +55,17 @@
     <string name="on">On</string>
     <string name="off">Off</string>
     <string name="track_unknown">Track %1$d</string>
+    <string name="audio_default_language">Default language</string>
+    <string name="audio_language_auto">Film\'s default</string>
+    <string name="audio_output">Audio output</string>
+    <string name="audio_output_passthrough">Passthrough (Dolby, DTS to receiver)</string>
+    <string name="audio_output_decode">Decode to PCM</string>
+    <string name="loading_audio_output">Switching audio output</string>
+    <string name="subs_default">Default subtitles</string>
+    <string name="subs_mode_auto">Film\'s default</string>
+    <string name="subs_mode_off">Off</string>
+    <string name="subs_mode_forced">Forced only</string>
+    <string name="subs_mode_always">Always on</string>
+    <string name="subs_language">Subtitle language</string>
+    <string name="subs_language_device">Device language</string>
 </resources>

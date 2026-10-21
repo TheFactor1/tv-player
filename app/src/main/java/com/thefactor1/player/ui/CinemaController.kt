@@ -97,6 +97,10 @@ class CinemaController(
     /** The error card's two ways out. */
     var onRetry: (() -> Unit)? = null
     var onOpenElsewhere: (() -> Unit)? = null
+    /** A default audio or subtitle choice changed; reapply it to the playing stream. */
+    var onTrackDefaultsChanged: (() -> Unit)? = null
+    /** Passthrough was switched on or off, which needs a new audio output. */
+    var onAudioOutputChanged: (() -> Unit)? = null
 
     private var player: ExoPlayer? = null
     private var controlsVisible = false
@@ -543,7 +547,33 @@ class CinemaController(
                 ) { selectTrack(group, i) }
             }
         }
+        items += Item(
+            activity.getString(R.string.audio_default_language),
+            languageName(prefs.audioLanguage, R.string.audio_language_auto),
+            checked = false,
+            keepOpen = true,
+        ) {
+            prefs.audioLanguage = nextLanguage(prefs.audioLanguage)
+            onTrackDefaultsChanged?.invoke()
+        }
+        items += Item(
+            activity.getString(R.string.audio_output),
+            activity.getString(if (prefs.decodeAudio) R.string.audio_output_decode else R.string.audio_output_passthrough),
+            checked = false,
+        ) {
+            prefs.decodeAudio = !prefs.decodeAudio
+            onAudioOutputChanged?.invoke()
+        }
         return items
+    }
+
+    private fun languageName(code: String, noPreference: Int) =
+        PlayerPrefs.LANGUAGES.firstOrNull { it.code == code && code.isNotEmpty() }?.name ?: activity.getString(noPreference)
+
+    private fun nextLanguage(code: String): String {
+        val languages = PlayerPrefs.LANGUAGES
+        val index = languages.indexOfFirst { it.code == code }
+        return languages[(index + 1) % languages.size].code
     }
 
     private fun subtitleItems(): List<Item> {
@@ -578,11 +608,29 @@ class CinemaController(
                 }
             })
             addAll(tracks)
+            val mode = prefs.subtitleMode
+            add(Item(activity.getString(R.string.subs_default), activity.getString(subtitleModeLabel(mode)), checked = false, keepOpen = true) {
+                prefs.subtitleMode = PlayerPrefs.SubtitleMode.entries[(mode.ordinal + 1) % PlayerPrefs.SubtitleMode.entries.size]
+                onTrackDefaultsChanged?.invoke()
+            })
+            if (mode == PlayerPrefs.SubtitleMode.ALWAYS) {
+                add(Item(activity.getString(R.string.subs_language), languageName(prefs.subtitleLanguage, R.string.subs_language_device), checked = false, keepOpen = true) {
+                    prefs.subtitleLanguage = nextLanguage(prefs.subtitleLanguage)
+                    onTrackDefaultsChanged?.invoke()
+                })
+            }
             add(Item(activity.getString(R.string.subs_size), size.name, checked = false, keepOpen = true) {
                 prefs.subtitleSize = (prefs.subtitleSize + 1) % PlayerPrefs.SUBTITLE_SIZES.size
                 applySubtitleStyle()
             })
         }
+    }
+
+    private fun subtitleModeLabel(mode: PlayerPrefs.SubtitleMode) = when (mode) {
+        PlayerPrefs.SubtitleMode.AUTO -> R.string.subs_mode_auto
+        PlayerPrefs.SubtitleMode.OFF -> R.string.subs_mode_off
+        PlayerPrefs.SubtitleMode.FORCED_ONLY -> R.string.subs_mode_forced
+        PlayerPrefs.SubtitleMode.ALWAYS -> R.string.subs_mode_always
     }
 
     private fun pictureItems(): List<Item> {

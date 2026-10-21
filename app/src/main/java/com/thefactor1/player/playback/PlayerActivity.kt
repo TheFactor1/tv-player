@@ -42,6 +42,7 @@ import com.thefactor1.player.launch.PlaybackResult
 import com.thefactor1.player.launch.ReleaseName
 import com.thefactor1.player.ui.CinemaController
 import com.thefactor1.player.ui.FormatNames
+import java.util.Locale
 
 /**
  * Plays one stream handed over by another app, then returns the watched position to it.
@@ -84,6 +85,8 @@ class PlayerActivity : Activity() {
         controller = CinemaController(this, playerView, prefs, stats, onExit = ::finish)
         controller.onRetry = ::retryFromScratch
         controller.onOpenElsewhere = ::openInAnotherPlayer
+        controller.onTrackDefaultsChanged = { player?.let(::applyTrackDefaults) }
+        controller.onAudioOutputChanged = { if (player != null) rebuildPlayer(getString(R.string.loading_audio_output)) }
         // Android 13+ delivers Back through this callback instead of as a key event.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
@@ -175,7 +178,7 @@ class PlayerActivity : Activity() {
             .setReadTimeoutMs(20_000)
             .setDefaultRequestProperties(req.headers)
 
-        val renderers = PlayerRenderersFactory(this, tried.dolbyVisionAsHdr10, tried.pcmAudio)
+        val renderers = PlayerRenderersFactory(this, tried.dolbyVisionAsHdr10, tried.pcmAudio || prefs.decodeAudio)
         stats.fallbackNote = listOfNotNull(
             getString(R.string.fallback_note_dolby_vision).takeIf { tried.dolbyVisionAsHdr10 },
             getString(R.string.fallback_note_pcm).takeIf { tried.pcmAudio },
@@ -195,6 +198,7 @@ class PlayerActivity : Activity() {
             .setSeekForwardIncrementMs(30_000)
             .build()
 
+        applyTrackDefaults(exo)
         exo.addListener(listener)
         stats.attach(exo)
         val name = ReleaseName.parse(req.title)
@@ -249,7 +253,9 @@ class PlayerActivity : Activity() {
         val failingFormat = (error as? ExoPlaybackException)?.rendererFormat
         val isDolbyVision = failingFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION ||
             exo.videoFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION
-        when (val action = FallbackPolicy.next(classify(error, failingFormat), isDolbyVision, tried)) {
+        // A viewer who already chose to decode audio has nothing left to fall back to there.
+        val alreadyTried = tried.copy(pcmAudio = tried.pcmAudio || prefs.decodeAudio)
+        when (val action = FallbackPolicy.next(classify(error, failingFormat), isDolbyVision, alreadyTried)) {
             is FallbackPolicy.Action.Retry -> {
                 tried = tried.copy(networkRetries = action.attempt)
                 controller.showLoading(
@@ -297,6 +303,16 @@ class PlayerActivity : Activity() {
                 FallbackPolicy.Failure.VIDEO_DECODER
             }
         else -> FallbackPolicy.Failure.OTHER
+    }
+
+    private fun applyTrackDefaults(exo: ExoPlayer) {
+        exo.trackSelectionParameters = TrackDefaults.apply(
+            exo.trackSelectionParameters,
+            audioLanguage = prefs.audioLanguage,
+            subtitleMode = prefs.subtitleMode,
+            subtitleLanguage = prefs.subtitleLanguage,
+            deviceLanguage = Locale.getDefault().language,
+        )
     }
 
     /** A new player with the fallback switches flipped, carrying on from the same position. */
