@@ -12,6 +12,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioCapabilities
+import com.thefactor1.player.companion.PhoneCompanion
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
@@ -44,6 +45,18 @@ class MainActivity : Activity() {
         kicker.text = getString(R.string.settings_kicker)
         title.text = getString(R.string.settings_title)
         settings.show()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        PhoneCompanion.start(this)
+        // The code may have changed since the list was built: a phone paired, or the network came up.
+        settings.show()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        PhoneCompanion.stop()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
