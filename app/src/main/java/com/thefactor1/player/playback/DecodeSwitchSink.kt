@@ -13,12 +13,20 @@ class DecodeSwitch {
 }
 
 /**
- * Turns passthrough off on demand by telling the audio renderers the sink can't take encoded audio.
- * The renderers ask again whenever the audio track is re-enabled, so flipping [DecodeSwitch.decode]
- * and re-selecting audio moves to a decoder in place, with the video still playing.
+ * Turns passthrough off by telling the audio renderers the sink can't take encoded audio: from the
+ * start when [alwaysDecode] is set, or on demand. The renderers ask again whenever the audio track
+ * is re-enabled, so flipping [DecodeSwitch.decode] and re-selecting audio moves to a decoder in
+ * place, with the video still playing.
+ *
+ * This is the only way to turn passthrough off: DefaultAudioSink ignores audio capabilities set on
+ * its builder when it is given a context, and reads the device's own instead.
  */
 @OptIn(UnstableApi::class)
-class DecodeSwitchSink(sink: AudioSink, private val switch: DecodeSwitch) : ForwardingAudioSink(sink) {
+class DecodeSwitchSink(
+    sink: AudioSink,
+    private val switch: DecodeSwitch,
+    private val alwaysDecode: Boolean,
+) : ForwardingAudioSink(sink) {
 
     override fun supportsFormat(format: Format): Boolean =
         if (isBlocked(format)) false else super.supportsFormat(format)
@@ -26,5 +34,5 @@ class DecodeSwitchSink(sink: AudioSink, private val switch: DecodeSwitch) : Forw
     override fun getFormatSupport(format: Format): Int =
         if (isBlocked(format)) AudioSink.SINK_FORMAT_UNSUPPORTED else super.getFormatSupport(format)
 
-    private fun isBlocked(format: Format) = switch.decode && format.sampleMimeType != MimeTypes.AUDIO_RAW
+    private fun isBlocked(format: Format) = (alwaysDecode || switch.decode) && format.sampleMimeType != MimeTypes.AUDIO_RAW
 }

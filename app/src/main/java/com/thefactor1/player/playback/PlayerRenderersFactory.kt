@@ -7,7 +7,6 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
-import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -45,18 +44,13 @@ class PlayerRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean,
     ): AudioSink? {
-        val builder = DefaultAudioSink.Builder(context)
+        val sink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             // Float output would skip the processors, so night mode always gets 16-bit PCM.
             .setAudioProcessors(arrayOf(AudioEnhancerProcessor(enhancement)))
-        if (pcmAudioOnly) {
-            // Reporting plain stereo PCM capabilities turns passthrough off; every track gets decoded.
-            @Suppress("DEPRECATION")
-            builder.setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
-        }
-        val sink = builder.build()
-        return AudioDelaySink(DecodeSwitchSink(sink, decodeSwitch), audioDelay)
+            .build()
+        return AudioDelaySink(DecodeSwitchSink(sink, decodeSwitch, alwaysDecode = pcmAudioOnly), audioDelay)
     }
 
     override fun buildTextRenderers(
