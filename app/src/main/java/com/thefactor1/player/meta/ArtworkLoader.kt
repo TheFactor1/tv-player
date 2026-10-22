@@ -47,6 +47,8 @@ class ArtworkLoader(context: Context) {
         fun onLogo(bitmap: Bitmap)
         /** The film's own colour, from [FilmAccent]; never called for a black-and-white backdrop. */
         fun onAccent(color: Int) {}
+        /** The film wasn't found, or has no logo: nothing more is coming for the title spot. */
+        fun onNoArt() {}
     }
 
     private val cacheDir = File(context.cacheDir, "artwork")
@@ -82,7 +84,7 @@ class ArtworkLoader(context: Context) {
         val (type, id) = cached
             ?: imdbHint?.let { (if (query.isSeries) "series" else "movie") to it }
             ?: search(query, ticket)
-            ?: return
+            ?: return post(ticket) { listener.onNoArt() }
         if (!IMDB_ID.matches(id) || ticket != generation) return
 
         // The art only needs the id, so it doesn't wait for the details.
@@ -92,10 +94,15 @@ class ArtworkLoader(context: Context) {
         })
         background { backdrop(id, meta, ticket, listener) }
         background {
-            val logo = image("$METAHUB/logo/medium/$id/img", "$id-logo", screenWidth / 2, ticket)
-                ?: meta.get()?.optString("logo")?.takeIf { it != "$METAHUB/logo/medium/$id/img" }
-                    ?.let { image(it, "$id-logo", screenWidth / 2, ticket) }
-            if (logo != null) post(ticket) { listener.onLogo(logo) }
+            var logo: Bitmap? = null
+            try {
+                logo = image("$METAHUB/logo/medium/$id/img", "$id-logo", screenWidth / 2, ticket)
+                    ?: meta.get()?.optString("logo")?.takeIf { it != "$METAHUB/logo/medium/$id/img" }
+                        ?.let { image(it, "$id-logo", screenWidth / 2, ticket) }
+            } finally {
+                val found = logo
+                post(ticket) { if (found != null) listener.onLogo(found) else listener.onNoArt() }
+            }
         }
 
         val json = meta.get() ?: return
