@@ -137,6 +137,9 @@ object PhoneCompanion {
         return ip?.let { "$it:$PORT" }
     }
 
+    /** What the TV's QR code opens: the phone page with this pairing code filled in, so it pairs on arrival. */
+    fun pairUrl(): String? = address()?.let { "http://$it/#pair=$code" }
+
     private fun acceptLoop(socket: ServerSocket) {
         while (!socket.isClosed) {
             val client = try {

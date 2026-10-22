@@ -71,6 +71,7 @@ dependencies {
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.ui)
     implementation(libs.media3.ffmpeg.decoder)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
 }

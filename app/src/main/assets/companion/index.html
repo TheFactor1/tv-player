@@ -239,7 +239,14 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     timer = setTimeout(poll, document.hidden ? 4000 : 1000);
   }
 
-  if (token) { showMain(); poll(); } else showPair();
+  // The TV's QR code carries the pairing code (#pair=1234): pair straight away, even over an old token.
+  const scanned = (location.hash.match(/pair=(\d{4})/) || [])[1];
+  if (scanned) {
+    history.replaceState(null, '', location.pathname);
+    showPair();
+    $('code').value = scanned;
+    $('connect').click();
+  } else if (token) { showMain(); poll(); } else showPair();
   document.addEventListener('visibilitychange', () => { if (!document.hidden && token) poll(); });
 })();
 </script>

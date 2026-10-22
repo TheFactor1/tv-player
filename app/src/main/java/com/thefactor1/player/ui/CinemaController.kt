@@ -1413,10 +1413,8 @@ class CinemaController(
             PhoneCompanion.address()?.let { activity.getString(R.string.companion_value, it, PhoneCompanion.code) }
                 ?: activity.getString(R.string.companion_offline_value),
             checked = false,
-            keepOpen = true,
-            hint = PhoneCompanion.address()?.let { activity.getString(R.string.companion_detail, it, PhoneCompanion.code) }
-                ?: activity.getString(R.string.companion_offline),
-        ),
+            hint = activity.getString(R.string.pair_hint),
+        ) { PairingCard.show(activity, fonts) },
         Item(
             activity.getString(R.string.more_stats),
             value = null,
