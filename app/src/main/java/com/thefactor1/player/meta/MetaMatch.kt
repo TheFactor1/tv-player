@@ -93,6 +93,13 @@ object MetaMatch {
         }
     }
 
+    /** A file-safe name for what [query] was matched to, the same for every episode of a show. */
+    fun cacheKey(query: MetaQuery): String {
+        val name = normalize(query.name).replace(' ', '-')
+        val short = if (name.length > MAX_KEY_NAME) name.take(MAX_KEY_NAME) + "-" + Integer.toHexString(name.hashCode()) else name
+        return listOfNotNull(if (query.isSeries) "series" else "film", short, query.year?.toString()).joinToString("-")
+    }
+
     /** "166 min" → "2 h 46 m"; anything unreadable is left out. */
     fun runtime(text: String?): String? {
         val minutes = DIGITS.find(text.orEmpty())?.value?.toIntOrNull()?.takeIf { it > 0 } ?: return null
@@ -106,4 +113,5 @@ object MetaMatch {
     }
 
     private const val MAX_CANDIDATES = 10
+    private const val MAX_KEY_NAME = 80
 }

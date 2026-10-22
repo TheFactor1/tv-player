@@ -55,12 +55,15 @@ class TitleKeysTest {
         )
         assertEquals("url:https://addon.example/resolve/tt1234567:2:5/stream.mkv", keys[0])
         assertEquals("imdb:tt1234567:s2e5", keys[1])
+        assertEquals("tt1234567", TitleKeys.imdbId(keys))
     }
 
     @Test
     fun imdbIdInAnExtraIsUsed() {
         val keys = TitleKeys.from("Heat", null, "https://a.example/v", textExtras = listOf("tt0113277"))
         assertTrue("imdb:tt0113277" in keys)
+        assertEquals("tt0113277", TitleKeys.imdbId(keys))
+        assertEquals(null, TitleKeys.imdbId(TitleKeys.from("Heat", null, "https://a.example/v")))
     }
 
     @Test
