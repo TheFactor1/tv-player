@@ -11,8 +11,8 @@ import android.widget.TextView
 import com.thefactor1.player.R
 
 /**
- * A quiet note after a resume, "Resumed at 42:10 · OK Start over", that fades out by itself.
- * It never blocks playback: OK while it shows starts over, any other key dismisses it and carries on.
+ * A quiet note after a resume, "Resumed at 42:10 · OK twice to start over", that fades out by itself.
+ * It never blocks playback: OK twice while it shows starts over, any other key dismisses it and carries on.
  */
 class ResumeChip(activity: Activity, fonts: Fonts) {
     private val chip: View = LayoutInflater.from(activity)
