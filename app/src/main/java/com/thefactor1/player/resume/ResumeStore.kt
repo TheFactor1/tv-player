@@ -26,8 +26,27 @@ class ResumeStore(context: Context) {
         }
     }
 
-    /** The saved position under the strongest key that has one. */
-    fun find(keys: List<String>): Entry? = keys.firstNotNullOfOrNull { Entry.decode(prefs.getString(it, null)) }
+    /**
+     * The saved position under the strongest key that has one, or a newer one under a weaker key
+     * when it fits the same length. Coming back to a stream after watching on in another one
+     * finds this stream's own older position first; the newer one is where the viewer is.
+     */
+    fun find(keys: List<String>): Entry? {
+        val found = keys.mapNotNull { Entry.decode(prefs.getString(it, null)) }
+        val strongest = found.firstOrNull() ?: return null
+        return found
+            .filter { ResumePolicy.sameLength(it.durationMs, strongest.durationMs) }
+            .maxByOrNull { it.savedAt }
+    }
+
+    /** The most recently saved title, with every key it was saved under. */
+    fun latest(): Pair<Entry, List<String>>? {
+        val byValue = prefs.all.entries
+            .mapNotNull { (key, value) -> (value as? String)?.let { key to it } }
+            .groupBy({ it.second }, { it.first })
+        val (value, keys) = byValue.entries.maxByOrNull { Entry.decode(it.key)?.savedAt ?: 0L } ?: return null
+        return Entry.decode(value)?.let { it to keys }
+    }
 
     fun save(keys: List<String>, positionMs: Long, durationMs: Long) {
         if (keys.isEmpty()) return

@@ -86,4 +86,34 @@ class TitleKeysTest {
         assertEquals("amelie", TitleKeys.normalize("Amélie"))
         assertEquals("fast and furious", TitleKeys.normalize("Fast & Furious!"))
     }
+
+    @Test
+    fun torrentAndUsenetStreamsOfAFilmShareAKey() {
+        val torrent = TitleKeys.from(
+            title = "[RD+] Dune.Part.Two.2024.2160p.WEB-DL.DV.mkv\n👤 120 💾 22 GB ⚙️ Torrentio",
+            fileName = null,
+            url = "https://debrid.example/resolve/realdebrid/abc/Dune.Part.Two.2024.2160p.WEB-DL.DV.mkv",
+        )
+        val usenet = TitleKeys.from(
+            title = "[TB] Dune Part Two (2024) 2160p",
+            fileName = null,
+            url = "https://api.example/v1/usenet/requestdl?token=x&usenet_id=9&file_id=0",
+        )
+        assertTrue("name:dune part two|2024" in torrent)
+        assertTrue("name:dune part two|2024" in usenet)
+    }
+
+    @Test
+    fun genericUrlSegmentsAndHashesAreNotNames() {
+        val generic = TitleKeys.from(null, null, "https://api.example/v1/usenet/requestdl?usenet_id=9")
+        assertEquals(listOf("url:https://api.example/v1/usenet/requestdl"), generic)
+        val hashed = TitleKeys.from(null, null, "https://nzb.example/dl/a8f9c7e2b1d34e0f.mkv")
+        assertFalse(hashed.any { it.startsWith("name:") })
+    }
+
+    @Test
+    fun episodeKeysAreRecognised() {
+        assertTrue(TitleKeys.isEpisode(TitleKeys.from("Crystal Lake S01E02", null, null)))
+        assertFalse(TitleKeys.isEpisode(TitleKeys.from("Heat (1995)", null, null)))
+    }
 }
