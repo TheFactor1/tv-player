@@ -16,5 +16,6 @@
     <color name="focus_fill">@color/ink</color>
     <color name="on_focus">#0B0C0E</color>
     <color name="on_focus_secondary">#4A4E55</color>
+    <color name="hairline">#1FF3F1EC</color>
     <color name="control_rest_fill">#1FFFFFFF</color>
 </resources>

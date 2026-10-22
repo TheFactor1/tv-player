@@ -11,6 +11,13 @@ object AudioSyncNames {
         else -> context.getString(R.string.audio_sync_early, -ms)
     }
 
+    /** The same, short enough to sit beside the row's name in the player menu. */
+    fun short(context: Context, ms: Int): String = when {
+        ms == 0 -> context.getString(R.string.menu_in_sync)
+        ms > 0 -> context.getString(R.string.audio_sync_late_short, ms)
+        else -> context.getString(R.string.audio_sync_early_short, -ms)
+    }
+
     fun hint(context: Context, ms: Int): String? = when {
         ms == 0 -> null
         ms > 0 -> context.getString(R.string.audio_sync_late_hint)
