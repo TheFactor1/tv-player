@@ -3,9 +3,9 @@ package com.thefactor1.player.companion
 /** One subtitle line for the phone's transcript, in ms from the start of the video. */
 data class Cue(val startMs: Long, val endMs: Long, val text: String)
 
-/** Reads an SRT file into plain-text cues: tags and positioning codes stripped, lines joined. */
+/** Reads an SRT (or WebVTT) file into plain-text cues: tags and positioning codes stripped, lines joined. */
 object Srt {
-    private val TIMING = Regex("""(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})""")
+    private val TIMING = Regex("""(?:(\d{1,2}):)?(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[,.](\d{1,3})""")
     private val TAGS = Regex("""<[^>]*>|\{\\[^}]*\}""")
     private val SPACES = Regex("""\s+""")
 
@@ -37,6 +37,6 @@ object Srt {
 
     private fun millis(h: String, m: String, s: String, frac: String): Long {
         val ms = frac.padEnd(3, '0').toLong()
-        return ((h.toLong() * 60 + m.toLong()) * 60 + s.toLong()) * 1000 + ms
+        return (((h.toLongOrNull() ?: 0) * 60 + m.toLong()) * 60 + s.toLong()) * 1000 + ms
     }
 }

@@ -49,4 +49,10 @@ class SrtTest {
         )
         assertEquals(listOf("Earlier", "Later"), cues.map { it.text })
     }
+
+    @Test
+    fun readsWebVttWithoutHours() {
+        val cues = Srt.parse("WEBVTT\n\n00:01.500 --> 00:03.000 line:90%\nHello there\n\n01:02:03.000 --> 01:02:04.000\nLater\n")
+        assertEquals(listOf(Cue(1_500, 3_000, "Hello there"), Cue(3_723_000, 3_724_000, "Later")), cues)
+    }
 }
