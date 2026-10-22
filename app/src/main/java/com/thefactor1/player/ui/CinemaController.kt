@@ -2,10 +2,13 @@ package com.thefactor1.player.ui
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.format.DateFormat
+import android.view.Display
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
@@ -28,8 +31,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
+import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.companion.CompanionHost
+import com.thefactor1.player.companion.CompanionPerson
 import com.thefactor1.player.meta.ArtworkLoader
+import com.thefactor1.player.meta.CastLoader
+import com.thefactor1.player.meta.CastMember
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.meta.OnlineExtras
@@ -41,6 +50,7 @@ import com.thefactor1.player.playback.StatsOverlay
 import com.thefactor1.player.playback.SubtitleDelay
 import java.util.Date
 import java.util.Locale
+import org.json.JSONObject
 import kotlin.math.abs
 
 /**
@@ -64,7 +74,7 @@ class CinemaController(
     private val enhancement: AudioEnhancement,
     private val subtitleDelay: SubtitleDelay,
     private val onExit: () -> Unit,
-) {
+) : CompanionHost {
     private enum class Panel { AUDIO, SUBTITLES, PICTURE, MORE }
 
     /** One line of a menu: a track or mode to pick, a toggle, a stepped setting, or a list one level down. */
@@ -144,6 +154,10 @@ class CinemaController(
     private val errorActions: View = activity.findViewById(R.id.error_actions)
     private val retryButton: TextView = activity.findViewById(R.id.btn_retry)
     private val otherPlayerButton: TextView = activity.findViewById(R.id.btn_other_player)
+    private val metaBlock: View = activity.findViewById(R.id.meta_block)
+    private val preShow = PreShow(activity.findViewById(R.id.booth), fonts, ::displayInfo)
+    /** In the booth the backdrop is only a grey ghost behind the log. */
+    private val boothArt = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
 
     /** The error card's two ways out. */
     var onRetry: (() -> Unit)? = null
@@ -181,6 +195,11 @@ class CinemaController(
     private var launchDetail: String? = null
     private var pauseScreenShown = false
     private val extras = OnlineExtras()
+    private val cast = CastLoader(activity, BuildConfig.TMDB_API_KEY)
+    private val infoCast = CastRow(activity.findViewById(R.id.info_cast), fonts, faceDp = 36, nameSp = 14f, maxPeople = 4)
+    private val metaCast = CastRow(activity.findViewById(R.id.meta_cast), fonts, faceDp = 48, nameSp = 15f, maxPeople = 5)
+    private val metaCastView: View = activity.findViewById(R.id.meta_cast)
+    private var castShown: List<CastMember> = emptyList()
     private val skipPrompt = SkipPrompt(activity.findViewById(R.id.skip_prompt)) { onSkipCredits?.invoke() }
     private var onlineSearch = OnlineSearch.UNMATCHED
     private var onlineSubtitles: List<OnlineSubtitle> = emptyList()
@@ -239,16 +258,20 @@ class CinemaController(
         exo.setPlaybackSpeed(SPEEDS[speedIndex])
         updatePlayButton()
         updateBadges(exo.currentTracks)
+        preShow.attach(exo, sourceApp)
         skipPrompt.attach(exo)
         updateSkipPrompt()
+        PhoneCompanion.host = this
     }
 
     fun detach() {
+        if (PhoneCompanion.host === this) PhoneCompanion.host = null
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
         hidePauseScreen(animate = false)
         skipPrompt.detach()
+        preShow.detach()
     }
 
     // ---- Meta screen: film art and details, for loading and for the pause screen ---------------
@@ -259,6 +282,11 @@ class CinemaController(
         artworkQuery = query
         artwork.cancel()
         extras.cancel()
+        cast.cancel()
+        castShown = emptyList()
+        PhoneCompanion.reset()
+        infoCast.clear()
+        metaCast.clear()
         skipPrompt.setSegments(emptyList())
         onlineSearch = OnlineSearch.UNMATCHED
         onlineSubtitles = emptyList()
@@ -268,6 +296,7 @@ class CinemaController(
         metaBackdrop.setImageDrawable(null)
         metaLogo.setImageDrawable(null)
         metaLogo.visibility = View.GONE
+        preShow.setLogo(null)
         loadingTitle.visibility = if (loadingTitle.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         showDetails()
         if (query == null) return
@@ -280,7 +309,7 @@ class CinemaController(
 
             override fun onBackdrop(bitmap: Bitmap) {
                 metaBackdrop.setImageBitmap(bitmap)
-                metaBackdrop.animate().alpha(1f).setDuration(ART_FADE_MS).setInterpolator(easeOut).start()
+                metaBackdrop.animate().alpha(if (preShow.isShowing) BOOTH_ART_ALPHA else 1f).setDuration(ART_FADE_MS).setInterpolator(easeOut).start()
             }
 
             override fun onLogo(bitmap: Bitmap) {
@@ -289,17 +318,34 @@ class CinemaController(
                 metaLogo.visibility = View.VISIBLE
                 metaLogo.animate().alpha(1f).setDuration(ART_FADE_MS).start()
                 loadingTitle.visibility = View.GONE
+                preShow.setLogo(bitmap)
             }
         })
     }
 
     /** Skip times and online subtitles for the recognised film or episode. */
     private fun loadExtras(imdbId: String, query: MetaQuery) {
+        cast.load(imdbId, query.season, query.episode, object : CastLoader.Listener {
+            override fun onCast(people: List<CastMember>) {
+                castShown = people
+                PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }
+                infoCast.show(people)
+                metaCast.show(people)
+                showDetails()
+            }
+
+            override fun onPhoto(member: CastMember, bitmap: Bitmap) {
+                infoCast.setPhoto(member, bitmap)
+                metaCast.setPhoto(member, bitmap)
+            }
+        })
         extras.skipSegments(imdbId, query.season, query.episode) { skipPrompt.setSegments(it) }
         onlineSearch = OnlineSearch.SEARCHING
         refreshSubtitlePanel()
         extras.subtitles(imdbId, query.season, query.episode) { found ->
             onlineSubtitles = found
+            val preferred = listOf(prefs.subtitleLanguage.ifEmpty { Locale.getDefault().language }, "en")
+            SubtitleLanguages.rank(found, preferred, 1).firstOrNull()?.let { PhoneCompanion.loadTranscript(it.url) }
             onlineSearch = OnlineSearch.DONE
             refreshSubtitlePanel()
         }
@@ -329,6 +375,8 @@ class CinemaController(
         metaDescription.text = known?.description
         // The synopsis is for the pause screen; while loading, the status line has the floor.
         metaDescription.visibility = if (pauseScreenShown && !known?.description.isNullOrEmpty()) View.VISIBLE else View.GONE
+        metaCastView.visibility = if (pauseScreenShown && castShown.isNotEmpty()) View.VISIBLE else View.GONE
+        preShow.setHeader(title.text, kicker, episode)
     }
 
     /** After a while paused, the picture gives way to the film's art and synopsis, like a TV app's detail page. */
@@ -413,10 +461,43 @@ class CinemaController(
         loadingCard.animate().cancel()
         loadingCard.alpha = 1f
         loadingCard.visibility = View.VISIBLE
+        preShow.begin(line)
+        setBooth(true)
     }
 
     fun setLoadingLine(line: String) {
         loadingLine.text = line
+        preShow.setStatus(line)
+    }
+
+    /** The frame rate the display was matched to, or left at, for the pre-show's log. */
+    fun noteFrameRate(fps: Float) = preShow.setFrameRate(fps)
+
+    /** The loading card shows the pre-show while a stream loads; errors and the pause screen use the meta block. */
+    private fun setBooth(on: Boolean) {
+        if (on) preShow.show() else preShow.hide()
+        metaBlock.visibility = if (on) View.INVISIBLE else View.VISIBLE
+        loadingSource.visibility = if (on) View.GONE else View.VISIBLE
+        metaBackdrop.colorFilter = if (on) boothArt else null
+        if (metaBackdrop.drawable != null) {
+            metaBackdrop.animate().cancel()
+            metaBackdrop.alpha = if (on) BOOTH_ART_ALPHA else 1f
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun displayInfo(): DisplayInfo {
+        val display = activity.windowManager.defaultDisplay
+        val mode = display.mode
+        val hdr = display.hdrCapabilities?.supportedHdrTypes?.toList()?.mapNotNull {
+            when (it) {
+                Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION -> HdrType.DOLBY_VISION
+                Display.HdrCapabilities.HDR_TYPE_HDR10, HDR_TYPE_HDR10_PLUS -> HdrType.HDR10
+                Display.HdrCapabilities.HDR_TYPE_HLG -> HdrType.HLG
+                else -> null
+            }
+        }?.toSet().orEmpty()
+        return DisplayInfo(mode.physicalWidth, mode.physicalHeight, mode.refreshRate, hdr)
     }
 
     /** Errors stay on screen until Back, so they can be read; [code] is small print for bug reports. */
@@ -428,6 +509,7 @@ class CinemaController(
         loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink))
         loadingSource.text = activity.getString(R.string.error_footer, code)
         errorShown = true
+        setBooth(false)
         errorActions.visibility = View.VISIBLE
         retryButton.requestFocus()
     }
@@ -648,6 +730,43 @@ class CinemaController(
         if (playButton.isFocused) focusLabel.text = playButton.contentDescription
     }
 
+    // ---- Phone companion -----------------------------------------------------------------------
+
+    override fun companionState(): JSONObject {
+        val exo = player ?: return JSONObject().put("idle", true)
+        val duration = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        return JSONObject()
+            .put("title", details?.name ?: title.text.toString())
+            .put("kicker", details?.kicker ?: "")
+            .put("positionMs", exo.currentPosition)
+            .put("durationMs", duration)
+            .put("playing", exo.playWhenReady)
+    }
+
+    override fun companionControl(action: String, ms: Long) {
+        val exo = player ?: return
+        if (loading) return
+        when (action) {
+            "play" -> exo.playWhenReady = true
+            "pause" -> exo.playWhenReady = false
+            "toggle" -> {
+                togglePlayPause()
+                showGlyph(if (exo.playWhenReady) R.drawable.ic_play else R.drawable.ic_pause)
+            }
+            "skip" -> {
+                hidePauseScreen()
+                skip(ms)
+            }
+            "seek" -> {
+                hidePauseScreen()
+                val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE
+                exo.seekTo(ms.coerceIn(0L, duration))
+                showToast(activity.getString(R.string.companion_jumped, formatTime(ms)), ADD_TOAST_MS)
+                if (controlsVisible) updateProgress() else showMiniBar()
+            }
+        }
+    }
+
     private fun togglePlayPause() {
         val exo = player ?: return
         if (exo.playbackState == Player.STATE_ENDED) exo.seekTo(0)
@@ -825,10 +944,24 @@ class CinemaController(
         updateSkipPrompt()
         // Measuring the frame rate borrows the speed; give the viewer's choice back.
         player?.let { if (it.playbackParameters.speed != SPEEDS[speedIndex]) it.setPlaybackSpeed(SPEEDS[speedIndex]) }
-        loadingCard.animate().alpha(0f).setDuration(320).withLayer()
-            .withEndAction { loadingCard.visibility = View.GONE }
-            .start()
-        showControls(playButton)
+        if (!preShow.isShowing) {
+            loadingCard.animate().alpha(0f).setDuration(320).withLayer()
+                .withEndAction { loadingCard.visibility = View.GONE }
+                .start()
+            showControls(playButton)
+            return
+        }
+        // The film is already playing; the cue mark flashes over its first half second, then it cuts in.
+        preShow.reveal {
+            if (loading) return@reveal
+            loadingCard.animate().alpha(0f).setDuration(CUT_MS)
+                .withEndAction {
+                    loadingCard.visibility = View.GONE
+                    setBooth(false)
+                }
+                .start()
+            showControls(playButton)
+        }
     }
 
     // ---- Panels --------------------------------------------------------------------------------
@@ -1253,6 +1386,15 @@ class CinemaController(
 
     private fun moreItems(): List<Item> = listOf(
         Item(
+            activity.getString(R.string.companion_title),
+            PhoneCompanion.address()?.let { activity.getString(R.string.companion_value, it, PhoneCompanion.code) }
+                ?: activity.getString(R.string.companion_offline_value),
+            checked = false,
+            keepOpen = true,
+            hint = PhoneCompanion.address()?.let { activity.getString(R.string.companion_detail, it, PhoneCompanion.code) }
+                ?: activity.getString(R.string.companion_offline),
+        ),
+        Item(
             activity.getString(R.string.more_stats),
             value = null,
             checked = stats.isVisible,
@@ -1413,6 +1555,7 @@ class CinemaController(
         const val AUTO_HIDE_MS = 4_000L
         const val PROGRESS_MS = 500L
         const val TOAST_MS = 800L
+        const val TMDB_PHOTOS = "https://image.tmdb.org/t/p/w185"
         const val SHOW_MS = 240L
         const val HIDE_MS = 220L
         const val PANEL_MS = 320L
@@ -1421,6 +1564,10 @@ class CinemaController(
         const val LABEL_MS = 160L
         const val MINI_BAR_MS = 1_600L
         const val ART_FADE_MS = 600L
+        const val CUT_MS = 90L
+        const val BOOTH_ART_ALPHA = 0.16f
+        // Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS, which needs API 29 by name.
+        const val HDR_TYPE_HDR10_PLUS = 4
         const val PAUSE_FADE_MS = 700L
         const val PAUSE_SCREEN_DELAY_MS = 8_000L
         const val DRIFT_MS = 40_000L

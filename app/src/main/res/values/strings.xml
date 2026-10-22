@@ -145,4 +145,11 @@
     <string name="audio_sync_early_short">Sound early %1$d ms</string>
     <string name="audio_sync_none_hint">Shift the sound if voices and lips drift apart</string>
     <string name="subs_timing_none_hint">Shift the subtitles if lines and speech drift apart</string>
+    <string name="companion_jumped">Jumped to %1$s from your phone</string>
+    <string name="settings_phone">Phone</string>
+    <string name="companion_title">Phone companion</string>
+    <string name="companion_detail">On your phone, open %1$s · code %2$s</string>
+    <string name="companion_value">%1$s · %2$s</string>
+    <string name="companion_offline_value">Offline</string>
+    <string name="companion_offline">Connect the TV to your home network to use it</string>
 </resources>

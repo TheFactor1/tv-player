@@ -46,6 +46,7 @@ jobs:
           SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew --no-daemon assembleDebug assembleRelease
 
       - name: Name the release APK
