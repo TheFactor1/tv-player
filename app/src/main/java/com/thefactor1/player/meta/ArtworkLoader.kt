@@ -45,6 +45,8 @@ class ArtworkLoader(context: Context) {
         /** Called up to twice: a small backdrop first, then the full one, never the other way round. */
         fun onBackdrop(bitmap: Bitmap)
         fun onLogo(bitmap: Bitmap)
+        /** The film's own colour, from [FilmAccent]; never called for a black-and-white backdrop. */
+        fun onAccent(color: Int) {}
     }
 
     private val cacheDir = File(context.cacheDir, "artwork")
@@ -115,6 +117,7 @@ class ArtworkLoader(context: Context) {
                 ?.let { image(it, full, screenWidth, ticket) }
             ?: return
         showBackdrop(2, bitmap, ticket, listener)
+        accent(bitmap)?.let { color -> post(ticket) { listener.onAccent(color) } }
     }
 
     private fun showBackdrop(sharpness: Int, bitmap: Bitmap, ticket: Int, listener: Listener) {
@@ -221,6 +224,15 @@ class ArtworkLoader(context: Context) {
         return MetaDetails(meta.optString("name").ifEmpty { query.name }, kicker, episodeLine, description)
     }
 
+    /** Samples a small copy of the backdrop, so this stays cheap on the onn. */
+    private fun accent(bitmap: Bitmap): Int? {
+        val small = Bitmap.createScaledBitmap(bitmap, ACCENT_SAMPLE_W, ACCENT_SAMPLE_H, true)
+        val pixels = IntArray(ACCENT_SAMPLE_W * ACCENT_SAMPLE_H)
+        small.getPixels(pixels, 0, ACCENT_SAMPLE_W, 0, 0, ACCENT_SAMPLE_W, ACCENT_SAMPLE_H)
+        if (small !== bitmap) small.recycle()
+        return FilmAccent.pick(pixels)
+    }
+
     /** A cached or freshly downloaded image, decoded no larger than it needs to be for [targetWidth]. */
     private fun image(url: String, key: String, targetWidth: Int, ticket: Int): Bitmap? {
         if (!url.startsWith("https://")) return null
@@ -316,6 +328,8 @@ class ArtworkLoader(context: Context) {
         const val TIMEOUT_MS = 5_000
         const val MATCH_TTL_MS = 30L * 24 * 60 * 60 * 1000
         const val META_TTL_MS = 3L * 24 * 60 * 60 * 1000
+        const val ACCENT_SAMPLE_W = 48
+        const val ACCENT_SAMPLE_H = 27
         val IMDB_ID = Regex("""tt\d+""")
     }
 }

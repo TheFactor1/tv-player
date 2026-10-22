@@ -50,6 +50,13 @@ class SeekBarView @JvmOverloads constructor(
         isFocusable = true
     }
 
+    /** The played part's colour: white, or the film's own accent. The thumb stays white. */
+    fun setProgressColor(color: Int) {
+        if (progressPaint.color == color) return
+        progressPaint.color = color
+        invalidate()
+    }
+
     fun update(positionMs: Long, bufferedMs: Long, durationMs: Long) {
         if (positionMs == this.positionMs && bufferedMs == this.bufferedMs && durationMs == this.durationMs) return
         this.positionMs = positionMs

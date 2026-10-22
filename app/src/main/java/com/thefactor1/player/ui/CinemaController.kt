@@ -285,6 +285,7 @@ class CinemaController(
         metaLogo.setImageDrawable(null)
         metaLogo.visibility = View.GONE
         preShow.setLogo(null)
+        setAccent(ContextCompat.getColor(activity, R.color.ink))
         loadingTitle.visibility = if (loadingTitle.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         showDetails()
         if (query == null) return
@@ -306,6 +307,10 @@ class CinemaController(
                 }
             }
 
+            override fun onAccent(color: Int) {
+                if (prefs.filmColours) setAccent(color)
+            }
+
             override fun onLogo(bitmap: Bitmap) {
                 metaLogo.setImageBitmap(bitmap)
                 metaLogo.alpha = 0f
@@ -320,6 +325,12 @@ class CinemaController(
     /** Art that was already on the box comes up almost at once; art that took a while eases in. */
     private fun artFadeMs(): Long =
         if (SystemClock.uptimeMillis() - artworkStartedAt < ART_QUICK_WINDOW_MS) ART_QUICK_FADE_MS else ART_FADE_MS
+
+    /** The film's own colour on the seek bars; white until (and unless) its backdrop lends one. */
+    private fun setAccent(color: Int) {
+        seekBar.setProgressColor(color)
+        miniSeek.setProgressColor(color)
+    }
 
     /** Skip times and online subtitles for the recognised film or episode. */
     private fun loadExtras(imdbId: String, query: MetaQuery) {
