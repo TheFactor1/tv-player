@@ -136,7 +136,10 @@ class StatsOverlay(
         }
         val bitrate = video?.bitrate?.takeIf { it > 0 } ?: video?.averageBitrate?.takeIf { it > 0 }
         if (bitrate != null) rows += "Bitrate" to String.format(Locale.US, "%.1f Mbps", bitrate / 1_000_000f)
-        rows += "Buffer" to "${exo.totalBufferedDuration / 1000} s ahead"
+        val speed = exo.playbackParameters.speed
+        val ahead = exo.totalBufferedDuration / 1000
+        // Ahead in film time; at 2× that lasts half as long.
+        rows += "Buffer" to if (speed == 1f) "$ahead s ahead" else "$ahead s ahead · ${(ahead / speed).toInt()} s at ${rate(speed)}×"
         exo.videoDecoderCounters?.let { rows += "Dropped" to "${it.droppedBufferCount} frames" }
         fallbackNote?.let { rows += "Fallback" to it }
 

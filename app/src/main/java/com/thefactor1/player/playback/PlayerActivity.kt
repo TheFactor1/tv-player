@@ -368,6 +368,7 @@ class PlayerActivity : Activity() {
         ).joinToString(", ").ifEmpty { null }
 
         val exo = ExoPlayer.Builder(this, renderers)
+            .setLoadControl(StreamBuffer.loadControl())
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
             .setAudioAttributes(
                 AudioAttributes.Builder()
