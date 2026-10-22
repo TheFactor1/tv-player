@@ -18,4 +18,6 @@
     <color name="on_focus_secondary">#4A4E55</color>
     <color name="hairline">#1FF3F1EC</color>
     <color name="control_rest_fill">#1FFFFFFF</color>
+    <color name="card_ground">#15171A</color>
+    <color name="panel_scrim">#59000000</color>
 </resources>

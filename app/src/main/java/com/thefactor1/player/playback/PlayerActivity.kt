@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.KeyEvent
 import android.widget.TextView
 import android.widget.Toast
@@ -43,9 +44,12 @@ import com.thefactor1.player.launch.IntentContract
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
 import com.thefactor1.player.launch.ReleaseName
+import com.thefactor1.player.meta.MetaDetails
+import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.resume.ResumePolicy
 import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.resume.TitleKeys
+import com.thefactor1.player.resume.WatchHistory
 import com.thefactor1.player.ui.CinemaController
 import com.thefactor1.player.ui.FormatNames
 import com.thefactor1.player.ui.Fonts
@@ -65,6 +69,7 @@ class PlayerActivity : Activity() {
     private lateinit var prefs: PlayerPrefs
     private lateinit var controller: CinemaController
     private lateinit var resumeStore: ResumeStore
+    private lateinit var history: WatchHistory
     private lateinit var resumeChip: ResumeChip
     private var player: ExoPlayer? = null
     private var request: LaunchRequest? = null
@@ -73,6 +78,10 @@ class PlayerActivity : Activity() {
     private var titleKeys: List<String> = emptyList()
     private var start = ResumePolicy.Start(0L, ResumePolicy.Source.NONE)
     private var savedEntry: ResumeStore.Entry? = null
+    // What the home screen shows for this title: the parsed name and, once recognised, its details.
+    private var metaQuery: MetaQuery? = null
+    private var metaDetails: MetaDetails? = null
+    private var sourcePackage: String? = null
     private var startChecked = false
     private var chipShown = false
     private var chipTookOk = false
@@ -111,9 +120,11 @@ class PlayerActivity : Activity() {
         stats.enhancement = enhancement
         prefs = PlayerPrefs(this)
         resumeStore = ResumeStore(this)
+        history = WatchHistory(this)
         controller = CinemaController(this, playerView, prefs, stats, enhancement, subtitleDelay, onExit = ::finish)
         resumeChip = ResumeChip(this, Fonts(this))
         controller.onRetry = ::retryFromScratch
+        controller.onDetails = { metaDetails = it }
         controller.onOpenElsewhere = ::openInAnotherPlayer
         controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
         controller.onNeedsDecodedAudio = { switchToDecodedAudio() }
@@ -221,7 +232,17 @@ class PlayerActivity : Activity() {
         val title = req.title?.takeIf { it != req.uri.lastPathSegment }
         titleKeys = TitleKeys.from(title, req.fileName, req.uri.toString(), req.textExtras)
         savedEntry = resumeStore.find(titleKeys)
-        start = ResumePolicy.start(req.startPositionMs, req.fromStart, savedEntry)
+        val name = ReleaseName.parse(req.title)
+        metaQuery = MetaQuery.from(name?.title, name?.detail)
+        metaDetails = null
+        sourcePackage = launchingPackage()
+        start = ResumePolicy.start(req.startPositionMs, req.fromStart, savedEntry, System.currentTimeMillis())
+        // `adb logcat -s Resume` shows why a stream started where it did.
+        Log.i(
+            RESUME_TAG,
+            "launch app=${req.startPositionMs}ms fromStart=${req.fromStart} title=${req.title} file=${req.fileName} " +
+                "keys=${loggable(titleKeys)} saved=$savedEntry -> $start",
+        )
         startChecked = false
         chipShown = false
         return true
@@ -235,10 +256,47 @@ class PlayerActivity : Activity() {
             ?: savedEntry?.durationMs
             ?: 0L
         when (ResumePolicy.onLeave(lastPositionMs, duration, completed)) {
-            ResumePolicy.Leave.FORGET -> resumeStore.forget(titleKeys)
-            ResumePolicy.Leave.SAVE -> resumeStore.save(titleKeys, lastPositionMs, duration)
+            ResumePolicy.Leave.FORGET -> {
+                resumeStore.forget(titleKeys)
+                recordHistory(duration, watched = true)
+            }
+            ResumePolicy.Leave.SAVE -> {
+                resumeStore.save(titleKeys, lastPositionMs, duration)
+                recordHistory(duration, watched = false)
+            }
             ResumePolicy.Leave.KEEP -> Unit
         }
+    }
+
+    /** Puts this title at the front of the home screen's Recently played. */
+    private fun recordHistory(durationMs: Long, watched: Boolean) {
+        val query = metaQuery
+        val details = metaDetails
+        val imdbId = details?.imdbId ?: TitleKeys.imdbId(titleKeys)
+        val name = details?.name ?: query?.name ?: request?.title?.lineSequence()?.firstOrNull()?.trim()?.ifEmpty { null } ?: return
+        // A show's episodes share one entry, so the home screen shows where the show is up to.
+        val key = imdbId?.let { "imdb:$it" }
+            ?: query?.let { "name:${it.name.lowercase(Locale.ROOT)}:${it.year ?: ""}" }
+            ?: titleKeys.first()
+        history.record(
+            WatchHistory.Entry(
+                key = key,
+                name = name,
+                searchName = query?.name,
+                year = query?.year,
+                season = query?.season,
+                episode = query?.episode,
+                imdbId = imdbId,
+                kicker = details?.kicker,
+                episodeLine = details?.episodeLine,
+                description = details?.description,
+                positionMs = if (watched) durationMs else lastPositionMs,
+                durationMs = durationMs,
+                watched = watched,
+                sourcePackage = sourcePackage,
+                savedAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
     // Saved every few seconds as well as on exit, so a crash or a pulled plug loses little.
@@ -270,7 +328,10 @@ class PlayerActivity : Activity() {
         val pastEnd = start.positionMs >= duration - END_MARGIN_MS
         val wrongStream = start.source == ResumePolicy.Source.LOCAL && saved != null &&
             (!ResumePolicy.sameLength(saved.durationMs, duration) || ResumePolicy.isWatched(start.positionMs, duration))
-        if (pastEnd || wrongStream) startOverInstead(exo)
+        if (pastEnd || wrongStream) {
+            Log.i(RESUME_TAG, "start over: pastEnd=$pastEnd wrongStream=$wrongStream saved=$saved length=$duration")
+            startOverInstead(exo)
+        }
     }
 
     /**
@@ -280,16 +341,22 @@ class PlayerActivity : Activity() {
      */
     private fun pickUpLastWatched(exo: ExoPlayer) {
         val req = request ?: return
-        if (req.fromStart || savedEntry != null || req.startPositionMs >= ResumePolicy.MIN_RESUME_MS) return
+        // "From start" is no bar: the fallback only takes a film left in the last 48 hours, which is
+        // what an app re-searching for a source after a dropped stream sends with that flag.
+        if (savedEntry != null || req.startPositionMs >= ResumePolicy.MIN_RESUME_MS) return
         val (last, lastKeys) = resumeStore.latest() ?: return
         val fits = ResumePolicy.lastWatchedFits(
             last, TitleKeys.isEpisode(lastKeys), TitleKeys.isEpisode(titleKeys), exo.duration, System.currentTimeMillis(),
         )
+        Log.i(RESUME_TAG, "last watched $last keys=${loggable(lastKeys)} length=${exo.duration} fits=$fits")
         if (!fits) return
         savedEntry = last
         start = ResumePolicy.Start(last.positionMs, ResumePolicy.Source.LOCAL)
         if (measuring) measureStartMs = last.positionMs else exo.seekTo(last.positionMs)
     }
+
+    /** Keys without the stream URL, whose path can carry a debrid token. */
+    private fun loggable(keys: List<String>) = keys.filterNot { it.startsWith("url:") }
 
     private fun startOverInstead(exo: ExoPlayer) {
         start = ResumePolicy.Start(0L, ResumePolicy.Source.NONE)
@@ -572,7 +639,13 @@ class PlayerActivity : Activity() {
                 tried = tried.copy(pcmAudio = true)
                 rebuildPlayer(getString(R.string.fallback_pcm))
             }
-            FallbackPolicy.Action.GiveUp -> controller.showError(errorMessage(error), error.errorCodeName)
+            FallbackPolicy.Action.GiveUp -> {
+                // Saved now, not only on exit: the source app may relaunch with another source
+                // before this one returns, and the spot must be there for it.
+                capturePosition(exo)
+                rememberPosition()
+                controller.showError(errorMessage(error), error.errorCodeName)
+            }
         }
     }
 
@@ -689,13 +762,18 @@ class PlayerActivity : Activity() {
 
     /** The label of the app that opened us, e.g. "Stremio", for the info bar and loading card. */
     private fun sourceAppName(): String? {
-        val pkg = referrer?.takeIf { it.scheme == "android-app" }?.host ?: callingPackage ?: return null
-        if (pkg == packageName) return null
+        val pkg = launchingPackage() ?: return null
         return try {
             packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
         } catch (e: Exception) {
             null
         }
+    }
+
+    /** The package of the app that opened us, e.g. com.stremio.one. */
+    private fun launchingPackage(): String? {
+        val pkg = referrer?.takeIf { it.scheme == "android-app" }?.host ?: callingPackage ?: return null
+        return pkg.takeIf { it != packageName }
     }
 
     private fun formatRate(rate: Float): String =
@@ -852,6 +930,7 @@ class PlayerActivity : Activity() {
         const val END_MARGIN_MS = 5_000L
         const val CHIP_DELAY_MS = 700L
         const val DOUBLE_OK_MS = 600L
+        const val RESUME_TAG = "Resume"
 
         const val MEASURE_SPEED = 2f
         const val MEASURE_TIMEOUT_MS = 6_000L

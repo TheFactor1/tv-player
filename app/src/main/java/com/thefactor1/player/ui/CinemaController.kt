@@ -174,6 +174,8 @@ class CinemaController(
     var onAudioDelayChanged: ((Int) -> Unit)? = null
     /** Night mode or dialogue boost was switched on while audio is passed through, so it must be decoded. */
     var onNeedsDecodedAudio: (() -> Unit)? = null
+    /** The film or episode, once recognised; the home screen lists it with these. */
+    var onDetails: ((MetaDetails) -> Unit)? = null
     /** "Skip credits" at the end of the video: finish as if it had played out. */
     var onSkipCredits: (() -> Unit)? = null
     /** Add a subtitle file from the web as a track and switch to it. */
@@ -328,6 +330,7 @@ class CinemaController(
         artwork.load(query, imdbHint = imdbId, listener = object : ArtworkLoader.Listener {
             override fun onDetails(details: MetaDetails) {
                 this@CinemaController.details = details
+                onDetails?.invoke(details)
                 showDetails()
                 details.imdbId?.let { loadExtras(it, query) }
             }

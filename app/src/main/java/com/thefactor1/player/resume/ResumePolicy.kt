@@ -18,9 +18,14 @@ object ResumePolicy {
     /**
      * The source app's position wins, because its Continue Watching is what the viewer picked
      * from. Without one, this player's own memory of the title takes over.
+     *
+     * An app's "from start" holds back only an old memory. Apps that re-search for a source after
+     * a stream drops (a torrent swapped for Usenet) launch the new one at zero with that flag set,
+     * mid-film; a spot saved in the last [LAST_WATCHED_WINDOW_MS] is where the viewer is, and two
+     * presses of OK on the resume chip still start over.
      */
-    fun start(appPositionMs: Long, fromStart: Boolean, saved: ResumeStore.Entry?): Start = when {
-        fromStart -> Start(0L, Source.NONE)
+    fun start(appPositionMs: Long, fromStart: Boolean, saved: ResumeStore.Entry?, nowMs: Long): Start = when {
+        fromStart && (saved == null || !isRecent(saved, nowMs)) -> Start(0L, Source.NONE)
         // A few seconds from the app is a stream it barely touched, not a place to come back to;
         // letting it win would start from the top while this player remembers more.
         appPositionMs >= MIN_RESUME_MS -> Start(appPositionMs, Source.APP)
@@ -50,7 +55,8 @@ object ResumePolicy {
      */
     fun nearlySameLength(savedDurationMs: Long, actualDurationMs: Long): Boolean {
         if (savedDurationMs <= 0 || actualDurationMs <= 0) return false
-        val tolerance = maxOf(actualDurationMs / 200, 10_000L)
+        // Different releases of one film (a remux, a web copy) can differ by a minute: studio cards.
+        val tolerance = maxOf(actualDurationMs / 100, 20_000L)
         return abs(savedDurationMs - actualDurationMs) <= tolerance
     }
 
@@ -67,12 +73,15 @@ object ResumePolicy {
         actualDurationMs: Long,
         nowMs: Long,
     ): Boolean = last != null && !lastWasEpisode && !nowIsEpisode &&
-        nowMs - last.savedAt in 0..LAST_WATCHED_WINDOW_MS &&
+        isRecent(last, nowMs) &&
         last.positionMs >= MIN_RESUME_MS &&
         !isWatched(last.positionMs, last.durationMs) &&
         nearlySameLength(last.durationMs, actualDurationMs)
 
     const val LAST_WATCHED_WINDOW_MS = 48L * 60 * 60 * 1000
+
+    private fun isRecent(saved: ResumeStore.Entry, nowMs: Long): Boolean =
+        nowMs - saved.savedAt in 0..LAST_WATCHED_WINDOW_MS
 
     enum class Leave { SAVE, FORGET, KEEP }
 
