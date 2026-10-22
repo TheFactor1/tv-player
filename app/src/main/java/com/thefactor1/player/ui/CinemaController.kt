@@ -217,6 +217,9 @@ class CinemaController(
     private var skipTotalMs = 0L
     private var skipShownUntil = 0L
     private var speedIndex = 0
+    // Stalls while playing faster than 1×; seeks aren't stalls, so the last one is remembered.
+    private var fastStalls = 0
+    private var lastSeekAtMs = 0L
 
     init {
         fonts.apply(fonts.bold, title, panelTitle, loadingTitle, skipBackAmount, skipForwardAmount, metaKicker)
@@ -953,7 +956,20 @@ class CinemaController(
 
     private fun setSpeed(speed: Float) {
         speedIndex = SPEEDS.indexOfFirst { it == speed }.coerceAtLeast(0)
+        fastStalls = 0
         player?.setPlaybackSpeed(SPEEDS[speedIndex])
+    }
+
+    /**
+     * A stream that stalls again and again at 2× is coming in slower than it plays: no buffer fixes
+     * that, so after the second stall the viewer is told, once for each speed they pick.
+     */
+    private fun noteStall() {
+        val speed = SPEEDS[speedIndex]
+        if (loading || speed <= 1f || player?.playWhenReady != true) return
+        if (SystemClock.uptimeMillis() - lastSeekAtMs < SEEK_SETTLE_MS) return
+        fastStalls++
+        if (fastStalls == STALLS_BEFORE_HINT) showToast(activity.getString(R.string.speed_cant_keep_up, speedName(speed)), STALL_TOAST_MS)
     }
 
     private fun speedLabel(): String = speedName(SPEEDS[speedIndex])
@@ -1597,7 +1613,10 @@ class CinemaController(
             updatePlayButton()
         }
 
-        override fun onPlaybackStateChanged(state: Int) = updatePlayButton()
+        override fun onPlaybackStateChanged(state: Int) {
+            updatePlayButton()
+            if (state == Player.STATE_BUFFERING) noteStall()
+        }
 
         // Whatever subtitles are on screen also feed the phone's transcript when no file could be read.
         override fun onCues(cueGroup: CueGroup) {
@@ -1612,6 +1631,7 @@ class CinemaController(
         }
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) lastSeekAtMs = SystemClock.uptimeMillis()
             skipPrompt.refresh()
         }
 
@@ -1639,6 +1659,9 @@ class CinemaController(
         const val AUTO_HIDE_MS = 4_000L
         const val PROGRESS_MS = 500L
         const val TOAST_MS = 800L
+        const val STALL_TOAST_MS = 3_500L
+        const val STALLS_BEFORE_HINT = 2
+        const val SEEK_SETTLE_MS = 1_500L
         const val TMDB_PHOTOS = "https://image.tmdb.org/t/p/w185"
         const val SHOW_MS = 240L
         const val HIDE_MS = 220L
