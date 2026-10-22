@@ -195,7 +195,11 @@ class CinemaController(
     private var artworkStartedAt = 0L
     /** The art lookup has given all it will (a logo, or nothing), or the wait for it ran out. */
     private var artSettled = false
-    private var waitingForArt = false
+    /** The film is held on its first frame behind the pre-show until [canReveal]. */
+    private var revealHeld = false
+    private var boothStartedAt = 0L
+    private var holdStartedAt = 0L
+    private var logoShownAt = 0L
     private var details: MetaDetails? = null
     /** The detail the source app gave ("S1 E1", "2024"), shown until the catalogue says more. */
     private var launchDetail: String? = null
@@ -279,7 +283,7 @@ class CinemaController(
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
-        waitingForArt = false
+        revealHeld = false
         hidePauseScreen(animate = false)
         skipPrompt.detach()
         preShow.detach()
@@ -293,6 +297,7 @@ class CinemaController(
         artworkQuery = query
         artwork.cancel()
         artSettled = false
+        logoShownAt = 0L
         extras.cancel()
         cast.cancel()
         castShown = emptyList()
@@ -343,13 +348,11 @@ class CinemaController(
                 metaLogo.animate().alpha(1f).setDuration(artFadeMs()).start()
                 loadingTitle.visibility = View.GONE
                 preShow.setLogo(bitmap, artFadeMs())
-                // Let the logo be seen for a moment before the film cuts in.
-                if (waitingForArt) endArtWait(ART_LOGO_BEAT_MS)
+                logoShownAt = SystemClock.uptimeMillis()
             }
 
             override fun onNoArt() {
                 artSettled = true
-                if (waitingForArt) endArtWait(0)
             }
         })
     }
@@ -358,27 +361,38 @@ class CinemaController(
     private fun artPending(): Boolean = artworkQuery != null && !artSettled && metaLogo.visibility != View.VISIBLE
 
     /**
-     * Holds the film on its first frame, behind the pre-show, until the logo lands or
-     * [ART_WAIT_MS] runs out. Only a first play waits: a film seen before has its art on the box.
+     * The pre-show is part of the show, not just a wait: it stays up for at least [MIN_BOOTH_MS]
+     * so the log types in and the cue mark's flash and cut are always seen. On a first play it
+     * also waits up to [ART_WAIT_MS] for the logo, which then stays a moment before the cut.
      */
-    private fun waitForArt() {
-        waitingForArt = true
+    private fun canReveal(): Boolean {
+        val now = SystemClock.uptimeMillis()
+        if (artPending() && now - holdStartedAt >= ART_WAIT_MS) artSettled = true
+        return now - boothStartedAt >= MIN_BOOTH_MS &&
+            !artPending() &&
+            (logoShownAt == 0L || now - logoShownAt >= ART_LOGO_BEAT_MS)
+    }
+
+    /** Holds the film on its first frame, behind the pre-show, until [canReveal]. */
+    private fun holdReveal() {
+        revealHeld = true
+        holdStartedAt = SystemClock.uptimeMillis()
         player?.pause()
-        handler.removeCallbacks(artWaitOver)
-        handler.postDelayed(artWaitOver, ART_WAIT_MS)
+        handler.removeCallbacks(checkReveal)
+        handler.postDelayed(checkReveal, REVEAL_CHECK_MS)
     }
 
-    private fun endArtWait(afterMs: Long) {
-        handler.removeCallbacks(artWaitOver)
-        handler.postDelayed(artWaitOver, afterMs)
-    }
-
-    private val artWaitOver = Runnable {
-        if (!waitingForArt) return@Runnable
-        waitingForArt = false
-        artSettled = true
-        // Playing again calls hideLoading, which now reveals.
-        player?.play()
+    private val checkReveal: Runnable = object : Runnable {
+        override fun run() {
+            if (!revealHeld) return
+            if (!canReveal()) {
+                handler.postDelayed(this, REVEAL_CHECK_MS)
+                return
+            }
+            revealHeld = false
+            // Playing again calls hideLoading, which now reveals.
+            player?.play()
+        }
     }
 
     /** Art that was already on the box comes up almost at once; art that took a while eases in. */
@@ -521,8 +535,9 @@ class CinemaController(
         errorShown = false
         errorActions.visibility = View.GONE
         if (waitForNewFrame) firstFrameRendered = false
-        waitingForArt = false
-        handler.removeCallbacks(artWaitOver)
+        revealHeld = false
+        handler.removeCallbacks(checkReveal)
+        boothStartedAt = SystemClock.uptimeMillis()
         hidePauseScreen(animate = false)
         loadingCard.setBackgroundColor(ContextCompat.getColor(activity, R.color.loading_ground))
         loadingLine.text = line
@@ -1038,9 +1053,9 @@ class CinemaController(
         }
 
     private fun hideLoading() {
-        if (!loading || holdLoading || waitingForArt) return
-        if (preShow.isShowing && artPending()) {
-            waitForArt()
+        if (!loading || holdLoading || revealHeld) return
+        if (preShow.isShowing && !canReveal()) {
+            holdReveal()
             return
         }
         loading = false
@@ -1691,6 +1706,8 @@ class CinemaController(
         const val ART_FADE_MS = 600L
         const val ART_QUICK_FADE_MS = 200L
         const val ART_WAIT_MS = 1_500L
+        const val MIN_BOOTH_MS = 3_500L
+        const val REVEAL_CHECK_MS = 100L
         const val ART_LOGO_BEAT_MS = 900L
         const val ART_QUICK_WINDOW_MS = 400L
         const val CUT_MS = 90L

@@ -136,6 +136,8 @@ class PlayerActivity : Activity() {
         }
         hideSystemBars()
         if (!loadRequest(intent)) return
+        // The first stream gets the pre-show too, not only the ones that follow.
+        controller.showLoading()
         savedInstanceState?.getLong(STATE_POSITION, C.TIME_UNSET)?.let { resumePositionMs = it }
     }
 
