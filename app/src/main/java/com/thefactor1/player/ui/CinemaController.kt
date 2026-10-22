@@ -287,8 +287,6 @@ class CinemaController(
     fun detach() {
         if (PhoneCompanion.host === this) PhoneCompanion.host = null
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
-        // A late answer for this screen's film mustn't land on the next one's.
-        cast.cancel()
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
@@ -420,7 +418,9 @@ class CinemaController(
         cast.load(imdbId, details?.name, query.season, query.episode, object : CastLoader.Listener {
             override fun onCast(people: List<CastMember>) {
                 castShown = people
-                PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }
+                // Keep loading across Home and back (the same film skips loadArtwork), but a late answer
+                // from a screen another one has replaced mustn't reach the phone.
+                if (PhoneCompanion.host === this@CinemaController || PhoneCompanion.host == null) PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }
                 infoCast.show(people)
                 metaCast.show(people)
                 showDetails()
