@@ -439,7 +439,7 @@ class CinemaController(
     private fun displayInfo(): DisplayInfo {
         val display = activity.windowManager.defaultDisplay
         val mode = display.mode
-        val hdr = display.hdrCapabilities?.supportedHdrTypes?.mapNotNull {
+        val hdr = display.hdrCapabilities?.supportedHdrTypes?.toList()?.mapNotNull {
             when (it) {
                 Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION -> HdrType.DOLBY_VISION
                 Display.HdrCapabilities.HDR_TYPE_HDR10, HDR_TYPE_HDR10_PLUS -> HdrType.HDR10
