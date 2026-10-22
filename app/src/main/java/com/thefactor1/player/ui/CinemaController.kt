@@ -193,6 +193,9 @@ class CinemaController(
     private val artwork = ArtworkLoader(activity)
     private var artworkQuery: MetaQuery? = null
     private var artworkStartedAt = 0L
+    /** The art lookup has given all it will (a logo, or nothing), or the wait for it ran out. */
+    private var artSettled = false
+    private var waitingForArt = false
     private var details: MetaDetails? = null
     /** The detail the source app gave ("S1 E1", "2024"), shown until the catalogue says more. */
     private var launchDetail: String? = null
@@ -276,6 +279,7 @@ class CinemaController(
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
+        waitingForArt = false
         hidePauseScreen(animate = false)
         skipPrompt.detach()
         preShow.detach()
@@ -288,6 +292,7 @@ class CinemaController(
         if (query == artworkQuery) return
         artworkQuery = query
         artwork.cancel()
+        artSettled = false
         extras.cancel()
         cast.cancel()
         castShown = emptyList()
@@ -338,8 +343,42 @@ class CinemaController(
                 metaLogo.animate().alpha(1f).setDuration(artFadeMs()).start()
                 loadingTitle.visibility = View.GONE
                 preShow.setLogo(bitmap, artFadeMs())
+                // Let the logo be seen for a moment before the film cuts in.
+                if (waitingForArt) endArtWait(ART_LOGO_BEAT_MS)
+            }
+
+            override fun onNoArt() {
+                artSettled = true
+                if (waitingForArt) endArtWait(0)
             }
         })
+    }
+
+    /** The art lookup is still out and could yet put the film's logo on the pre-show. */
+    private fun artPending(): Boolean = artworkQuery != null && !artSettled && metaLogo.visibility != View.VISIBLE
+
+    /**
+     * Holds the film on its first frame, behind the pre-show, until the logo lands or
+     * [ART_WAIT_MS] runs out. Only a first play waits: a film seen before has its art on the box.
+     */
+    private fun waitForArt() {
+        waitingForArt = true
+        player?.pause()
+        handler.removeCallbacks(artWaitOver)
+        handler.postDelayed(artWaitOver, ART_WAIT_MS)
+    }
+
+    private fun endArtWait(afterMs: Long) {
+        handler.removeCallbacks(artWaitOver)
+        handler.postDelayed(artWaitOver, afterMs)
+    }
+
+    private val artWaitOver = Runnable {
+        if (!waitingForArt) return@Runnable
+        waitingForArt = false
+        artSettled = true
+        // Playing again calls hideLoading, which now reveals.
+        player?.play()
     }
 
     /** Art that was already on the box comes up almost at once; art that took a while eases in. */
@@ -482,6 +521,8 @@ class CinemaController(
         errorShown = false
         errorActions.visibility = View.GONE
         if (waitForNewFrame) firstFrameRendered = false
+        waitingForArt = false
+        handler.removeCallbacks(artWaitOver)
         hidePauseScreen(animate = false)
         loadingCard.setBackgroundColor(ContextCompat.getColor(activity, R.color.loading_ground))
         loadingLine.text = line
@@ -997,7 +1038,11 @@ class CinemaController(
         }
 
     private fun hideLoading() {
-        if (!loading || holdLoading) return
+        if (!loading || holdLoading || waitingForArt) return
+        if (preShow.isShowing && artPending()) {
+            waitForArt()
+            return
+        }
         loading = false
         updateSkipPrompt()
         // Measuring the frame rate borrows the speed; give the viewer's choice back.
@@ -1647,6 +1692,8 @@ class CinemaController(
         const val MINI_BAR_MS = 1_600L
         const val ART_FADE_MS = 600L
         const val ART_QUICK_FADE_MS = 200L
+        const val ART_WAIT_MS = 1_500L
+        const val ART_LOGO_BEAT_MS = 900L
         const val ART_QUICK_WINDOW_MS = 400L
         const val CUT_MS = 90L
         const val BOOTH_ART_ALPHA = 0.16f
