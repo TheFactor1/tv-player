@@ -26,6 +26,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -290,6 +291,7 @@ class CinemaController(
         cast.cancel()
         castShown = emptyList()
         PhoneCompanion.reset()
+        PhoneCompanion.loadTranscript(PhoneCompanion.launchSubtitles)
         infoCast.clear()
         metaCast.clear()
         skipPrompt.setSegments(emptyList())
@@ -371,7 +373,8 @@ class CinemaController(
         extras.subtitles(imdbId, query.season, query.episode) { found ->
             onlineSubtitles = found
             val preferred = listOf(prefs.subtitleLanguage.ifEmpty { Locale.getDefault().language }, "en")
-            SubtitleLanguages.rank(found, preferred, 1).firstOrNull()?.let { PhoneCompanion.loadTranscript(it.url) }
+            // The launching app's own files first (they match this release), then the best few found online.
+            PhoneCompanion.loadTranscript(PhoneCompanion.launchSubtitles + SubtitleLanguages.rank(found, preferred, TRANSCRIPT_TRIES).map { it.url })
             onlineSearch = OnlineSearch.DONE
             refreshSubtitlePanel()
         }
@@ -1436,10 +1439,8 @@ class CinemaController(
             PhoneCompanion.address()?.let { activity.getString(R.string.companion_value, it, PhoneCompanion.code) }
                 ?: activity.getString(R.string.companion_offline_value),
             checked = false,
-            keepOpen = true,
-            hint = PhoneCompanion.address()?.let { activity.getString(R.string.companion_detail, it, PhoneCompanion.code) }
-                ?: activity.getString(R.string.companion_offline),
-        ),
+            hint = activity.getString(R.string.pair_hint),
+        ) { PairingCard.show(activity, fonts) },
         Item(
             activity.getString(R.string.more_stats),
             value = null,
@@ -1572,6 +1573,13 @@ class CinemaController(
             if (state == Player.STATE_BUFFERING) noteStall()
         }
 
+        // Whatever subtitles are on screen also feed the phone's transcript when no file could be read.
+        override fun onCues(cueGroup: CueGroup) {
+            val text = cueGroup.cues.mapNotNull { it.text?.toString() }.joinToString(" ")
+            val position = player?.currentPosition ?: return
+            if (text.isNotBlank()) PhoneCompanion.liveCue(position, text)
+        }
+
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             updatePlayButton()
             skipPrompt.refresh()
@@ -1596,6 +1604,7 @@ class CinemaController(
     }
 
     private companion object {
+        const val TRANSCRIPT_TRIES = 3
         val SPEEDS = floatArrayOf(1f, 1.25f, 1.5f, 2f, 0.75f)
         /** The same speeds, slowest first, as the speed list shows them. */
         val SPEED_CHOICES = SPEEDS.sorted()
