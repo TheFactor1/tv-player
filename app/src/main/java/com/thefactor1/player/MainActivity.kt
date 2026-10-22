@@ -17,6 +17,7 @@ import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.OptionList
+import com.thefactor1.player.ui.PairingCard
 
 /**
  * The home-screen entry: explains how to use the player, shows what this TV can output, and holds
@@ -47,15 +48,24 @@ class MainActivity : Activity() {
         settings.show()
     }
 
+    /** The phone app asking to connect while the home screen is up. */
+    private val askToConnect: (String, (Boolean) -> Unit) -> Unit by lazy {
+        val fonts = Fonts(this)
+        val ask: (String, (Boolean) -> Unit) -> Unit = { device, answer -> PairingCard.ask(this, fonts, device, answer) }
+        ask
+    }
+
     override fun onStart() {
         super.onStart()
         PhoneCompanion.start(this)
+        PhoneCompanion.approver = askToConnect
         // The code may have changed since the list was built: a phone paired, or the network came up.
         settings.show()
     }
 
     override fun onStop() {
         super.onStop()
+        if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
         PhoneCompanion.stop()
     }
 
