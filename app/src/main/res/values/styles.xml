@@ -38,10 +38,14 @@
         <item name="android:visibility">invisible</item>
     </style>
 
+    <!-- A fixed box inside the ring: the time is centred in it and shrunk to fit, so it never touches the stroke. -->
     <style name="SkipAmount">
-        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_width">@dimen/skip_amount_width</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_gravity">center</item>
+        <item name="android:gravity">center</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:includeFontPadding">false</item>
         <item name="android:fontFeatureSettings">tnum</item>
         <item name="android:textColor">@color/ink</item>
         <item name="android:textSize">22sp</item>
