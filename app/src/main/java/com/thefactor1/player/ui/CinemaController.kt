@@ -270,7 +270,9 @@ class CinemaController(
                 metaBackdrop.animate().alpha(1f).setDuration(ART_FADE_MS).setInterpolator(easeOut).start()
             }
 
-            override fun onAccent(color: Int) = setAccent(color)
+            override fun onAccent(color: Int) {
+                if (prefs.filmColours) setAccent(color)
+            }
 
             override fun onLogo(bitmap: Bitmap) {
                 metaLogo.setImageBitmap(bitmap)

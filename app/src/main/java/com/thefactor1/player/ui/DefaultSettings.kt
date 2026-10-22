@@ -24,6 +24,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         heading(R.string.settings_picture),
         item { pictureFit() },
         item { matchFrameRate() },
+        item { filmColours() },
         heading(R.string.settings_advanced),
         item { audioOutput() },
     )
@@ -158,6 +159,12 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         context.getString(if (prefs.matchFrameRate) R.string.picture_match_on else R.string.picture_match_off),
         checked = prefs.matchFrameRate,
     ) { prefs.matchFrameRate = !prefs.matchFrameRate }
+
+    private fun filmColours() = Option(
+        context.getString(R.string.film_colours),
+        onOff(prefs.filmColours, R.string.film_colours_detail),
+        checked = prefs.filmColours,
+    ) { prefs.filmColours = !prefs.filmColours }
 
     private fun languagePage(title: Int, noPreference: Int, current: () -> String, pick: (String) -> Unit) =
         OptionPage(context.getString(title)) {

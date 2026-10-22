@@ -50,6 +50,11 @@ class PlayerPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_DIALOGUE_BOOST, false)
         set(value) = prefs.edit { putBoolean(KEY_DIALOGUE_BOOST, value) }
 
+    /** Lets the film's own colour tint the seek bars. */
+    var filmColours: Boolean
+        get() = prefs.getBoolean(KEY_FILM_COLOURS, true)
+        set(value) = prefs.edit { putBoolean(KEY_FILM_COLOURS, value) }
+
     /** Index into [SUBTITLE_STYLES]. */
     var subtitleStyle: Int
         get() = prefs.getInt(KEY_SUB_STYLE, 0).coerceIn(SUBTITLE_STYLES.indices)
@@ -133,6 +138,7 @@ class PlayerPrefs(context: Context) {
         val AUDIO_DELAYS_MS = (-300..500 step 50).toList()
         private const val KEY_NIGHT_MODE = "night_mode"
         private const val KEY_DIALOGUE_BOOST = "dialogue_boost"
+        private const val KEY_FILM_COLOURS = "film_colours"
         private const val KEY_SUB_STYLE = "subtitle_style"
         private const val KEY_SUB_POSITION = "subtitle_position"
         private const val KEY_SUB_MODE = "subtitle_mode"
