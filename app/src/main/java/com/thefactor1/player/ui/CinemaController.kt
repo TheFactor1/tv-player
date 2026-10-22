@@ -28,8 +28,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
 import com.thefactor1.player.meta.ArtworkLoader
+import com.thefactor1.player.meta.CastLoader
+import com.thefactor1.player.meta.CastMember
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.meta.OnlineExtras
@@ -167,6 +170,11 @@ class CinemaController(
     private var launchDetail: String? = null
     private var pauseScreenShown = false
     private val extras = OnlineExtras()
+    private val cast = CastLoader(activity, BuildConfig.TMDB_API_KEY)
+    private val infoCast = CastRow(activity.findViewById(R.id.info_cast), fonts, faceDp = 36, nameSp = 14f, maxPeople = 4)
+    private val metaCast = CastRow(activity.findViewById(R.id.meta_cast), fonts, faceDp = 48, nameSp = 15f, maxPeople = 5)
+    private val metaCastView: View = activity.findViewById(R.id.meta_cast)
+    private var castShown: List<CastMember> = emptyList()
     private val skipPrompt = SkipPrompt(activity.findViewById(R.id.skip_prompt)) { onSkipCredits?.invoke() }
     private var onlineSearch = OnlineSearch.UNMATCHED
     private var onlineSubtitles: List<OnlineSubtitle> = emptyList()
@@ -245,6 +253,10 @@ class CinemaController(
         artworkQuery = query
         artwork.cancel()
         extras.cancel()
+        cast.cancel()
+        castShown = emptyList()
+        infoCast.clear()
+        metaCast.clear()
         skipPrompt.setSegments(emptyList())
         onlineSearch = OnlineSearch.UNMATCHED
         onlineSubtitles = emptyList()
@@ -281,6 +293,19 @@ class CinemaController(
 
     /** Skip times and online subtitles for the recognised film or episode. */
     private fun loadExtras(imdbId: String, query: MetaQuery) {
+        cast.load(imdbId, query.season, query.episode, object : CastLoader.Listener {
+            override fun onCast(people: List<CastMember>) {
+                castShown = people
+                infoCast.show(people)
+                metaCast.show(people)
+                showDetails()
+            }
+
+            override fun onPhoto(member: CastMember, bitmap: Bitmap) {
+                infoCast.setPhoto(member, bitmap)
+                metaCast.setPhoto(member, bitmap)
+            }
+        })
         extras.skipSegments(imdbId, query.season, query.episode) { skipPrompt.setSegments(it) }
         onlineSearch = OnlineSearch.SEARCHING
         refreshSubtitlePanel()
@@ -315,6 +340,7 @@ class CinemaController(
         metaDescription.text = known?.description
         // The synopsis is for the pause screen; while loading, the status line has the floor.
         metaDescription.visibility = if (pauseScreenShown && !known?.description.isNullOrEmpty()) View.VISIBLE else View.GONE
+        metaCastView.visibility = if (pauseScreenShown && castShown.isNotEmpty()) View.VISIBLE else View.GONE
     }
 
     /** After a while paused, the picture gives way to the film's art and synopsis, like a TV app's detail page. */
