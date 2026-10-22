@@ -55,10 +55,15 @@ object FormatNames {
     fun language(format: Format): String? = TrackNames.name(
         languageTag = format.language,
         label = format.label,
-        forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+        // Some remuxes flag the main audio forced too, which means nothing for sound.
+        forced = !MimeTypes.isAudio(format.sampleMimeType) && format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
         hearingImpaired = format.roleFlags and C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND != 0,
         commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0,
     )
+
+    /** A subtitle track that only carries signs and foreign-language lines, by its flag or its name. */
+    fun isForced(format: Format): Boolean =
+        format.selectionFlags and C.SELECTION_FLAG_FORCED != 0 || TrackNames.saysForced(format.label)
 
     fun audioDetail(format: Format): String =
         listOfNotNull(codec(format.sampleMimeType), channels(format.channelCount)).joinToString(" ")

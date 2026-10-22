@@ -1234,6 +1234,7 @@ class CinemaController(
         val textDisabled = exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
         var anySelected = false
         val tracks = mutableListOf<Item>()
+        val forcedTracks = mutableListOf<Item>()
         var number = 0
         for (group in exo.currentTracks.groups) {
             if (group.type != C.TRACK_TYPE_TEXT) continue
@@ -1243,13 +1244,19 @@ class CinemaController(
                 val format = group.getTrackFormat(i)
                 val selected = !textDisabled && group.isTrackSelected(i)
                 anySelected = anySelected || selected
-                tracks += Item(
-                    label = uniqueName(FormatNames.language(format) ?: activity.getString(R.string.subs_unknown, number), tracks),
-                    value = null,
+                // Forced tracks go below the full ones: picked by mistake they look like broken subtitles.
+                val forced = FormatNames.isForced(format)
+                val name = FormatNames.language(format) ?: activity.getString(R.string.subs_unknown, number)
+                val item = Item(
+                    label = uniqueName(name, tracks + forcedTracks),
+                    value = FormatNames.textCodec(format).takeIf { it != "Unknown" },
                     checked = selected,
+                    hint = if (forced) activity.getString(R.string.subs_forced_hint) else null,
                 ) { selectTrack(group, i) }
+                if (forced) forcedTracks += item else tracks += item
             }
         }
+        tracks += forcedTracks
         val delays = PlayerPrefs.SUBTITLE_DELAYS_MS
         val style = PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle]
         val position = PlayerPrefs.SUBTITLE_POSITIONS[prefs.subtitlePosition]

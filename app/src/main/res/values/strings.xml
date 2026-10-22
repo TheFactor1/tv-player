@@ -69,6 +69,7 @@
     <string name="on">On</string>
     <string name="off">Off</string>
     <string name="track_unknown">Track %1$d</string>
+    <string name="subs_forced_hint">Only signs and foreign-language lines, so most scenes show nothing</string>
     <string name="subs_unknown">Subtitles %1$d</string>
     <string name="audio_default_language">Spoken language</string>
     <string name="audio_language_auto">Original (film\'s default)</string>

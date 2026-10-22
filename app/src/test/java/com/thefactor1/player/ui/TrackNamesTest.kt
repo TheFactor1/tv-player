@@ -41,4 +41,12 @@ class TrackNamesTest {
         assertNull(name(null, "BTM"))
         assertNull(name("und", null))
     }
+
+    @Test
+    fun forcedFromTheTrackName() {
+        assertEquals(true, TrackNames.saysForced("English [Forced]"))
+        assertEquals(true, TrackNames.saysForced("Foreign parts only"))
+        assertEquals(false, TrackNames.saysForced("English SDH"))
+        assertEquals(false, TrackNames.saysForced(null))
+    }
 }
