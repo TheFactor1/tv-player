@@ -176,6 +176,7 @@ class CinemaController(
     private var firstFrameRendered = false
     private val artwork = ArtworkLoader(activity)
     private var artworkQuery: MetaQuery? = null
+    private var artworkStartedAt = 0L
     private var details: MetaDetails? = null
     /** The detail the source app gave ("S1 E1", "2024"), shown until the catalogue says more. */
     private var launchDetail: String? = null
@@ -229,14 +230,15 @@ class CinemaController(
     }
 
     /** [detail] is the episode or year shown under the title, e.g. "S1 E1". */
-    fun attach(exo: ExoPlayer, titleText: String?, detail: String?, sourceApp: String?) {
+    /** [imdbId] is one the source app sent with the stream, which lets the art skip the name search. */
+    fun attach(exo: ExoPlayer, titleText: String?, detail: String?, sourceApp: String?, imdbId: String? = null) {
         player = exo
         exo.addListener(listener)
         this.sourceApp = sourceApp
         title.text = titleText.orEmpty()
         launchDetail = detail
         showDetails()
-        loadArtwork(MetaQuery.from(titleText, detail))
+        loadArtwork(MetaQuery.from(titleText, detail), imdbId)
         val sourceLine = listOfNotNull(detail, sourceApp?.let { activity.getString(R.string.source_from, it) }).joinToString("  ·  ")
         source.text = sourceLine
         source.visibility = if (sourceLine.isEmpty()) View.GONE else View.VISIBLE
@@ -263,7 +265,7 @@ class CinemaController(
     // ---- Meta screen: film art and details, for loading and for the pause screen ---------------
 
     /** Re-attaching to the same film (after Home and back) keeps the art already on screen. */
-    private fun loadArtwork(query: MetaQuery?) {
+    private fun loadArtwork(query: MetaQuery?, imdbId: String?) {
         if (query == artworkQuery) return
         artworkQuery = query
         artwork.cancel()
@@ -287,7 +289,8 @@ class CinemaController(
         loadingTitle.visibility = if (loadingTitle.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         showDetails()
         if (query == null) return
-        artwork.load(query, object : ArtworkLoader.Listener {
+        artworkStartedAt = SystemClock.uptimeMillis()
+        artwork.load(query, imdbHint = imdbId, listener = object : ArtworkLoader.Listener {
             override fun onDetails(details: MetaDetails) {
                 this@CinemaController.details = details
                 showDetails()
@@ -295,8 +298,13 @@ class CinemaController(
             }
 
             override fun onBackdrop(bitmap: Bitmap) {
+                // The full backdrop takes the small one's place in the same frame, with no second fade.
+                val sharpening = metaBackdrop.drawable != null
                 metaBackdrop.setImageBitmap(bitmap)
-                metaBackdrop.animate().alpha(if (preShow.isShowing) BOOTH_ART_ALPHA else 1f).setDuration(ART_FADE_MS).setInterpolator(easeOut).start()
+                if (!sharpening) {
+                    metaBackdrop.animate().alpha(if (preShow.isShowing) BOOTH_ART_ALPHA else 1f)
+                        .setDuration(artFadeMs()).setInterpolator(easeOut).start()
+                }
             }
 
             override fun onAccent(color: Int) {
@@ -307,12 +315,16 @@ class CinemaController(
                 metaLogo.setImageBitmap(bitmap)
                 metaLogo.alpha = 0f
                 metaLogo.visibility = View.VISIBLE
-                metaLogo.animate().alpha(1f).setDuration(ART_FADE_MS).start()
+                metaLogo.animate().alpha(1f).setDuration(artFadeMs()).start()
                 loadingTitle.visibility = View.GONE
-                preShow.setLogo(bitmap)
+                preShow.setLogo(bitmap, artFadeMs())
             }
         })
     }
+
+    /** Art that was already on the box comes up almost at once; art that took a while eases in. */
+    private fun artFadeMs(): Long =
+        if (SystemClock.uptimeMillis() - artworkStartedAt < ART_QUICK_WINDOW_MS) ART_QUICK_FADE_MS else ART_FADE_MS
 
     /** The film's own colour on the seek bars; white until (and unless) its backdrop lends one. */
     private fun setAccent(color: Int) {
@@ -1489,6 +1501,8 @@ class CinemaController(
         const val LABEL_MS = 160L
         const val MINI_BAR_MS = 1_600L
         const val ART_FADE_MS = 600L
+        const val ART_QUICK_FADE_MS = 200L
+        const val ART_QUICK_WINDOW_MS = 400L
         const val CUT_MS = 90L
         const val BOOTH_ART_ALPHA = 0.16f
         // Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS, which needs API 29 by name.

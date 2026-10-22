@@ -350,7 +350,7 @@ class PlayerActivity : Activity() {
         exo.addListener(listener)
         stats.attach(exo)
         val name = ReleaseName.parse(req.title)
-        controller.attach(exo, name?.title, name?.detail, sourceAppName())
+        controller.attach(exo, name?.title, name?.detail, sourceAppName(), TitleKeys.imdbId(titleKeys))
         playerView.player = exo
         player = exo
 

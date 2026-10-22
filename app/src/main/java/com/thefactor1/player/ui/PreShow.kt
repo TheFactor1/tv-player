@@ -131,13 +131,14 @@ class PreShow(
         episode.visibility = if (episodeText.isNullOrEmpty()) View.GONE else View.VISIBLE
     }
 
-    fun setLogo(bitmap: Bitmap?) {
+    /** [fadeMs] is shorter for a logo that was already on the box, so it doesn't look late. */
+    fun setLogo(bitmap: Bitmap?, fadeMs: Long = LOGO_FADE_MS) {
         logo.setImageBitmap(bitmap)
         logo.visibility = if (bitmap != null) View.VISIBLE else View.GONE
         title.visibility = if (bitmap == null && !title.text.isNullOrEmpty()) View.VISIBLE else View.GONE
         if (bitmap != null) {
             logo.alpha = 0f
-            logo.animate().alpha(1f).setDuration(LOGO_FADE_MS).start()
+            logo.animate().alpha(1f).setDuration(fadeMs).start()
         }
     }
 
