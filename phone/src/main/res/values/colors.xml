@@ -1,0 +1,9 @@
+<resources>
+    <!-- The TV app's Cinema palette, so the two feel like one product. -->
+    <color name="ground">#0B0C0E</color>
+    <color name="raised">#16181C</color>
+    <color name="ink">#F3F1EC</color>
+    <color name="ink_secondary">#C9CDD3</color>
+    <color name="ink_dim">#99F3F1EC</color>
+    <color name="hairline">#1FF3F1EC</color>
+</resources>

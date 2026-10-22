@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">TV Companion</string>
+
+    <string name="find_title">Find your TV</string>
+    <string name="find_looking">Looking for TV Player on this Wi-Fi…</string>
+    <string name="find_none">No TV found yet. Open TV Player on the TV, and check the phone is on the same Wi-Fi.</string>
+    <string name="find_pick">Tap your TV to connect.</string>
+    <string name="find_asking">Press OK on the TV remote to let this phone in.</string>
+    <string name="find_denied">The TV said no. Tap it to ask again.</string>
+    <string name="find_screen">Open TV Player on the TV first, then tap it again.</string>
+    <string name="find_failed">Couldn\'t reach the TV. Tap it to try again.</string>
+    <string name="find_done">Connected</string>
+
+    <string name="channel_name">Now playing</string>
+    <string name="channel_detail">What\'s on the TV, with play and pause</string>
+    <string name="note_connected">Connected to your TV</string>
+    <string name="note_idle">Nothing playing</string>
+    <string name="note_playing">Playing on your TV · tap for the transcript</string>
+    <string name="note_paused">Paused on your TV · tap for the transcript</string>
+    <string name="note_away">Waiting for TV Player to open on the TV</string>
+    <string name="note_reconnect">Open TV Companion to connect again</string>
+    <string name="action_play">Play</string>
+    <string name="action_pause">Pause</string>
+    <string name="forget">Forget this TV</string>
+</resources>

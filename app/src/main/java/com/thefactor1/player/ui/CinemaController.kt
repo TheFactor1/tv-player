@@ -259,6 +259,9 @@ class CinemaController(
 
     /** [detail] is the episode or year shown under the title, e.g. "S1 E1". */
     /** [imdbId] is one the source app sent with the stream, which lets the art skip the name search. */
+    /** The phone app asking to connect, put to whoever is watching. */
+    private val askToConnect: (String, (Boolean) -> Unit) -> Unit = { device, answer -> PairingCard.ask(activity, fonts, device, answer) }
+
     fun attach(exo: ExoPlayer, titleText: String?, detail: String?, sourceApp: String?, imdbId: String? = null) {
         player = exo
         exo.addListener(listener)
@@ -278,10 +281,12 @@ class CinemaController(
         skipPrompt.attach(exo)
         updateSkipPrompt()
         PhoneCompanion.host = this
+        PhoneCompanion.approver = askToConnect
     }
 
     fun detach() {
         if (PhoneCompanion.host === this) PhoneCompanion.host = null
+        if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)

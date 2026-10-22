@@ -37,6 +37,7 @@ object PairingCard {
     private const val OUT_MS = 220L
     private const val WATCH_MS = 1_000L
     private const val CLOSE_AFTER_PAIRED_MS = 1_600L
+    private const val ASK_TIMEOUT_MS = 60_000L
 
     // Material's emphasized curves: a soft landing on the way in, an easy start on the way out.
     private val easeOut = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
@@ -150,5 +151,82 @@ object PairingCard {
         root.requestFocus()
         card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(easeOut).start()
         if (url != null) handler.postDelayed(watch, WATCH_MS)
+    }
+
+    /**
+     * The phone app asking to connect: the same corner card, with the phone's name. OK lets it in,
+     * Back turns it away, and an unanswered card bows out after a minute.
+     */
+    fun ask(context: Context, fonts: Fonts, device: String, answer: (Boolean) -> Unit) {
+        val density = context.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+        val dialog = Dialog(context, android.R.style.Theme_Translucent_NoTitleBar)
+        val handler = Handler(Looper.getMainLooper())
+
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(18), dp(26), dp(18))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(ContextCompat.getColor(context, R.color.panel_ground))
+                setStroke(dp(1), ContextCompat.getColor(context, R.color.hairline))
+            }
+            addView(TextView(context).apply {
+                text = context.getString(R.string.pair_ask_title, device)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+                setTextColor(ContextCompat.getColor(context, R.color.ink))
+                typeface = fonts.bold
+                maxWidth = dp(360)
+            })
+            addView(TextView(context).apply {
+                text = context.getString(R.string.pair_ask_detail)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextColor(ContextCompat.getColor(context, R.color.ink_secondary))
+                typeface = fonts.medium
+                setPadding(0, dp(4), 0, 0)
+            })
+            alpha = 0f
+            translationY = RISE_DP * density
+        }
+        val root = FrameLayout(context).apply {
+            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+                setMargins(dp(EDGE_DP), dp(EDGE_DP), dp(EDGE_DP), dp(EDGE_DP))
+            })
+            isFocusable = true
+        }
+
+        var answered = false
+        fun close(approved: Boolean) {
+            if (answered) return
+            answered = true
+            answer(approved)
+            handler.removeCallbacksAndMessages(null)
+            card.animate().alpha(0f).translationY(RISE_DP * density / 2).setDuration(OUT_MS).setInterpolator(easeIn)
+                .withEndAction { if (dialog.isShowing) dialog.dismiss() }.start()
+        }
+
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setWindowAnimations(0)
+        }
+        dialog.setOnKeyListener { _, keyCode, event ->
+            val allow = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+            val handled = allow || keyCode == KeyEvent.KEYCODE_BACK
+            if (handled && event.action == KeyEvent.ACTION_UP) close(approved = allow)
+            handled
+        }
+        dialog.setOnDismissListener {
+            handler.removeCallbacksAndMessages(null)
+            if (!answered) {
+                answered = true
+                answer(false)
+            }
+        }
+        dialog.show()
+        root.requestFocus()
+        card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(easeOut).start()
+        handler.postDelayed({ close(approved = false) }, ASK_TIMEOUT_MS)
     }
 }

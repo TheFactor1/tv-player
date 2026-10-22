@@ -260,7 +260,14 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
 
   // The TV's QR code carries the pairing code (#pair=1234): pair straight away, even over an old token.
   const scanned = (location.hash.match(/pair=(\d{4})/) || [])[1];
-  if (scanned) {
+  // The phone app opens this page with its own token, so it never needs the code.
+  const handed = (location.hash.match(/token=([0-9a-f]+)/) || [])[1];
+  if (handed) {
+    token = handed;
+    try { localStorage.setItem('token', token); } catch (e) {}
+    history.replaceState(null, '', location.pathname);
+    showMain(); poll();
+  } else if (scanned) {
     history.replaceState(null, '', location.pathname);
     showPair();
     $('code').value = scanned;

@@ -49,13 +49,21 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew --no-daemon assembleDebug assembleRelease
 
-      - name: Name the release APK
-        run: cp app/build/outputs/apk/release/app-release.apk "player-$(grep -m1 versionName app/build.gradle.kts | cut -d'"' -f2).apk"
+      - name: Name the release APKs
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk "player-$(grep -m1 versionName app/build.gradle.kts | cut -d'"' -f2).apk"
+          cp phone/build/outputs/apk/release/phone-release.apk "tv-companion-phone-$(grep -m1 versionName phone/build.gradle.kts | cut -d'"' -f2).apk"
 
       - uses: actions/upload-artifact@v5
         with:
           name: player-release
           path: player-*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: phone-companion
+          path: tv-companion-phone-*.apk
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v5

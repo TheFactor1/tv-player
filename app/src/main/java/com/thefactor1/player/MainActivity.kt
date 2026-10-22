@@ -22,6 +22,7 @@ import com.thefactor1.player.resume.WatchHistory
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.OptionList
+import com.thefactor1.player.ui.PairingCard
 import com.thefactor1.player.ui.ThisTv
 
 /**
@@ -79,9 +80,17 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.home_empty_settings).setOnClickListener { openPanel() }
     }
 
+    /** The phone app asking to connect while the home screen is up. */
+    private val askToConnect: (String, (Boolean) -> Unit) -> Unit by lazy {
+        val fonts = Fonts(this)
+        val ask: (String, (Boolean) -> Unit) -> Unit = { device, answer -> PairingCard.ask(this, fonts, device, answer) }
+        ask
+    }
+
     override fun onStart() {
         super.onStart()
         PhoneCompanion.start(this)
+        PhoneCompanion.approver = askToConnect
         // Back from a film: it's now the newest entry, so it takes the big spot.
         entries = history.all()
         hero = entries.firstOrNull()
@@ -92,6 +101,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
         PhoneCompanion.stop()
     }
 

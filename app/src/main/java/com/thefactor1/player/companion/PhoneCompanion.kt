@@ -1,6 +1,8 @@
 package com.thefactor1.player.companion
 
 import android.content.Context
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
@@ -46,6 +48,15 @@ object PhoneCompanion {
     @Volatile private var transcriptVersion = 0
     @Volatile var cast: List<CompanionPerson> = emptyList()
 
+    /**
+     * Asks whoever is on screen whether a phone may connect; null while no screen can ask. Called on
+     * the main thread; [answer] takes the viewer's choice.
+     */
+    @Volatile var approver: ((device: String, answer: (Boolean) -> Unit) -> Unit)? = null
+
+    private val requests = PairRequests()
+    private var nsd: NsdManager.RegistrationListener? = null
+
     /** The code a new phone types in; it changes after every pairing and after repeated wrong guesses. */
     @Volatile var code: String = newCode()
         private set
@@ -56,7 +67,8 @@ object PhoneCompanion {
     private var server: ServerSocket? = null
     private var appContext: Context? = null
     private var wrongGuesses = 0
-    private val workers = Executors.newFixedThreadPool(3) { runnable ->
+    // Each phone app holds one thread in a long poll, so room for a few phones plus page requests.
+    private val workers = Executors.newFixedThreadPool(8) { runnable ->
         Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
             runnable.run()
@@ -146,6 +158,29 @@ object PhoneCompanion {
         }
         server = socket
         Thread({ acceptLoop(socket) }, "companion-accept").apply { isDaemon = true }.start()
+        advertise(context)
+    }
+
+    /** Announces the TV on the home network so the phone app finds it without an address. */
+    private fun advertise(context: Context) {
+        val manager = context.applicationContext.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return
+        val listener = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(info: NsdServiceInfo) {}
+            override fun onRegistrationFailed(info: NsdServiceInfo, error: Int) { Log.i(TAG, "Advertising failed: $error") }
+            override fun onServiceUnregistered(info: NsdServiceInfo) {}
+            override fun onUnregistrationFailed(info: NsdServiceInfo, error: Int) {}
+        }
+        val info = NsdServiceInfo().apply {
+            serviceName = SERVICE_NAME
+            serviceType = SERVICE_TYPE
+            port = PORT
+        }
+        try {
+            manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener)
+            nsd = listener
+        } catch (e: Exception) {
+            Log.i(TAG, "Advertising failed: ${e.message}")
+        }
     }
 
     /** Called from each screen's onStop. */
@@ -158,6 +193,13 @@ object PhoneCompanion {
         } catch (e: Exception) {
         }
         server = null
+        nsd?.let { listener ->
+            try {
+                (appContext?.getSystemService(Context.NSD_SERVICE) as? NsdManager)?.unregisterService(listener)
+            } catch (e: Exception) {
+            }
+        }
+        nsd = null
     }
 
     /** "192.168.50.2:8765", or null when the TV has no home-network address. */
@@ -209,9 +251,12 @@ object PhoneCompanion {
         if (request.method == "GET" && (path == "/" || path == "/index.html")) return page()
         if (!path.startsWith("/api/")) return Http.Response(404, "text/plain", "Not found".toByteArray())
         if (path == "/api/pair" && request.method == "POST") return pair(request)
+        if (path == "/api/hello" && request.method == "POST") return hello(request)
+        if (path == "/api/hello" && request.method == "GET") return helloAnswer(request)
         if (!authorised(request.headers["x-token"])) return json(401, JSONObject().put("error", "pair"))
         return when (path) {
             "/api/state" -> json(200, state())
+            "/api/wait" -> json(200, waitForChange(query(request, "key")))
             "/api/transcript" -> json(200, transcriptJson())
             "/api/cast" -> json(200, castJson())
             "/api/control" -> control(request)
@@ -241,13 +286,61 @@ object PhoneCompanion {
         }
         wrongGuesses = 0
         code = newCode()
+        return json(200, JSONObject().put("token", issueToken()))
+    }
+
+    private fun issueToken(): String {
         val token = ByteArray(16).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
         prefs()?.let { prefs ->
             val tokens = prefs.getStringSet(KEY_TOKENS, emptySet()).orEmpty() + token
             prefs.edit().putStringSet(KEY_TOKENS, tokens.toList().takeLast(MAX_PHONES).toSet()).apply()
         }
-        return json(200, JSONObject().put("token", token))
+        return token
     }
+
+    /** The phone app asks to connect; the TV puts the question on screen. */
+    private fun hello(request: Http.Request): Http.Response {
+        val device = try {
+            JSONObject(request.body).optString("device")
+        } catch (e: Exception) {
+            ""
+        }.take(MAX_DEVICE_NAME).ifBlank { "A phone" }
+        val ask = approver ?: return json(503, JSONObject().put("error", "screen"))
+        val id = ByteArray(8).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        if (!requests.open(id)) return json(429, JSONObject().put("error", "busy"))
+        main.post { ask(device) { approved -> requests.answer(id, approved, if (approved) issueToken() else null) } }
+        return json(200, JSONObject().put("request", id))
+    }
+
+    private fun helloAnswer(request: Http.Request): Http.Response {
+        val answer = requests.check(query(request, "id").orEmpty())
+        val body = JSONObject().put("status", answer.status.name.lowercase())
+        answer.token?.let { body.put("token", it) }
+        return json(200, body)
+    }
+
+    /**
+     * Long poll for the phone app: answers as soon as what's playing differs from [since], or after a
+     * while regardless, so the phone's notification follows the TV without asking every second.
+     */
+    private fun waitForChange(since: String?): JSONObject {
+        val deadline = System.currentTimeMillis() + WAIT_MS
+        while (true) {
+            val state = state()
+            val key = nowPlayingKey(state)
+            if (key != since || System.currentTimeMillis() >= deadline) return state.put("key", key)
+            Thread.sleep(WAIT_STEP_MS)
+        }
+    }
+
+    private fun nowPlayingKey(state: JSONObject): String =
+        if (state.optBoolean("idle")) "idle" else "${state.optString("title")}|${state.optBoolean("playing")}"
+
+    private fun query(request: Http.Request, name: String): String? =
+        request.path.substringAfter('?', "").split('&')
+            .map { it.split('=', limit = 2) }
+            .firstOrNull { it.size == 2 && it[0] == name }
+            ?.let { java.net.URLDecoder.decode(it[1], "UTF-8") }
 
     private fun authorised(token: String?): Boolean =
         !token.isNullOrEmpty() && prefs()?.getStringSet(KEY_TOKENS, emptySet()).orEmpty().contains(token)
@@ -314,5 +407,10 @@ object PhoneCompanion {
     private const val MAX_WRONG_GUESSES = 5
     private const val LIVE_REPEAT_MS = 10_000L
     private const val TAG = "PhoneCompanion"
+    private const val SERVICE_TYPE = "_tvplayer._tcp"
+    private const val SERVICE_NAME = "TV Player"
+    private const val MAX_DEVICE_NAME = 40
+    private const val WAIT_MS = 25_000L
+    private const val WAIT_STEP_MS = 600L
     private val ACTIONS = setOf("play", "pause", "toggle", "seek", "skip")
 }

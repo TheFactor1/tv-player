@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "tv-player"
-include(":app")
+include(":app", ":phone")
