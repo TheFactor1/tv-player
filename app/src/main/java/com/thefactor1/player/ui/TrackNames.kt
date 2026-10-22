@@ -22,10 +22,7 @@ object TrackNames {
         commentary: Boolean = false,
         displayLocale: Locale = Locale.getDefault(),
     ): String? {
-        val words = label.orEmpty()
-            .split(' ', '-', '_', '.', '/', '[', ']', '(', ')', ',', '|')
-            .filter { it.isNotBlank() }
-            .map { it.lowercase(Locale.ROOT) }
+        val words = words(label)
 
         val tag = languageTag?.takeIf { it.isNotBlank() && it.lowercase(Locale.ROOT) != "und" }
         var language = tag?.let { languageName(it, displayLocale) }
@@ -49,6 +46,14 @@ object TrackNames {
             else -> null
         }
     }
+
+    /** Whether a track's own name says it only carries signs and foreign-language lines. */
+    fun saysForced(label: String?): Boolean = words(label).any { NOTE_WORDS[it] == FORCED }
+
+    private fun words(label: String?): List<String> = label.orEmpty()
+        .split(' ', '-', '_', '.', '/', '[', ']', '(', ')', ',', '|')
+        .filter { it.isNotBlank() }
+        .map { it.lowercase(Locale.ROOT) }
 
     private fun languageName(tag: String, displayLocale: Locale): String? {
         val locale = Locale.forLanguageTag(tag.replace('_', '-'))
