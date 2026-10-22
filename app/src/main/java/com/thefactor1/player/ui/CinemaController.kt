@@ -292,8 +292,31 @@ class CinemaController(
         handler.removeCallbacksAndMessages(null)
         revealHeld = false
         hidePauseScreen(animate = false)
+        // Their fade-out timers just went with the handler's queue, so nothing may outlive the player on screen.
+        dismissAll()
         skipPrompt.detach()
         preShow.detach()
+    }
+
+    /**
+     * Puts away, at once, everything the viewer had up: controls, a panel, and the skip, play and
+     * exit cues. Used when the player goes and when a new wait begins, so the film comes back clean.
+     */
+    private fun dismissAll() {
+        handler.removeCallbacks(progressTicker)
+        handler.removeCallbacks(autoHide)
+        controlsVisible = false
+        panel = null
+        page = null
+        for (view in listOf(infoBar, controlBar, sidePanel, toast, exitHint, centerGlyph, skipBack, skipForward, miniBar)) {
+            view.animate().cancel()
+            view.alpha = 0f
+            view.visibility = View.INVISIBLE
+        }
+        exitArmedAt = 0L
+        skipShownUntil = 0L
+        playerView.subtitleView?.setBottomPaddingFraction(subtitleLift())
+        updateSkipPrompt()
     }
 
     // ---- Meta screen: film art and details, for loading and for the pause screen ---------------
@@ -510,6 +533,12 @@ class CinemaController(
         }
     }
 
+    /** A skip while paused shows where it landed; the pause screen comes back after the usual quiet spell. */
+    private fun leavePauseScreen() {
+        hidePauseScreen()
+        schedulePauseScreen()
+    }
+
     private fun hidePauseScreen(animate: Boolean = true) {
         handler.removeCallbacks(showPauseScreen)
         if (!pauseScreenShown) return
@@ -535,9 +564,14 @@ class CinemaController(
 
     /**
      * Shows the loading card again, e.g. for a new stream. [waitForNewFrame] is false when the
-     * same player is only re-preparing, which may not render a fresh first frame.
+     * same player is only re-preparing, which may not render a fresh first frame. [brief] skips the
+     * pre-show's minimum time, for a film that was already playing.
      */
-    fun showLoading(line: String = activity.getString(R.string.loading_connecting), waitForNewFrame: Boolean = true) {
+    fun showLoading(
+        line: String = activity.getString(R.string.loading_connecting),
+        waitForNewFrame: Boolean = true,
+        brief: Boolean = false,
+    ) {
         loading = true
         updateSkipPrompt()
         errorShown = false
@@ -545,8 +579,11 @@ class CinemaController(
         if (waitForNewFrame) firstFrameRendered = false
         revealHeld = false
         handler.removeCallbacks(checkReveal)
-        boothStartedAt = SystemClock.uptimeMillis()
+        // [brief] covers a reload of the film already under way (back from Home): it lifts as soon as the picture moves.
+        boothStartedAt = SystemClock.uptimeMillis() - if (brief) MIN_BOOTH_MS else 0L
         hidePauseScreen(animate = false)
+        // A panel or the controls left open would come back over the next stream with stale tracks.
+        dismissAll()
         loadingCard.setBackgroundColor(ContextCompat.getColor(activity, R.color.loading_ground))
         loadingLine.text = line
         loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink_dim))
@@ -653,8 +690,8 @@ class CinemaController(
                 }
                 return swallow(code)
             }
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> return swallow(code).also { skip(FORWARD_MS) }
-            KeyEvent.KEYCODE_MEDIA_REWIND -> return swallow(code).also { skip(-BACK_MS) }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> return swallow(code).also { leavePauseScreen(); skip(FORWARD_MS) }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> return swallow(code).also { leavePauseScreen(); skip(-BACK_MS) }
         }
 
         if (pauseScreenShown && isRemoteKey(code)) {
@@ -848,11 +885,11 @@ class CinemaController(
                 showGlyph(if (exo.playWhenReady) R.drawable.ic_play else R.drawable.ic_pause)
             }
             "skip" -> {
-                hidePauseScreen()
+                leavePauseScreen()
                 skip(ms)
             }
             "seek" -> {
-                hidePauseScreen()
+                leavePauseScreen()
                 val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE
                 exo.seekTo(ms.coerceIn(0L, duration))
                 showToast(activity.getString(R.string.companion_jumped, formatTime(ms)), ADD_TOAST_MS)
