@@ -46,7 +46,7 @@
     <string name="toast_paused">Paused</string>
     <string name="toast_back_to_exit">Back again to exit</string>
     <string name="toast_playing">Playing</string>
-    <string name="panel_audio">Audio track</string>
+    <string name="panel_audio">Audio</string>
     <string name="panel_subtitles">Subtitles</string>
     <string name="panel_picture">Picture</string>
     <string name="panel_more">More</string>
@@ -121,4 +121,28 @@
     <string name="resume_key_ok">OK</string>
     <string name="resume_start_over">Start over</string>
     <string name="resume_starting_over">Starting over</string>
+    <!-- Player menus: section names, short row names and values; the long text goes in the hint line. -->
+    <string name="menu_track">Track</string>
+    <string name="menu_sound">Sound</string>
+    <string name="menu_look">Look</string>
+    <string name="menu_shape">Shape</string>
+    <string name="menu_display">Display</string>
+    <string name="menu_timing">Timing</string>
+    <string name="menu_style">Style</string>
+    <string name="menu_size">Size</string>
+    <string name="menu_position">Position</string>
+    <string name="menu_speed">Speed</string>
+    <string name="menu_size_hint">How big text subtitles are drawn</string>
+    <string name="menu_speed_hint">Voices keep their pitch at every speed</string>
+    <string name="menu_stats_hint">Codec, bitrate, dropped frames and display mode, over the picture</string>
+    <string name="menu_find">Find online</string>
+    <string name="menu_find_searching">Searching</string>
+    <string name="menu_find_count">%1$d found</string>
+    <string name="menu_find_none">None found</string>
+    <string name="menu_find_unmatched">Unavailable</string>
+    <string name="menu_in_sync">In sync</string>
+    <string name="audio_sync_late_short">Sound late %1$d ms</string>
+    <string name="audio_sync_early_short">Sound early %1$d ms</string>
+    <string name="audio_sync_none_hint">Shift the sound if voices and lips drift apart</string>
+    <string name="subs_timing_none_hint">Shift the subtitles if lines and speech drift apart</string>
 </resources>

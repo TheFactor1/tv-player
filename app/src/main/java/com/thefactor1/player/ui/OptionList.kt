@@ -130,7 +130,7 @@ class OptionList(
         typeface = fonts.semibold
         textSize = 13f
         letterSpacing = 0.1f
-        setTextColor(context.getColor(R.color.ink_quiet))
+        setTextColor(context.getColor(R.color.ink_secondary))
         val side = (14 * density).toInt()
         setPadding(side, ((if (first) 4 else 22) * density).toInt(), side, (8 * density).toInt())
     }

@@ -67,16 +67,29 @@ class CinemaController(
 ) {
     private enum class Panel { AUDIO, SUBTITLES, PICTURE, MORE }
 
+    /** One line of a menu: a track or mode to pick, a toggle, a stepped setting, or a list one level down. */
     private class Item(
         val label: String,
-        val detail: String?,
+        /** Beside the name: a track's format, or a setting's current value. */
+        val value: String?,
         val checked: Boolean,
         /** Toggles keep the panel open and update in place; picking a track or a mode closes it. */
         val keepOpen: Boolean = false,
-        /** A setting with several choices opens them as a list instead of cycling on each click. */
+        /** A list one level down, for choices that come and go (subtitles found online). */
         val opens: Page? = null,
+        /** A setting with a range of values, stepped with Left and Right on its own row. */
+        val adjust: Adjust? = null,
+        /** Drawn as an on/off switch rather than a check. */
+        val switch: Boolean = false,
+        /** What the row does, shown in the line under the list while it has focus. */
+        val hint: String? = null,
+        /** A section name drawn above this row. */
+        val section: String? = null,
         val action: () -> Unit = {},
     )
+
+    /** Where a stepped setting stands ([index] of [count]) and how to move it. */
+    private class Adjust(val index: Int, val count: Int, val set: (Int) -> Unit)
 
     /** A list of choices one level down; picking one applies it and returns to the panel. */
     private class Page(val title: String, val items: () -> List<Item>)
@@ -92,6 +105,7 @@ class CinemaController(
     private val panelItems: LinearLayout = activity.findViewById(R.id.panel_items)
     private val panelKicker: TextView = activity.findViewById(R.id.panel_kicker)
     private val panelTitle: TextView = activity.findViewById(R.id.panel_title)
+    private val panelHint: TextView = activity.findViewById(R.id.panel_hint)
     private val title: TextView = activity.findViewById(R.id.title)
     private val source: TextView = activity.findViewById(R.id.source)
     private val badges: LinearLayout = activity.findViewById(R.id.badges)
@@ -184,7 +198,7 @@ class CinemaController(
         fonts.apply(fonts.bold, title, panelTitle, loadingTitle, skipBackAmount, skipForwardAmount, metaKicker)
         fonts.apply(fonts.semibold, activity.findViewById<TextView>(R.id.skip_prompt), clock, metaClock, endsAt, elapsed, remaining, panelKicker, toast, focusLabel, miniTime,
             metaEpisode, loadingLine, retryButton, otherPlayerButton)
-        fonts.apply(fonts.medium, source, loadingSource, metaDescription, exitHint)
+        fonts.apply(fonts.medium, source, loadingSource, metaDescription, exitHint, panelHint)
         retryButton.setOnClickListener { onRetry?.invoke() }
         otherPlayerButton.setOnClickListener { onOpenElsewhere?.invoke() }
 
@@ -292,7 +306,7 @@ class CinemaController(
     }
 
     private fun refreshSubtitlePanel() {
-        if (panel == Panel.SUBTITLES && page == null) buildPanel(focusIndex = panelItems.indexOfChild(panelItems.focusedChild))
+        if (panel == Panel.SUBTITLES && page == null) buildPanel(focusIndex = focusedIndex())
     }
 
     /** The skip button gives way to anything else on screen. */
@@ -509,8 +523,12 @@ class CinemaController(
     }
 
     private fun handlePanelKey(code: Int): Boolean = when (code) {
-        KeyEvent.KEYCODE_DPAD_LEFT -> swallow(code).also { if (page != null) closePage() else closePanel(showControlsAfter = true) }
-        KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MENU -> swallow(code)
+        // On a stepped setting Left and Right change it (held, they keep going); elsewhere Left steps back out.
+        KeyEvent.KEYCODE_DPAD_LEFT -> swallow(code).also {
+            if (!stepFocused(-1)) if (page != null) closePage() else closePanel(showControlsAfter = true)
+        }
+        KeyEvent.KEYCODE_DPAD_RIGHT -> swallow(code).also { stepFocused(1) }
+        KeyEvent.KEYCODE_MENU -> swallow(code)
         else -> false
     }
 
@@ -827,7 +845,7 @@ class CinemaController(
 
         sidePanel.animate().cancel()
         if (sidePanel.visibility != View.VISIBLE) {
-            sidePanel.translationX = sidePanel.width.takeIf { it > 0 }?.toFloat() ?: (580 * density)
+            sidePanel.translationX = sidePanel.width.takeIf { it > 0 }?.toFloat() ?: (470 * density)
             sidePanel.alpha = 0f
             sidePanel.visibility = View.VISIBLE
         }
@@ -879,25 +897,28 @@ class CinemaController(
         val inPage = page
         val items = inPage?.items?.invoke() ?: itemsFor(which)
         panelItems.removeAllViews()
+        panelHint.text = null
         val inflater = LayoutInflater.from(activity)
         val rows = items.mapIndexed { index, item ->
-            val row = inflater.inflate(R.layout.item_panel, panelItems, false)
-            val label = row.findViewById<TextView>(R.id.item_label)
-            val detail = row.findViewById<TextView>(R.id.item_detail)
-            label.typeface = fonts.semibold
-            detail.typeface = fonts.medium
+            item.section?.let { panelItems.addView(sectionHeading(it, first = index == 0)) }
+            val row = inflater.inflate(R.layout.item_menu_row, panelItems, false)
+            row.findViewById<TextView>(R.id.item_label).typeface = fonts.semibold
+            row.findViewById<TextView>(R.id.item_value).typeface = fonts.semibold
             bindRow(row, item)
             row.id = View.generateViewId()
+            row.setTag(R.id.item_label, index)
+            row.setOnFocusChangeListener { v, hasFocus -> if (hasFocus) panelHint.text = (v.tag as Item).hint }
             row.setOnClickListener {
+                val current = row.tag as Item
+                val opens = current.opens
+                val adjust = current.adjust
                 when {
-                    item.opens != null -> openPage(item.opens, fromIndex = index)
-                    inPage != null -> { item.action(); closePage() }
-                    item.keepOpen -> {
-                        item.action()
-                        // Refresh this row only; rebuilding the list makes the focused row jump.
-                        itemsFor(which).getOrNull(index)?.let { bindRow(row, it) }
-                    }
-                    else -> { item.action(); closePanel(showControlsAfter = true) }
+                    opens != null -> openPage(opens, fromIndex = index)
+                    // OK runs through a short set of choices; on a long range it means done.
+                    adjust != null -> if (adjust.count <= CYCLE_MAX) stepFocused(1, wrap = true) else closePanel(showControlsAfter = true)
+                    inPage != null -> { current.action(); closePage() }
+                    current.keepOpen -> { current.action(); refreshRow(row) }
+                    else -> { current.action(); closePanel(showControlsAfter = true) }
                 }
             }
             (row.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin = (2 * density).toInt()
@@ -911,24 +932,76 @@ class CinemaController(
 
         val target = when {
             focusIndex in rows.indices -> focusIndex
-            else -> items.indexOfFirst { it.checked }.takeIf { it >= 0 } ?: 0
+            else -> items.indexOfFirst { it.checked && !it.switch }.takeIf { it >= 0 } ?: 0
         }
         rows.getOrNull(target)?.let {
             it.requestFocus()
             // Land already highlighted instead of fading into place on every rebuild.
             it.jumpDrawablesToCurrentState()
+            panelHint.text = (it.tag as Item).hint
             scrollRowToTop(it)
         }
     }
 
+    private fun focusedIndex(): Int = panelItems.focusedChild?.getTag(R.id.item_label) as? Int ?: -1
+
+    /** Redraws one row from fresh items; rebuilding the list would make the focused row jump. */
+    private fun refreshRow(row: View) {
+        val which = panel ?: return
+        val index = row.getTag(R.id.item_label) as? Int ?: return
+        val items = page?.items?.invoke() ?: itemsFor(which)
+        val item = items.getOrNull(index) ?: return
+        bindRow(row, item)
+        if (row.hasFocus()) panelHint.text = item.hint
+    }
+
+    /** Left or Right on a stepped setting. False when the focused row isn't one, so Left can step out instead. */
+    private fun stepFocused(delta: Int, wrap: Boolean = false): Boolean {
+        val row = panelItems.focusedChild ?: return false
+        val adjust = (row.tag as? Item)?.adjust ?: return false
+        val next = if (wrap) (adjust.index + delta).mod(adjust.count) else (adjust.index + delta).coerceIn(0, adjust.count - 1)
+        if (next != adjust.index) {
+            adjust.set(next)
+            refreshRow(row)
+        }
+        return true
+    }
+
+    private fun sectionHeading(text: String, first: Boolean) = TextView(activity).apply {
+        this.text = text.uppercase()
+        typeface = fonts.semibold
+        textSize = 12f
+        letterSpacing = 0.12f
+        setTextColor(activity.getColor(R.color.ink_secondary))
+        val side = (16 * density).toInt()
+        setPadding(side, ((if (first) 2 else 18) * density).toInt(), side, (6 * density).toInt())
+    }
+
     private fun bindRow(row: View, item: Item) {
+        row.tag = item
         row.findViewById<TextView>(R.id.item_label).text = item.label
-        val detail = row.findViewById<TextView>(R.id.item_detail)
-        detail.text = item.detail
-        detail.visibility = if (item.detail.isNullOrEmpty()) View.GONE else View.VISIBLE
-        val check = row.findViewById<ImageView>(R.id.item_check)
-        check.setImageResource(if (item.opens != null) R.drawable.ic_chevron else R.drawable.ic_check)
-        check.visibility = if (item.checked || item.opens != null) View.VISIBLE else View.INVISIBLE
+        val value = row.findViewById<TextView>(R.id.item_value)
+        value.text = item.value
+        value.visibility = if (item.value.isNullOrEmpty()) View.GONE else View.VISIBLE
+        val adjust = item.adjust
+        val less = row.findViewById<ImageView>(R.id.item_less)
+        val more = row.findViewById<ImageView>(R.id.item_more)
+        less.visibility = if (adjust != null) View.VISIBLE else View.GONE
+        more.visibility = if (adjust != null || item.opens != null) View.VISIBLE else View.GONE
+        // Stepping arrows show only on the focused row; the arrow into a list always shows.
+        more.imageTintList = activity.getColorStateList(if (adjust != null) R.color.row_arrow else R.color.row_detail)
+        // At either end of a range that arrow fades: there is nowhere further to go.
+        less.alpha = if (adjust != null && adjust.index == 0) END_ARROW_ALPHA else 1f
+        more.alpha = if (adjust != null && adjust.index == adjust.count - 1) END_ARROW_ALPHA else 1f
+        val switch = row.findViewById<SwitchMark>(R.id.item_switch)
+        switch.visibility = if (item.switch) View.VISIBLE else View.GONE
+        switch.on = item.checked
+        // Picks keep the check's space when unchecked, so their formats line up.
+        row.findViewById<ImageView>(R.id.item_check).visibility = when {
+            item.checked && !item.switch -> View.VISIBLE
+            item.switch || adjust != null || item.opens != null -> View.GONE
+            else -> View.INVISIBLE
+        }
     }
 
     private fun itemsFor(which: Panel): List<Item> = when (which) {
@@ -950,29 +1023,31 @@ class CinemaController(
                 val format = group.getTrackFormat(i)
                 items += Item(
                     label = uniqueName(FormatNames.language(format) ?: activity.getString(R.string.track_unknown, number), items),
-                    detail = FormatNames.audioDetail(format),
+                    value = FormatNames.audioDetail(format),
                     checked = group.isTrackSelected(i),
+                    section = activity.getString(R.string.menu_track).takeIf { items.isEmpty() },
                 ) { selectTrack(group, i) }
             }
         }
+        val delays = PlayerPrefs.AUDIO_DELAYS_MS
         items += Item(
             activity.getString(R.string.audio_sync),
-            AudioSyncNames.label(activity, prefs.audioDelayMs),
+            AudioSyncNames.short(activity, prefs.audioDelayMs),
             checked = false,
-            opens = Page(activity.getString(R.string.audio_sync)) {
-                PlayerPrefs.AUDIO_DELAYS_MS.map { ms ->
-                    Item(AudioSyncNames.label(activity, ms), AudioSyncNames.hint(activity, ms), prefs.audioDelayMs == ms) {
-                        prefs.audioDelayMs = ms
-                        onAudioDelayChanged?.invoke(ms)
-                    }
-                }
+            adjust = Adjust(indexIn(delays, prefs.audioDelayMs), delays.size) { i ->
+                prefs.audioDelayMs = delays[i]
+                onAudioDelayChanged?.invoke(delays[i])
             },
+            hint = AudioSyncNames.hint(activity, prefs.audioDelayMs) ?: activity.getString(R.string.audio_sync_none_hint),
+            section = activity.getString(R.string.menu_sound),
         )
         items += Item(
             activity.getString(R.string.night_mode),
-            activity.getString(R.string.night_mode_detail),
-            prefs.nightMode,
+            value = null,
+            checked = prefs.nightMode,
             keepOpen = true,
+            switch = true,
+            hint = activity.getString(R.string.night_mode_detail),
         ) {
             prefs.nightMode = !prefs.nightMode
             enhancement.nightMode = prefs.nightMode
@@ -980,9 +1055,11 @@ class CinemaController(
         }
         items += Item(
             activity.getString(R.string.dialogue_boost),
-            activity.getString(R.string.dialogue_boost_detail),
-            prefs.dialogueBoost,
+            value = null,
+            checked = prefs.dialogueBoost,
             keepOpen = true,
+            switch = true,
+            hint = activity.getString(R.string.dialogue_boost_detail),
         ) {
             prefs.dialogueBoost = !prefs.dialogueBoost
             enhancement.dialogueBoost = prefs.dialogueBoost
@@ -1012,16 +1089,22 @@ class CinemaController(
                 anySelected = anySelected || selected
                 tracks += Item(
                     label = uniqueName(FormatNames.language(format) ?: activity.getString(R.string.subs_unknown, number), tracks),
-                    detail = null,
+                    value = null,
                     checked = selected,
                 ) { selectTrack(group, i) }
             }
         }
-        val size = PlayerPrefs.SUBTITLE_SIZES[prefs.subtitleSize]
+        val delays = PlayerPrefs.SUBTITLE_DELAYS_MS
         val style = PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle]
         val position = PlayerPrefs.SUBTITLE_POSITIONS[prefs.subtitlePosition]
         return buildList {
-            add(Item(activity.getString(R.string.subs_off), activity.getString(R.string.subs_off_detail), !anySelected) {
+            add(Item(
+                activity.getString(R.string.subs_off),
+                value = null,
+                checked = !anySelected,
+                hint = activity.getString(R.string.subs_off_detail),
+                section = activity.getString(R.string.menu_track),
+            ) {
                 player?.let {
                     it.trackSelectionParameters = it.trackSelectionParameters.buildUpon()
                         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -1031,76 +1114,66 @@ class CinemaController(
             addAll(tracks)
             add(findOnlineItem())
             add(Item(
-                activity.getString(R.string.subs_timing),
+                activity.getString(R.string.menu_timing),
                 subtitleTimingLabel(subtitleDelayMs),
                 checked = false,
-                opens = Page(activity.getString(R.string.subs_timing)) {
-                    PlayerPrefs.SUBTITLE_DELAYS_MS.map { ms ->
-                        Item(subtitleTimingLabel(ms), subtitleTimingHint(ms), subtitleDelayMs == ms) { setSubtitleDelay(ms) }
-                    }
-                },
+                adjust = Adjust(indexIn(delays, subtitleDelayMs), delays.size) { setSubtitleDelay(delays[it]) },
+                hint = subtitleTimingHint(subtitleDelayMs) ?: activity.getString(R.string.subs_timing_none_hint),
+                section = activity.getString(R.string.menu_look),
             ))
             add(Item(
-                activity.getString(R.string.subs_style),
+                activity.getString(R.string.menu_style),
                 style.name,
                 checked = false,
-                opens = Page(activity.getString(R.string.subs_style)) {
-                    PlayerPrefs.SUBTITLE_STYLES.mapIndexed { index, choice ->
-                        Item(choice.name, choice.detail, prefs.subtitleStyle == index) {
-                            prefs.subtitleStyle = index
-                            applySubtitleStyle()
-                        }
-                    }
+                adjust = Adjust(prefs.subtitleStyle, PlayerPrefs.SUBTITLE_STYLES.size) {
+                    prefs.subtitleStyle = it
+                    applySubtitleStyle()
                 },
+                hint = style.detail,
             ))
             add(Item(
-                activity.getString(R.string.subs_size),
-                size.name,
+                activity.getString(R.string.menu_size),
+                PlayerPrefs.SUBTITLE_SIZES[prefs.subtitleSize].name,
                 checked = false,
-                opens = Page(activity.getString(R.string.subs_size)) {
-                    PlayerPrefs.SUBTITLE_SIZES.mapIndexed { index, choice ->
-                        Item(choice.name, detail = null, checked = prefs.subtitleSize == index) {
-                            prefs.subtitleSize = index
-                            applySubtitleStyle()
-                        }
-                    }
+                adjust = Adjust(prefs.subtitleSize, PlayerPrefs.SUBTITLE_SIZES.size) {
+                    prefs.subtitleSize = it
+                    applySubtitleStyle()
                 },
+                hint = activity.getString(R.string.menu_size_hint),
             ))
             add(Item(
-                activity.getString(R.string.subs_position),
+                activity.getString(R.string.menu_position),
                 position.name,
                 checked = false,
-                opens = Page(activity.getString(R.string.subs_position)) {
-                    PlayerPrefs.SUBTITLE_POSITIONS.mapIndexed { index, choice ->
-                        Item(choice.name, choice.detail, prefs.subtitlePosition == index) {
-                            prefs.subtitlePosition = index
-                            applySubtitleStyle()
-                        }
-                    }
+                adjust = Adjust(prefs.subtitlePosition, PlayerPrefs.SUBTITLE_POSITIONS.size) {
+                    prefs.subtitlePosition = it
+                    applySubtitleStyle()
                 },
+                hint = position.detail,
             ))
         }
     }
 
-    /** "Find subtitles online": a list of OpenSubtitles results once the search is back. */
+    /** "Find online": a list of OpenSubtitles results once the search is back. */
     private fun findOnlineItem(): Item {
-        val detail = when (onlineSearch) {
-            OnlineSearch.UNMATCHED -> activity.getString(R.string.subs_find_unmatched)
-            OnlineSearch.SEARCHING -> activity.getString(R.string.subs_find_searching)
+        val (value, hint) = when (onlineSearch) {
+            OnlineSearch.UNMATCHED -> R.string.menu_find_unmatched to activity.getString(R.string.subs_find_unmatched)
+            OnlineSearch.SEARCHING -> R.string.menu_find_searching to activity.getString(R.string.subs_find_searching)
             OnlineSearch.DONE -> if (onlineSubtitles.isEmpty()) {
-                activity.getString(R.string.subs_find_none)
+                R.string.menu_find_none to activity.getString(R.string.subs_find_none)
             } else {
-                activity.getString(R.string.subs_find_count, onlineSubtitles.size)
+                R.string.menu_find_count to activity.getString(R.string.subs_find_count, onlineSubtitles.size)
             }
         }
         val results = onlineResults()
         return Item(
-            activity.getString(R.string.subs_find),
-            detail,
+            activity.getString(R.string.menu_find),
+            activity.getString(value, onlineSubtitles.size),
             checked = false,
             // With nothing to list, the row stays put instead of opening an empty page.
             keepOpen = results.isEmpty(),
             opens = if (results.isEmpty()) null else Page(activity.getString(R.string.subs_find_title)) { results },
+            hint = hint,
         )
     }
 
@@ -1112,7 +1185,8 @@ class CinemaController(
             val n = (counts[sub.language] ?: 0) + 1
             counts[sub.language] = n
             val name = languageName(sub.language)
-            Item(name, activity.getString(R.string.subs_find_source, n), checked = false) {
+            val source = activity.getString(R.string.subs_find_source, n)
+            Item(name, source, checked = false, hint = source) {
                 showToast(activity.getString(R.string.subs_adding), ADD_TOAST_MS)
                 onAddSubtitle?.invoke(sub.url, sub.language, "$name · OpenSubtitles $n")
             }
@@ -1135,7 +1209,7 @@ class CinemaController(
     }
 
     private fun subtitleTimingLabel(ms: Int): String {
-        if (ms == 0) return activity.getString(R.string.subs_timing_none)
+        if (ms == 0) return activity.getString(R.string.menu_in_sync)
         val seconds = String.format(Locale.US, "%.2f", abs(ms) / 1000f).trimEnd('0').trimEnd('.')
         return activity.getString(if (ms > 0) R.string.subs_timing_later else R.string.subs_timing_earlier, seconds)
     }
@@ -1146,26 +1220,33 @@ class CinemaController(
         else -> null
     }
 
-    private fun speedItems(): List<Item> = SPEED_CHOICES.map { speed ->
-        Item(speedName(speed), detail = null, checked = SPEEDS[speedIndex] == speed) { setSpeed(speed) }
-    }
+    /** Where [value] sits in a stepped setting's [values], or the nearest step to it. */
+    private fun indexIn(values: List<Int>, value: Int): Int =
+        values.indexOf(value).takeIf { it >= 0 } ?: values.indices.minBy { abs(values[it] - value) }
 
     private fun pictureItems(): List<Item> {
-        fun mode(label: Int, detail: Int, mode: Int) = Item(
-            activity.getString(label), activity.getString(detail), prefs.resizeMode == mode,
+        fun mode(label: Int, detail: Int, mode: Int, first: Boolean = false) = Item(
+            activity.getString(label),
+            value = null,
+            checked = prefs.resizeMode == mode,
+            hint = activity.getString(detail),
+            section = activity.getString(R.string.menu_shape).takeIf { first },
         ) {
             prefs.resizeMode = mode
             playerView.resizeMode = mode
         }
         return listOf(
-            mode(R.string.picture_fit, R.string.picture_fit_detail, AspectRatioFrameLayout.RESIZE_MODE_FIT),
+            mode(R.string.picture_fit, R.string.picture_fit_detail, AspectRatioFrameLayout.RESIZE_MODE_FIT, first = true),
             mode(R.string.picture_fill, R.string.picture_fill_detail, AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
             mode(R.string.picture_stretch, R.string.picture_stretch_detail, AspectRatioFrameLayout.RESIZE_MODE_FILL),
             Item(
                 activity.getString(R.string.picture_match),
-                activity.getString(if (prefs.matchFrameRate) R.string.picture_match_on else R.string.picture_match_off),
-                prefs.matchFrameRate,
+                value = null,
+                checked = prefs.matchFrameRate,
                 keepOpen = true,
+                switch = true,
+                hint = activity.getString(if (prefs.matchFrameRate) R.string.picture_match_on else R.string.picture_match_off),
+                section = activity.getString(R.string.menu_display),
             ) { prefs.matchFrameRate = !prefs.matchFrameRate },
         )
     }
@@ -1173,15 +1254,18 @@ class CinemaController(
     private fun moreItems(): List<Item> = listOf(
         Item(
             activity.getString(R.string.more_stats),
-            activity.getString(if (stats.isVisible) R.string.on else R.string.off),
-            stats.isVisible,
+            value = null,
+            checked = stats.isVisible,
             keepOpen = true,
+            switch = true,
+            hint = activity.getString(R.string.menu_stats_hint),
         ) { stats.toggle() },
         Item(
-            activity.getString(R.string.more_speed),
+            activity.getString(R.string.menu_speed),
             speedLabel(),
             checked = false,
-            opens = Page(activity.getString(R.string.more_speed)) { speedItems() },
+            adjust = Adjust(SPEED_CHOICES.indexOf(SPEEDS[speedIndex]), SPEED_CHOICES.size) { setSpeed(SPEED_CHOICES[it]) },
+            hint = activity.getString(R.string.menu_speed_hint),
         ),
     )
 
@@ -1314,7 +1398,7 @@ class CinemaController(
 
         override fun onTracksChanged(tracks: Tracks) {
             updateBadges(tracks)
-            if (page == null && (panel == Panel.AUDIO || panel == Panel.SUBTITLES)) buildPanel(focusIndex = panelItems.indexOfChild(panelItems.focusedChild))
+            if (page == null && (panel == Panel.AUDIO || panel == Panel.SUBTITLES)) buildPanel(focusIndex = focusedIndex())
         }
 
     }
@@ -1344,6 +1428,9 @@ class CinemaController(
         const val SUBTITLE_LIFT_CONTROLS = 0.26f
         const val MAX_ONLINE_RESULTS = 40
         const val ADD_TOAST_MS = 1_500L
+        /** A stepped setting with this many choices or fewer also steps round on OK. */
+        const val CYCLE_MAX = 6
+        const val END_ARROW_ALPHA = 0.3f
 
         fun formatTime(ms: Long): String {
             val total = (ms.coerceAtLeast(0) / 1000)

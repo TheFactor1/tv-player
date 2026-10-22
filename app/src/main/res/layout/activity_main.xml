@@ -57,7 +57,7 @@
             android:layout_height="wrap_content"
             android:letterSpacing="0.1"
             android:text="@string/home_this_tv"
-            android:textColor="@color/ink_quiet"
+            android:textColor="@color/ink_secondary"
             android:textSize="13sp" />
 
         <TextView
@@ -101,8 +101,6 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipToPadding="false"
-            android:fadingEdgeLength="24dp"
-            android:requiresFadingEdge="vertical"
             android:scrollbars="none">
 
             <LinearLayout
