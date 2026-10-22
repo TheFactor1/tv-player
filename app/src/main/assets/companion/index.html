@@ -109,7 +109,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   const PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
   let token = null;
   try { token = localStorage.getItem('token'); } catch (e) {}
-  let state = {}, cues = [], transcriptVersion = -1, castCount = -1, nowIndex = -1, lastScroll = 0, tab = 'transcript';
+  let state = {}, cues = [], transcriptVersion = -1, shownStatus = null, castCount = -1, nowIndex = -1, lastScroll = 0, tab = 'transcript';
 
   const fmt = ms => {
     const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
@@ -165,9 +165,19 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     return found;
   }
 
+  const EMPTY = {
+    loading: 'Fetching subtitles for the transcript…',
+    none: 'No subtitles were found online for this one. Turn subtitles on and the transcript fills in as you watch.',
+    failed: 'Subtitles were found but wouldn’t download. Turn subtitles on and the transcript fills in as you watch.',
+  };
+  function emptyNote() {
+    if (state.idle) return 'Nothing is playing.';
+    return EMPTY[state.transcriptStatus] || 'Looking for subtitles for this one…';
+  }
+
   function renderTranscript() {
     const pane = $('transcript');
-    if (!cues.length) { pane.innerHTML = '<div class="empty">' + (state.idle ? 'Nothing is playing.' : 'The transcript appears here once subtitles are found for this film.') + '</div>'; return; }
+    if (!cues.length) { pane.innerHTML = '<div class="empty">' + emptyNote() + '</div>'; return; }
     pane.innerHTML = cues.map((c, i) => '<button class="ln" data-i="' + i + '"><span class="ts">' + fmt(c[0]) + '</span><span class="q">' + esc(c[2]) + '</span></button>').join('');
     nowIndex = -1;
   }
@@ -230,6 +240,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
         renderTranscript();
         scrollToNow(true);
       }
+      if (!cues.length && state.transcriptStatus !== shownStatus) { shownStatus = state.transcriptStatus; renderTranscript(); }
       if (state.castCount !== castCount) { castCount = state.castCount; loadCast(); }
       render();
     } catch (e) {
@@ -239,7 +250,14 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     timer = setTimeout(poll, document.hidden ? 4000 : 1000);
   }
 
-  if (token) { showMain(); poll(); } else showPair();
+  // The TV's QR code carries the pairing code (#pair=1234): pair straight away, even over an old token.
+  const scanned = (location.hash.match(/pair=(\d{4})/) || [])[1];
+  if (scanned) {
+    history.replaceState(null, '', location.pathname);
+    showPair();
+    $('code').value = scanned;
+    $('connect').click();
+  } else if (token) { showMain(); poll(); } else showPair();
   document.addEventListener('visibilitychange', () => { if (!document.hidden && token) poll(); });
 })();
 </script>

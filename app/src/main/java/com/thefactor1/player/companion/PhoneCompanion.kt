@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -63,34 +64,61 @@ object PhoneCompanion {
     }
 
     @Volatile private var transcriptTicket = 0
+    /** True once a whole subtitle file filled the transcript; until then it's built live from the screen. */
+    @Volatile private var transcriptFromFile = false
+
+    /** Subtitle files the launching app passed with this video: same release, so the best timing. */
+    @Volatile var launchSubtitles: List<String> = emptyList()
+
+    /** Why the transcript is (or isn't) there, so the phone can say: waiting, loading, file, none, failed, live. */
+    @Volatile private var transcriptStatus = "waiting"
 
     /** Clears what the phone shows, e.g. when a different video starts. */
     fun reset() {
         transcriptTicket++
+        transcriptFromFile = false
+        transcriptStatus = "waiting"
         transcript = emptyList()
         cast = emptyList()
     }
 
-    /** Downloads an SRT for the phone's transcript; the TV's own subtitles are left alone. */
-    fun loadTranscript(url: String) {
+    /**
+     * Downloads subtitle files for the phone's transcript, trying [urls] in order until one reads;
+     * the TV's own subtitles are left alone.
+     */
+    fun loadTranscript(urls: List<String>) {
+        if (urls.isEmpty()) {
+            if (!transcriptFromFile && transcript.isEmpty()) transcriptStatus = "none"
+            return
+        }
         val ticket = ++transcriptTicket
+        if (!transcriptFromFile) transcriptStatus = "loading"
         workers.execute {
-            val cues = try {
-                val connection = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-                    connectTimeout = 8_000
-                    readTimeout = 8_000
+            for (url in urls.distinct()) {
+                if (ticket != transcriptTicket) return@execute
+                val text = SubtitleFetch.text(url)
+                val cues = text?.let(Srt::parse).orEmpty()
+                Log.i(TAG, "Transcript ${url.take(80)}: ${if (text == null) "download failed" else "${cues.size} lines"}")
+                if (cues.isEmpty()) continue
+                if (ticket == transcriptTicket) {
+                    transcriptFromFile = true
+                    transcriptStatus = "file"
+                    transcript = cues
                 }
-                try {
-                    if (connection.responseCode != 200) return@execute
-                    Srt.parse(connection.inputStream.bufferedReader().use { it.readText() })
-                } finally {
-                    connection.disconnect()
-                }
-            } catch (e: Exception) {
                 return@execute
             }
-            if (ticket == transcriptTicket && cues.isNotEmpty()) transcript = cues
+            if (ticket == transcriptTicket && !transcriptFromFile) transcriptStatus = if (transcript.isEmpty()) "failed" else "live"
         }
+    }
+
+    /** A line the TV just showed; fills the transcript as you watch when no subtitle file could be read. */
+    fun liveCue(positionMs: Long, text: String) {
+        val clean = text.replace(Regex("""\s+"""), " ").trim()
+        if (transcriptFromFile || clean.isEmpty()) return
+        val current = transcript
+        if (current.any { it.text == clean && kotlin.math.abs(it.startMs - positionMs) < LIVE_REPEAT_MS }) return
+        transcript = (current + Cue(positionMs, positionMs, clean)).sortedBy { it.startMs }
+        if (transcriptStatus != "loading") transcriptStatus = "live"
     }
 
     /** Called from each screen's onStart; the server runs while at least one screen is showing. */
@@ -136,6 +164,9 @@ object PhoneCompanion {
         }
         return ip?.let { "$it:$PORT" }
     }
+
+    /** What the TV's QR code opens: the phone page with this pairing code filled in, so it pairs on arrival. */
+    fun pairUrl(): String? = address()?.let { "http://$it/#pair=$code" }
 
     private fun acceptLoop(socket: ServerSocket) {
         while (!socket.isClosed) {
@@ -214,7 +245,7 @@ object PhoneCompanion {
 
     private fun state(): JSONObject {
         val state = onMain { host?.companionState() } ?: JSONObject().put("idle", true)
-        return state.put("transcriptVersion", transcriptVersion).put("castCount", cast.size)
+        return state.put("transcriptVersion", transcriptVersion).put("transcriptStatus", transcriptStatus).put("castCount", cast.size)
     }
 
     private fun transcriptJson(): JSONObject {
@@ -265,5 +296,7 @@ object PhoneCompanion {
     private const val KEY_TOKENS = "tokens"
     private const val MAX_PHONES = 8
     private const val MAX_WRONG_GUESSES = 5
+    private const val LIVE_REPEAT_MS = 10_000L
+    private const val TAG = "PhoneCompanion"
     private val ACTIONS = setOf("play", "pause", "toggle", "seek", "skip")
 }
