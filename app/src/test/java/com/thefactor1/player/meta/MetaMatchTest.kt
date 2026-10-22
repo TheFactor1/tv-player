@@ -1,7 +1,9 @@
 package com.thefactor1.player.meta
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MetaMatchTest {
@@ -68,5 +70,21 @@ class MetaMatchTest {
         assertEquals("2 h", MetaMatch.runtime("120 min"))
         assertNull(MetaMatch.runtime(""))
         assertNull(MetaMatch.runtime(null))
+    }
+
+    @Test
+    fun cacheKeyIsSharedByEveryEpisodeAndSafeAsAFileName() {
+        assertEquals(
+            MetaMatch.cacheKey(MetaQuery("Crystal Lake", null, 1, 1)),
+            MetaMatch.cacheKey(MetaQuery("Crystal Lake", null, 2, 5)),
+        )
+        assertEquals("film-dune-part-two-2024", MetaMatch.cacheKey(MetaQuery("Dune: Part Two", 2024, null, null)))
+        assertNotEquals(
+            MetaMatch.cacheKey(MetaQuery("Dune", 1984, null, null)),
+            MetaMatch.cacheKey(MetaQuery("Dune", 2021, null, null)),
+        )
+        val long = MetaMatch.cacheKey(MetaQuery("a".repeat(300), null, null, null))
+        assertTrue(long.length < 120)
+        assertTrue(long.all { it.isLetterOrDigit() || it == '-' })
     }
 }

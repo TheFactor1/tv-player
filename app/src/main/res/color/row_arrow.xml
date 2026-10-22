@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Left/Right arrows on a value row show only while the row has focus. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/on_focus_secondary" android:state_focused="true" />
+    <item android:color="@android:color/transparent" />
+</selector>
