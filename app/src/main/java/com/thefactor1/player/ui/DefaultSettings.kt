@@ -7,8 +7,8 @@ import com.thefactor1.player.companion.PhoneCompanion
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.playback.PlayerPrefs.SubtitleMode
 
-/** The settings that apply to every video, as rows for the home screen. */
-class DefaultSettings(private val context: Context, private val prefs: PlayerPrefs) {
+/** The settings that apply to every video, and what this TV can do, as rows for the home screen's panel. */
+class DefaultSettings(private val context: Context, private val prefs: PlayerPrefs, private val thisTv: () -> List<ThisTv.Fact>) {
 
     fun rows(): List<OptionList.RowSpec> = listOf(
         heading(R.string.settings_audio),
@@ -30,114 +30,74 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         item { phoneCompanion() },
         heading(R.string.settings_advanced),
         item { audioOutput() },
-    )
+        heading(R.string.home_this_tv),
+    ) + thisTv().map { fact -> item { Option(fact.label, fact.value, fact.note) } }
 
     private fun heading(text: Int) = OptionList.RowSpec.Heading(context.getString(text))
     private fun item(option: () -> Option) = OptionList.RowSpec.Item(option)
 
-    private fun audioLanguage() = Option(
-        context.getString(R.string.audio_default_language),
-        languageName(prefs.audioLanguage, R.string.audio_language_auto),
-        opens = languagePage(R.string.audio_default_language, R.string.audio_language_auto, { prefs.audioLanguage }) {
-            prefs.audioLanguage = it
-        },
-    )
+    private fun audioLanguage() = languageOption(R.string.audio_default_language, R.string.audio_language_auto,
+        R.string.home_audio_language_hint, prefs.audioLanguage) { prefs.audioLanguage = it }
 
-    private fun audioSync() = Option(
-        context.getString(R.string.audio_sync),
-        AudioSyncNames.label(context, prefs.audioDelayMs),
-        opens = OptionPage(context.getString(R.string.audio_sync)) {
-            PlayerPrefs.AUDIO_DELAYS_MS.map { ms ->
-                Option(AudioSyncNames.label(context, ms), AudioSyncNames.hint(context, ms), prefs.audioDelayMs == ms) {
-                    prefs.audioDelayMs = ms
-                }
-            }
-        },
-    )
+    private fun subtitleLanguage() = languageOption(R.string.subs_language, R.string.subs_language_device,
+        R.string.settings_subs_language_note, prefs.subtitleLanguage) { prefs.subtitleLanguage = it }
+
+    private fun audioSync(): Option {
+        val delays = PlayerPrefs.AUDIO_DELAYS_MS
+        return Option(
+            context.getString(R.string.audio_sync),
+            AudioSyncNames.short(context, prefs.audioDelayMs),
+            AudioSyncNames.hint(context, prefs.audioDelayMs) ?: context.getString(R.string.audio_sync_none_hint),
+            steps = Steps(delays.indexOf(prefs.audioDelayMs).coerceAtLeast(0), delays.size) { prefs.audioDelayMs = delays[it] },
+        )
+    }
 
     private fun nightMode() = Option(
         context.getString(R.string.night_mode),
-        onOff(prefs.nightMode, R.string.night_mode_detail),
+        hint = context.getString(R.string.night_mode_detail),
+        switch = true,
         checked = prefs.nightMode,
     ) { prefs.nightMode = !prefs.nightMode }
 
     private fun dialogueBoost() = Option(
         context.getString(R.string.dialogue_boost),
-        onOff(prefs.dialogueBoost, R.string.dialogue_boost_detail),
+        hint = context.getString(R.string.dialogue_boost_detail),
+        switch = true,
         checked = prefs.dialogueBoost,
     ) { prefs.dialogueBoost = !prefs.dialogueBoost }
 
-    private fun onOff(on: Boolean, detail: Int) =
-        context.getString(if (on) R.string.on else R.string.off) + " · " + context.getString(detail)
+    private fun subtitleMode(): Option {
+        val modes = SubtitleMode.entries
+        return Option(
+            context.getString(R.string.subs_default),
+            context.getString(modeLabel(prefs.subtitleMode)),
+            context.getString(modeDetail(prefs.subtitleMode)),
+            steps = Steps(prefs.subtitleMode.ordinal, modes.size) { prefs.subtitleMode = modes[it] },
+        )
+    }
 
-    private fun subtitleStyle() = Option(
-        context.getString(R.string.subs_style),
-        PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle].name,
-        opens = OptionPage(context.getString(R.string.subs_style)) {
-            PlayerPrefs.SUBTITLE_STYLES.mapIndexed { index, style ->
-                Option(style.name, style.detail, prefs.subtitleStyle == index) { prefs.subtitleStyle = index }
-            }
-        },
-    )
-
-    private fun subtitlePosition() = Option(
-        context.getString(R.string.subs_position),
-        PlayerPrefs.SUBTITLE_POSITIONS[prefs.subtitlePosition].name,
-        opens = OptionPage(context.getString(R.string.subs_position)) {
-            PlayerPrefs.SUBTITLE_POSITIONS.mapIndexed { index, position ->
-                Option(position.name, position.detail, prefs.subtitlePosition == index) { prefs.subtitlePosition = index }
-            }
-        },
-    )
-
-    private fun audioOutput() = Option(
-        context.getString(R.string.audio_output),
-        context.getString(if (prefs.decodeAudio) R.string.audio_output_decode else R.string.audio_output_passthrough),
-        opens = OptionPage(context.getString(R.string.audio_output)) {
-            listOf(
-                Option(
-                    context.getString(R.string.audio_output_passthrough),
-                    context.getString(R.string.audio_output_passthrough_detail),
-                    checked = !prefs.decodeAudio,
-                ) { prefs.decodeAudio = false },
-                Option(
-                    context.getString(R.string.audio_output_decode),
-                    context.getString(R.string.audio_output_decode_detail),
-                    checked = prefs.decodeAudio,
-                ) { prefs.decodeAudio = true },
-            )
-        },
-    )
-
-    private fun subtitleMode() = Option(
-        context.getString(R.string.subs_default),
-        context.getString(modeLabel(prefs.subtitleMode)),
-        opens = OptionPage(context.getString(R.string.subs_default)) {
-            SubtitleMode.entries.map { mode ->
-                Option(context.getString(modeLabel(mode)), context.getString(modeDetail(mode)), prefs.subtitleMode == mode) {
-                    prefs.subtitleMode = mode
-                }
-            }
-        },
-    )
-
-    private fun subtitleLanguage() = Option(
-        context.getString(R.string.subs_language),
-        languageName(prefs.subtitleLanguage, R.string.subs_language_device) + " · " + context.getString(R.string.settings_subs_language_note),
-        opens = languagePage(R.string.subs_language, R.string.subs_language_device, { prefs.subtitleLanguage }) {
-            prefs.subtitleLanguage = it
-        },
-    )
+    private fun subtitleStyle(): Option {
+        val style = PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle]
+        return Option(
+            context.getString(R.string.subs_style), style.name, style.detail,
+            steps = Steps(prefs.subtitleStyle, PlayerPrefs.SUBTITLE_STYLES.size) { prefs.subtitleStyle = it },
+        )
+    }
 
     private fun subtitleSize() = Option(
         context.getString(R.string.subs_size),
         PlayerPrefs.SUBTITLE_SIZES[prefs.subtitleSize].name,
-        opens = OptionPage(context.getString(R.string.subs_size)) {
-            PlayerPrefs.SUBTITLE_SIZES.mapIndexed { index, size ->
-                Option(size.name, checked = prefs.subtitleSize == index) { prefs.subtitleSize = index }
-            }
-        },
+        context.getString(R.string.menu_size_hint),
+        steps = Steps(prefs.subtitleSize, PlayerPrefs.SUBTITLE_SIZES.size) { prefs.subtitleSize = it },
     )
+
+    private fun subtitlePosition(): Option {
+        val position = PlayerPrefs.SUBTITLE_POSITIONS[prefs.subtitlePosition]
+        return Option(
+            context.getString(R.string.subs_position), position.name, position.detail,
+            steps = Steps(prefs.subtitlePosition, PlayerPrefs.SUBTITLE_POSITIONS.size) { prefs.subtitlePosition = it },
+        )
+    }
 
     private fun pictureFit(): Option {
         val fits = listOf(
@@ -145,48 +105,57 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
             Triple(R.string.picture_fill, R.string.picture_fill_detail, AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
             Triple(R.string.picture_stretch, R.string.picture_stretch_detail, AspectRatioFrameLayout.RESIZE_MODE_FILL),
         )
-        val current = fits.firstOrNull { it.third == prefs.resizeMode } ?: fits.first()
+        val index = fits.indexOfFirst { it.third == prefs.resizeMode }.coerceAtLeast(0)
         return Option(
             context.getString(R.string.settings_picture_size),
-            context.getString(current.first),
-            opens = OptionPage(context.getString(R.string.settings_picture_size)) {
-                fits.map { (label, detail, mode) ->
-                    Option(context.getString(label), context.getString(detail), prefs.resizeMode == mode) { prefs.resizeMode = mode }
-                }
-            },
+            context.getString(fits[index].first),
+            context.getString(fits[index].second),
+            steps = Steps(index, fits.size) { prefs.resizeMode = fits[it].third },
         )
     }
 
     private fun matchFrameRate() = Option(
         context.getString(R.string.picture_match),
-        context.getString(if (prefs.matchFrameRate) R.string.picture_match_on else R.string.picture_match_off),
+        hint = context.getString(if (prefs.matchFrameRate) R.string.picture_match_on else R.string.picture_match_off),
+        switch = true,
         checked = prefs.matchFrameRate,
     ) { prefs.matchFrameRate = !prefs.matchFrameRate }
 
     private fun filmColours() = Option(
         context.getString(R.string.film_colours),
-        onOff(prefs.filmColours, R.string.film_colours_detail),
+        hint = context.getString(R.string.film_colours_detail),
+        switch = true,
         checked = prefs.filmColours,
     ) { prefs.filmColours = !prefs.filmColours }
 
-    /** Where the phone page lives and the code to pair a new phone; the code changes after each pairing. */
-    private fun phoneCompanion() = Option(
-        context.getString(R.string.companion_title),
-        PhoneCompanion.address()?.let { context.getString(R.string.companion_detail, it, PhoneCompanion.code) }
-            ?: context.getString(R.string.companion_offline),
-    ) { PairingCard.show(context, Fonts(context)) }
+    /** Where the phone page lives and the code to pair a new phone; OK shows the QR code. */
+    private fun phoneCompanion(): Option {
+        val address = PhoneCompanion.address()
+        return Option(
+            context.getString(R.string.companion_title),
+            address?.let { context.getString(R.string.companion_value, it, PhoneCompanion.code) }
+                ?: context.getString(R.string.companion_offline_value),
+            context.getString(if (address != null) R.string.pair_hint else R.string.companion_offline),
+        ) { PairingCard.show(context, Fonts(context)) }
+    }
 
-    private fun languagePage(title: Int, noPreference: Int, current: () -> String, pick: (String) -> Unit) =
-        OptionPage(context.getString(title)) {
-            PlayerPrefs.LANGUAGES.map { language ->
-                Option(language.name.ifEmpty { context.getString(noPreference) }, checked = current() == language.code) {
-                    pick(language.code)
-                }
-            }
-        }
+    private fun audioOutput() = Option(
+        context.getString(R.string.audio_output),
+        context.getString(if (prefs.decodeAudio) R.string.audio_output_decode else R.string.audio_output_passthrough),
+        context.getString(if (prefs.decodeAudio) R.string.audio_output_decode_detail else R.string.audio_output_passthrough_detail),
+        steps = Steps(if (prefs.decodeAudio) 1 else 0, 2) { prefs.decodeAudio = it == 1 },
+    )
 
-    private fun languageName(code: String, noPreference: Int) =
-        PlayerPrefs.LANGUAGES.firstOrNull { it.code == code && code.isNotEmpty() }?.name ?: context.getString(noPreference)
+    private fun languageOption(title: Int, noPreference: Int, hint: Int, current: String, pick: (String) -> Unit): Option {
+        val languages = PlayerPrefs.LANGUAGES
+        val index = languages.indexOfFirst { it.code == current }.coerceAtLeast(0)
+        return Option(
+            context.getString(title),
+            languages[index].name.ifEmpty { context.getString(noPreference) },
+            context.getString(hint),
+            steps = Steps(index, languages.size) { pick(languages[it].code) },
+        )
+    }
 
     private fun modeLabel(mode: SubtitleMode) = when (mode) {
         SubtitleMode.AUTO -> R.string.subs_mode_auto

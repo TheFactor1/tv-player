@@ -78,6 +78,23 @@ class ArtworkLoader(context: Context) {
         generation++
     }
 
+    /**
+     * Just the backdrop of an already recognised title, for the home screen's cards. Independent of
+     * [load] and [cancel]: a cached image comes straight off the disk, otherwise the small one is fetched.
+     */
+    fun backdrop(imdbId: String, targetWidth: Int, onReady: (Bitmap) -> Unit) {
+        if (!IMDB_ID.matches(imdbId)) return
+        background {
+            val cached = listOf("$imdbId-bg", "$imdbId-bg-small").firstOrNull { File(cacheDir, it).exists() }
+            val bitmap = if (cached != null) {
+                image("", cached, targetWidth) { true }
+            } else {
+                image("$METAHUB/background/small/$imdbId/img", "$imdbId-bg-small", targetWidth) { true }
+            }
+            if (bitmap != null) main.post { onReady(bitmap) }
+        }
+    }
+
     private fun lookUp(query: MetaQuery, imdbHint: String?, ticket: Int, listener: Listener) {
         val cached = cachedMatch(query)
         if (cached == null) warmUp()
@@ -241,11 +258,14 @@ class ArtworkLoader(context: Context) {
     }
 
     /** A cached or freshly downloaded image, decoded no larger than it needs to be for [targetWidth]. */
-    private fun image(url: String, key: String, targetWidth: Int, ticket: Int): Bitmap? {
-        if (!url.startsWith("https://")) return null
+    private fun image(url: String, key: String, targetWidth: Int, ticket: Int): Bitmap? =
+        image(url, key, targetWidth) { ticket == generation }
+
+    /** [wanted] is asked before a download starts; a cached file is decoded whatever it says. */
+    private fun image(url: String, key: String, targetWidth: Int, wanted: () -> Boolean): Bitmap? {
         val file = File(cacheDir, key)
         if (!file.exists()) {
-            if (ticket != generation) return null
+            if (!url.startsWith("https://") || !wanted()) return null
             cacheDir.mkdirs()
             // Each download has its own partial file, since the small and full backdrops can race.
             val partial = File.createTempFile(key, ".part", cacheDir)
