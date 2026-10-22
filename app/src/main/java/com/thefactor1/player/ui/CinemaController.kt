@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.format.DateFormat
+import android.util.TypedValue
 import android.view.Display
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -818,7 +819,7 @@ class CinemaController(
     private fun showSkip(forward: Boolean, amount: String) {
         val shown = if (forward) skipForward else skipBack
         val other = if (forward) skipBack else skipForward
-        (if (forward) skipForwardAmount else skipBackAmount).text = amount
+        fitInRing(if (forward) skipForwardAmount else skipBackAmount, amount)
         other.animate().cancel()
         other.alpha = 0f
         other.visibility = View.INVISIBLE
@@ -835,6 +836,21 @@ class CinemaController(
         shown.animate().alpha(1f).translationX(0f).setDuration(SKIP_IN_MS).setInterpolator(easeOut).start()
         handler.removeCallbacks(hideSkip)
         handler.postDelayed(hideSkip, TOAST_MS)
+    }
+
+    /**
+     * Sets the skip time at the largest whole size that fits the box inside the ring, so "10" stays big and "34:00"
+     * steps down rather than running over the stroke. Digits are tabular, so the size only changes with the length.
+     */
+    private fun fitInRing(view: TextView, amount: String) {
+        val maxWidth = activity.resources.getDimension(R.dimen.skip_amount_width)
+        var sp = SKIP_AMOUNT_MAX_SP
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+        while (sp > SKIP_AMOUNT_MIN_SP && view.paint.measureText(amount) > maxWidth) {
+            sp -= 1f
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+        }
+        view.text = amount
     }
 
     private val hideSkip = Runnable {
@@ -1583,6 +1599,8 @@ class CinemaController(
         const val HIDE_MS = 220L
         const val PANEL_MS = 320L
         const val SKIP_IN_MS = 160L
+        const val SKIP_AMOUNT_MAX_SP = 22f
+        const val SKIP_AMOUNT_MIN_SP = 12f
         const val GLYPH_HOLD_MS = 280L
         const val LABEL_MS = 160L
         const val MINI_BAR_MS = 1_600L

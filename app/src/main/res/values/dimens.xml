@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The skip ring's drawable, and the widest the time inside it may be (the ring's inner width at text height, less a margin). -->
+    <dimen name="skip_ring">100dp</dimen>
+    <dimen name="skip_amount_width">44dp</dimen>
+</resources>
