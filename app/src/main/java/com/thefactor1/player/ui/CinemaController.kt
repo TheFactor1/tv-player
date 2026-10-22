@@ -27,6 +27,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -214,6 +215,9 @@ class CinemaController(
     private var skipTotalMs = 0L
     private var skipShownUntil = 0L
     private var speedIndex = 0
+    // Stalls while playing faster than 1×; seeks aren't stalls, so the last one is remembered.
+    private var fastStalls = 0
+    private var lastSeekAtMs = 0L
 
     init {
         fonts.apply(fonts.bold, title, panelTitle, loadingTitle, skipBackAmount, skipForwardAmount, metaKicker)
@@ -288,6 +292,7 @@ class CinemaController(
         cast.cancel()
         castShown = emptyList()
         PhoneCompanion.reset()
+        PhoneCompanion.loadTranscript(PhoneCompanion.launchSubtitles)
         infoCast.clear()
         metaCast.clear()
         skipPrompt.setSegments(emptyList())
@@ -369,7 +374,8 @@ class CinemaController(
         extras.subtitles(imdbId, query.season, query.episode) { found ->
             onlineSubtitles = found
             val preferred = listOf(prefs.subtitleLanguage.ifEmpty { Locale.getDefault().language }, "en")
-            SubtitleLanguages.rank(found, preferred, 1).firstOrNull()?.let { PhoneCompanion.loadTranscript(it.url) }
+            // The launching app's own files first (they match this release), then the best few found online.
+            PhoneCompanion.loadTranscript(PhoneCompanion.launchSubtitles + SubtitleLanguages.rank(found, preferred, TRANSCRIPT_TRIES).map { it.url })
             onlineSearch = OnlineSearch.DONE
             refreshSubtitlePanel()
         }
@@ -925,7 +931,20 @@ class CinemaController(
 
     private fun setSpeed(speed: Float) {
         speedIndex = SPEEDS.indexOfFirst { it == speed }.coerceAtLeast(0)
+        fastStalls = 0
         player?.setPlaybackSpeed(SPEEDS[speedIndex])
+    }
+
+    /**
+     * A stream that stalls again and again at 2× is coming in slower than it plays: no buffer fixes
+     * that, so after the second stall the viewer is told, once for each speed they pick.
+     */
+    private fun noteStall() {
+        val speed = SPEEDS[speedIndex]
+        if (loading || speed <= 1f || player?.playWhenReady != true) return
+        if (SystemClock.uptimeMillis() - lastSeekAtMs < SEEK_SETTLE_MS) return
+        fastStalls++
+        if (fastStalls == STALLS_BEFORE_HINT) showToast(activity.getString(R.string.speed_cant_keep_up, speedName(speed)), STALL_TOAST_MS)
     }
 
     private fun speedLabel(): String = speedName(SPEEDS[speedIndex])
@@ -1436,10 +1455,8 @@ class CinemaController(
             PhoneCompanion.address()?.let { activity.getString(R.string.companion_value, it, PhoneCompanion.code) }
                 ?: activity.getString(R.string.companion_offline_value),
             checked = false,
-            keepOpen = true,
-            hint = PhoneCompanion.address()?.let { activity.getString(R.string.companion_detail, it, PhoneCompanion.code) }
-                ?: activity.getString(R.string.companion_offline),
-        ),
+            hint = activity.getString(R.string.pair_hint),
+        ) { PairingCard.show(activity, fonts) },
         Item(
             activity.getString(R.string.more_stats),
             value = null,
@@ -1567,7 +1584,17 @@ class CinemaController(
             updatePlayButton()
         }
 
-        override fun onPlaybackStateChanged(state: Int) = updatePlayButton()
+        override fun onPlaybackStateChanged(state: Int) {
+            updatePlayButton()
+            if (state == Player.STATE_BUFFERING) noteStall()
+        }
+
+        // Whatever subtitles are on screen also feed the phone's transcript when no file could be read.
+        override fun onCues(cueGroup: CueGroup) {
+            val text = cueGroup.cues.mapNotNull { it.text?.toString() }.joinToString(" ")
+            val position = player?.currentPosition ?: return
+            if (text.isNotBlank()) PhoneCompanion.liveCue(position, text)
+        }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             updatePlayButton()
@@ -1575,6 +1602,7 @@ class CinemaController(
         }
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) lastSeekAtMs = SystemClock.uptimeMillis()
             skipPrompt.refresh()
         }
 
@@ -1592,6 +1620,7 @@ class CinemaController(
     }
 
     private companion object {
+        const val TRANSCRIPT_TRIES = 3
         val SPEEDS = floatArrayOf(1f, 1.25f, 1.5f, 2f, 0.75f)
         /** The same speeds, slowest first, as the speed list shows them. */
         val SPEED_CHOICES = SPEEDS.sorted()
@@ -1601,6 +1630,9 @@ class CinemaController(
         const val AUTO_HIDE_MS = 4_000L
         const val PROGRESS_MS = 500L
         const val TOAST_MS = 800L
+        const val STALL_TOAST_MS = 3_500L
+        const val STALLS_BEFORE_HINT = 2
+        const val SEEK_SETTLE_MS = 1_500L
         const val TMDB_PHOTOS = "https://image.tmdb.org/t/p/w185"
         const val SHOW_MS = 240L
         const val HIDE_MS = 220L

@@ -119,6 +119,7 @@
     <string name="subs_find_source">OpenSubtitles · #%1$d</string>
     <string name="language_unknown">Unknown language</string>
     <string name="subs_adding">Adding subtitles</string>
+    <string name="speed_cant_keep_up">This stream can\'t keep up at %1$s</string>
     <string name="resume_from_app">Resumed at %1$s</string>
     <string name="resume_from_memory">Resumed at %1$s, where you left off</string>
     <string name="resume_key_ok">OK</string>
@@ -155,4 +156,10 @@
     <string name="companion_value">%1$s · %2$s</string>
     <string name="companion_offline_value">Offline</string>
     <string name="companion_offline">Connect the TV to your home network to use it</string>
+    <string name="pair_hint">Show a QR code to connect your phone</string>
+    <string name="pair_title">Connect your phone</string>
+    <string name="pair_scan">Point your phone\'s camera at the code.\nIt opens the companion and connects by itself.</string>
+    <string name="pair_manual">Or open %1$s and enter</string>
+    <string name="pair_close">Press OK or Back to close</string>
+    <string name="pair_done">Phone connected</string>
 </resources>

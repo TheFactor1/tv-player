@@ -174,7 +174,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         context.getString(R.string.companion_title),
         PhoneCompanion.address()?.let { context.getString(R.string.companion_detail, it, PhoneCompanion.code) }
             ?: context.getString(R.string.companion_offline),
-    )
+    ) { PairingCard.show(context, Fonts(context)) }
 
     private fun languagePage(title: Int, noPreference: Int, current: () -> String, pick: (String) -> Unit) =
         OptionPage(context.getString(title)) {

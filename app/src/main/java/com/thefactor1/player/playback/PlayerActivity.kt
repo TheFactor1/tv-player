@@ -368,6 +368,7 @@ class PlayerActivity : Activity() {
         ).joinToString(", ").ifEmpty { null }
 
         val exo = ExoPlayer.Builder(this, renderers)
+            .setLoadControl(StreamBuffer.loadControl())
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -385,6 +386,8 @@ class PlayerActivity : Activity() {
         exo.addListener(listener)
         stats.attach(exo)
         val name = ReleaseName.parse(req.title)
+        PhoneCompanion.launchSubtitles = req.subtitles.sortedByDescending { it.selected }
+            .map { it.uri.toString() }.filter { it.startsWith("http://") || it.startsWith("https://") }
         controller.attach(exo, name?.title, name?.detail, sourceAppName(), TitleKeys.imdbId(titleKeys))
         playerView.player = exo
         player = exo
