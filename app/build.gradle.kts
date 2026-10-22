@@ -11,8 +11,8 @@ android {
         applicationId = "com.thefactor1.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.9.2"
+        versionCode = 16
+        versionName = "0.9.4"
 
         // X-Ray's cast comes from TMDB; CI passes the key from the TMDB_API_KEY secret. Without one, X-Ray stays off.
         buildConfigField("String", "TMDB_API_KEY", "\"${System.getenv("TMDB_API_KEY").orEmpty().trim()}\"")

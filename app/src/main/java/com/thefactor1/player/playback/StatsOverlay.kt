@@ -10,7 +10,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
-import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
@@ -92,11 +92,9 @@ class StatsOverlay(
         audioDecoder = decoderName
     }
 
-    override fun onAudioInputFormatChanged(
-        eventTime: AnalyticsListener.EventTime,
-        format: Format,
-        decoderReuseEvaluation: DecoderReuseEvaluation?,
-    ) {
+    // The decoder's name is cleared when audio stops, not when the format changes: FFmpeg reports
+    // its decoder before the new format, so clearing here would hide which decoder is in use.
+    override fun onAudioDisabled(eventTime: AnalyticsListener.EventTime, decoderCounters: DecoderCounters) {
         audioDecoder = null
     }
 
