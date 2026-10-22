@@ -58,7 +58,7 @@ class ResumePolicyTest {
 
     @Test
     fun lastWatchedFilmIsPickedUpByANearlyIdenticalLength() {
-        val now = 100_000_000L
+        val now = 1_000_000_000_000L
         val last = saved.copy(savedAt = now - 60_000)
         assertTrue(ResumePolicy.lastWatchedFits(last, false, false, 7_212_000, now))
         assertFalse("different film", ResumePolicy.lastWatchedFits(last, false, false, 7_500_000, now))
