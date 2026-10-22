@@ -73,6 +73,15 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal" />
             </LinearLayout>
+
+            <!-- X-Ray: the film's main cast, while the controls are up. -->
+            <LinearLayout
+                android:id="@+id/info_cast"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:orientation="horizontal"
+                android:visibility="gone" />
         </LinearLayout>
 
         <LinearLayout
@@ -528,6 +537,15 @@
                 android:maxLines="3"
                 android:textColor="@color/ink_soft"
                 android:textSize="16sp"
+                android:visibility="gone" />
+
+            <!-- X-Ray on the pause screen. -->
+            <LinearLayout
+                android:id="@+id/meta_cast"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="horizontal"
                 android:visibility="gone" />
 
             <com.thefactor1.player.ui.SweepLineView

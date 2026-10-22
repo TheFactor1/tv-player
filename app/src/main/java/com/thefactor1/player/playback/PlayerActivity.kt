@@ -38,6 +38,7 @@ import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
 import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
+import com.thefactor1.player.companion.PhoneCompanion
 import com.thefactor1.player.launch.IntentContract
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
@@ -153,11 +154,13 @@ class PlayerActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        PhoneCompanion.start(this)
         initializePlayer()
     }
 
     override fun onStop() {
         super.onStop()
+        PhoneCompanion.stop()
         releasePlayer()
         switcher.reset()
     }

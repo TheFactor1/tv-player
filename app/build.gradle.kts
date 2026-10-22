@@ -11,8 +11,11 @@ android {
         applicationId = "com.thefactor1.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.9.3"
+        versionCode = 17
+        versionName = "0.9.5"
+
+        // X-Ray's cast comes from TMDB; CI passes the key from the TMDB_API_KEY secret. Without one, X-Ray stays off.
+        buildConfigField("String", "TMDB_API_KEY", "\"${System.getenv("TMDB_API_KEY").orEmpty().trim()}\"")
 
         // TV boxes are ARM; x86_64 keeps the PC emulator working. Dropping 32-bit x86 trims the FFmpeg libraries.
         ndk {

@@ -31,8 +31,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
+import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.companion.CompanionHost
+import com.thefactor1.player.companion.CompanionPerson
 import com.thefactor1.player.meta.ArtworkLoader
+import com.thefactor1.player.meta.CastLoader
+import com.thefactor1.player.meta.CastMember
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.meta.OnlineExtras
@@ -44,6 +50,7 @@ import com.thefactor1.player.playback.StatsOverlay
 import com.thefactor1.player.playback.SubtitleDelay
 import java.util.Date
 import java.util.Locale
+import org.json.JSONObject
 import kotlin.math.abs
 
 /**
@@ -67,7 +74,7 @@ class CinemaController(
     private val enhancement: AudioEnhancement,
     private val subtitleDelay: SubtitleDelay,
     private val onExit: () -> Unit,
-) {
+) : CompanionHost {
     private enum class Panel { AUDIO, SUBTITLES, PICTURE, MORE }
 
     private class Item(
@@ -174,6 +181,11 @@ class CinemaController(
     private var launchDetail: String? = null
     private var pauseScreenShown = false
     private val extras = OnlineExtras()
+    private val cast = CastLoader(activity, BuildConfig.TMDB_API_KEY)
+    private val infoCast = CastRow(activity.findViewById(R.id.info_cast), fonts, faceDp = 36, nameSp = 14f, maxPeople = 4)
+    private val metaCast = CastRow(activity.findViewById(R.id.meta_cast), fonts, faceDp = 48, nameSp = 15f, maxPeople = 5)
+    private val metaCastView: View = activity.findViewById(R.id.meta_cast)
+    private var castShown: List<CastMember> = emptyList()
     private val skipPrompt = SkipPrompt(activity.findViewById(R.id.skip_prompt)) { onSkipCredits?.invoke() }
     private var onlineSearch = OnlineSearch.UNMATCHED
     private var onlineSubtitles: List<OnlineSubtitle> = emptyList()
@@ -235,9 +247,11 @@ class CinemaController(
         preShow.attach(exo, sourceApp)
         skipPrompt.attach(exo)
         updateSkipPrompt()
+        PhoneCompanion.host = this
     }
 
     fun detach() {
+        if (PhoneCompanion.host === this) PhoneCompanion.host = null
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
@@ -254,6 +268,11 @@ class CinemaController(
         artworkQuery = query
         artwork.cancel()
         extras.cancel()
+        cast.cancel()
+        castShown = emptyList()
+        PhoneCompanion.reset()
+        infoCast.clear()
+        metaCast.clear()
         skipPrompt.setSegments(emptyList())
         onlineSearch = OnlineSearch.UNMATCHED
         onlineSubtitles = emptyList()
@@ -292,11 +311,27 @@ class CinemaController(
 
     /** Skip times and online subtitles for the recognised film or episode. */
     private fun loadExtras(imdbId: String, query: MetaQuery) {
+        cast.load(imdbId, query.season, query.episode, object : CastLoader.Listener {
+            override fun onCast(people: List<CastMember>) {
+                castShown = people
+                PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }
+                infoCast.show(people)
+                metaCast.show(people)
+                showDetails()
+            }
+
+            override fun onPhoto(member: CastMember, bitmap: Bitmap) {
+                infoCast.setPhoto(member, bitmap)
+                metaCast.setPhoto(member, bitmap)
+            }
+        })
         extras.skipSegments(imdbId, query.season, query.episode) { skipPrompt.setSegments(it) }
         onlineSearch = OnlineSearch.SEARCHING
         refreshSubtitlePanel()
         extras.subtitles(imdbId, query.season, query.episode) { found ->
             onlineSubtitles = found
+            val preferred = listOf(prefs.subtitleLanguage.ifEmpty { Locale.getDefault().language }, "en")
+            SubtitleLanguages.rank(found, preferred, 1).firstOrNull()?.let { PhoneCompanion.loadTranscript(it.url) }
             onlineSearch = OnlineSearch.DONE
             refreshSubtitlePanel()
         }
@@ -326,6 +361,7 @@ class CinemaController(
         metaDescription.text = known?.description
         // The synopsis is for the pause screen; while loading, the status line has the floor.
         metaDescription.visibility = if (pauseScreenShown && !known?.description.isNullOrEmpty()) View.VISIBLE else View.GONE
+        metaCastView.visibility = if (pauseScreenShown && castShown.isNotEmpty()) View.VISIBLE else View.GONE
         preShow.setHeader(title.text, kicker, episode)
     }
 
@@ -674,6 +710,43 @@ class CinemaController(
         playButton.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
         playButton.contentDescription = activity.getString(if (playing) R.string.control_pause else R.string.control_play)
         if (playButton.isFocused) focusLabel.text = playButton.contentDescription
+    }
+
+    // ---- Phone companion -----------------------------------------------------------------------
+
+    override fun companionState(): JSONObject {
+        val exo = player ?: return JSONObject().put("idle", true)
+        val duration = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        return JSONObject()
+            .put("title", details?.name ?: title.text.toString())
+            .put("kicker", details?.kicker ?: "")
+            .put("positionMs", exo.currentPosition)
+            .put("durationMs", duration)
+            .put("playing", exo.playWhenReady)
+    }
+
+    override fun companionControl(action: String, ms: Long) {
+        val exo = player ?: return
+        if (loading) return
+        when (action) {
+            "play" -> exo.playWhenReady = true
+            "pause" -> exo.playWhenReady = false
+            "toggle" -> {
+                togglePlayPause()
+                showGlyph(if (exo.playWhenReady) R.drawable.ic_play else R.drawable.ic_pause)
+            }
+            "skip" -> {
+                hidePauseScreen()
+                skip(ms)
+            }
+            "seek" -> {
+                hidePauseScreen()
+                val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE
+                exo.seekTo(ms.coerceIn(0L, duration))
+                showToast(activity.getString(R.string.companion_jumped, formatTime(ms)), ADD_TOAST_MS)
+                if (controlsVisible) updateProgress() else showMiniBar()
+            }
+        }
     }
 
     private fun togglePlayPause() {
@@ -1232,6 +1305,13 @@ class CinemaController(
 
     private fun moreItems(): List<Item> = listOf(
         Item(
+            activity.getString(R.string.companion_title),
+            PhoneCompanion.address()?.let { activity.getString(R.string.companion_detail, it, PhoneCompanion.code) }
+                ?: activity.getString(R.string.companion_offline),
+            checked = false,
+            keepOpen = true,
+        ),
+        Item(
             activity.getString(R.string.more_stats),
             activity.getString(if (stats.isVisible) R.string.on else R.string.off),
             stats.isVisible,
@@ -1389,6 +1469,7 @@ class CinemaController(
         const val AUTO_HIDE_MS = 4_000L
         const val PROGRESS_MS = 500L
         const val TOAST_MS = 800L
+        const val TMDB_PHOTOS = "https://image.tmdb.org/t/p/w185"
         const val SHOW_MS = 240L
         const val HIDE_MS = 220L
         const val PANEL_MS = 320L
