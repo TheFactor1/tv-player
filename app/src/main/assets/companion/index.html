@@ -154,7 +154,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     if (tab === 'search') $('q').focus();
   });
 
-  const control = async (action, ms) => { try { state = await api('/api/control', { action, ms: ms || 0 }); render(); } catch (e) {} };
+  const control = async (action, ms) => { try { state = stamp(await api('/api/control', { action, ms: ms || 0 })); render(); } catch (e) {} };
   document.querySelectorAll('[data-skip]').forEach(b => b.onclick = () => control('skip', Number(b.dataset.skip)));
   $('play').onclick = () => control('toggle');
   const jump = ms => { control('seek', Math.max(0, ms - 400)); toast('Jumped to ' + fmt(ms)); };
@@ -185,7 +185,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   $('transcript').addEventListener('scroll', () => { if (!scrollToNow.auto) lastScroll = Date.now(); scrollToNow.auto = false; }, { passive: true });
 
   function scrollToNow(force) {
-    const i = cueAt(state.positionMs || 0);
+    const i = cueAt(nowMs());
     const pane = $('transcript');
     if (i !== nowIndex) {
       pane.querySelectorAll('.ln').forEach((el, k) => { el.classList.toggle('now', k === i); el.classList.toggle('past', k < i); });
@@ -222,17 +222,25 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
 
   function render() {
     $('title').textContent = state.idle ? 'Nothing playing' : (state.title || 'Playing');
-    $('clock').textContent = state.idle ? '' : fmt(state.positionMs || 0) + (state.durationMs ? ' / ' + fmt(state.durationMs) : '');
+    $('clock').textContent = state.idle ? '' : fmt(nowMs()) + (state.durationMs ? ' / ' + fmt(state.durationMs) : '');
     $('live').classList.toggle('off', !!state.idle || !state.playing);
     $('play').innerHTML = state.playing ? PAUSE : PLAY;
     scrollToNow(false);
   }
 
+  // The TV reports its position once a second; between reports, count forward so the line lights on time.
+  function stamp(s) { s.at = performance.now(); return s; }
+  function nowMs() {
+    const base = state.positionMs || 0;
+    return state.playing && state.at ? base + Math.min(performance.now() - state.at, 3000) : base;
+  }
+  setInterval(() => { if (!document.hidden && !state.idle && state.playing) scrollToNow(false); }, 200);
+
   let timer = 0;
   async function poll() {
     clearTimeout(timer);
     try {
-      state = await api('/api/state');
+      state = stamp(await api('/api/state'));
       showMain();
       if (state.transcriptVersion !== transcriptVersion) {
         transcriptVersion = state.transcriptVersion;
