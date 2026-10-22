@@ -24,6 +24,9 @@ object TitleKeys {
         RegexOption.IGNORE_CASE,
     )
     private val NOT_ALNUM = Regex("""[^a-z0-9]+""")
+    // Addon and site tags in front of a stream title: "[RD+] ", "[TB] ", "www.example.org - ".
+    private val LEADING_TAGS = Regex("""^(\s*(\[[^\]]*]|\([^)]*\)|www\.\S+\s+-)\s*)+""", RegexOption.IGNORE_CASE)
+    private val EPISODE_KEY = Regex("""s\d+e\d+$""")
     private val MARKS = Regex("""\p{Mn}+""")
 
     /** A name with what was found next to it. */
@@ -38,7 +41,9 @@ object TitleKeys {
         val imdb = imdbEpisode?.groupValues?.get(1) ?: haystack.firstNotNullOfOrNull { IMDB.find(it)?.value }
 
         val fromTitle = parse(title)
-        val fromFile = parse(fileName ?: url?.let(::lastPathSegment))
+        // A URL's last segment only names the film when it looks like a file: "requestdl" or
+        // "stream" would tie every film from one service together.
+        val fromFile = parse(fileName ?: url?.let(::lastPathSegment)?.takeIf(::looksLikeFile))
         val season = imdbEpisode?.groupValues?.get(2)?.toInt() ?: fromTitle?.season ?: fromFile?.season
         val episode = imdbEpisode?.groupValues?.get(3)?.toInt() ?: fromTitle?.episode ?: fromFile?.episode
         val isEpisode = season != null && episode != null
@@ -47,7 +52,7 @@ object TitleKeys {
 
         for (parsed in listOfNotNull(fromTitle, fromFile)) {
             val name = normalize(parsed.name)
-            if (name.isEmpty() || name.all { it.isDigit() || it == ' ' }) continue
+            if (name.isEmpty() || name.all { it.isDigit() || it == ' ' } || looksObfuscated(name)) continue
             when {
                 // An episode is only named by a source that says which episode it is; a bare
                 // episode title like "Pilot" would match every show's first episode.
@@ -62,13 +67,18 @@ object TitleKeys {
         return keys.toList()
     }
 
+    /** Whether [keys] name an episode rather than a film. */
+    fun isEpisode(keys: List<String>): Boolean = keys.any { EPISODE_KEY.containsMatchIn(it) }
+
     /** The IMDb id among [keys] from [from], if the source app sent one. */
     fun imdbId(keys: List<String>): String? =
         keys.firstOrNull { it.startsWith("imdb:") }?.removePrefix("imdb:")?.substringBefore(':')
 
     /** Splits "Crystal.Lake.S01E01.2160p.mkv", "Crystal Lake - S1E1" or "Dune Part Two (2024)". */
     fun parse(raw: String?): Parsed? {
-        var text = raw?.trim().orEmpty()
+        // Stream titles often carry a second line of seeders, size and addon name.
+        var text = raw?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+        text = LEADING_TAGS.replace(text, "").trim()
         if (text.isEmpty()) return null
         text = EXTENSION.replace(text, "")
         if (' ' !in text) text = text.replace('.', ' ').replace('_', ' ')
@@ -90,6 +100,14 @@ object TitleKeys {
             .replace("&", " and ")
             .replace(NOT_ALNUM, " ")
             .trim()
+
+    private fun looksLikeFile(segment: String): Boolean =
+        EXTENSION.containsMatchIn(segment) || EPISODE.containsMatchIn(segment) ||
+            YEAR.containsMatchIn(segment) || QUALITY.containsMatchIn(segment)
+
+    /** A hash for a name, as Usenet releases and some debrid links use: "a8f9c7e2b1d34e0f". */
+    private fun looksObfuscated(name: String): Boolean =
+        ' ' !in name && name.length >= 10 && name.any { it.isDigit() } && name.any { it.isLetter() }
 
     /** The stream without its query string, which often carries a token that changes each time. */
     private fun streamKey(url: String?): String? =

@@ -76,6 +76,7 @@ class PlayerActivity : Activity() {
     private var startChecked = false
     private var chipShown = false
     private var chipTookOk = false
+    private var chipOkAt = 0L
 
     // Survive onStop/onStart (e.g. the home button) without restarting from the beginning.
     private var resumePositionMs = C.TIME_UNSET
@@ -213,7 +214,10 @@ class PlayerActivity : Activity() {
             super.finish()
             return false
         }
-        titleKeys = TitleKeys.from(req.title, req.fileName, req.uri.toString(), req.textExtras)
+        // Without a title extra the request falls back to the URL's last segment, which TitleKeys
+        // already weighs as a file name.
+        val title = req.title?.takeIf { it != req.uri.lastPathSegment }
+        titleKeys = TitleKeys.from(title, req.fileName, req.uri.toString(), req.textExtras)
         savedEntry = resumeStore.find(titleKeys)
         start = ResumePolicy.start(req.startPositionMs, req.fromStart, savedEntry)
         startChecked = false
@@ -228,10 +232,10 @@ class PlayerActivity : Activity() {
             ?: request?.durationHintMs?.takeIf { it > 0 }
             ?: savedEntry?.durationMs
             ?: 0L
-        if (ResumePolicy.shouldForget(lastPositionMs, duration, completed)) {
-            resumeStore.forget(titleKeys)
-        } else {
-            resumeStore.save(titleKeys, lastPositionMs, duration)
+        when (ResumePolicy.onLeave(lastPositionMs, duration, completed)) {
+            ResumePolicy.Leave.FORGET -> resumeStore.forget(titleKeys)
+            ResumePolicy.Leave.SAVE -> resumeStore.save(titleKeys, lastPositionMs, duration)
+            ResumePolicy.Leave.KEEP -> Unit
         }
     }
 
@@ -255,13 +259,34 @@ class PlayerActivity : Activity() {
     private fun checkStart(exo: ExoPlayer) {
         if (startChecked || exo.duration == C.TIME_UNSET) return
         startChecked = true
-        if (start.source == ResumePolicy.Source.NONE) return
+        if (start.source == ResumePolicy.Source.NONE) {
+            pickUpLastWatched(exo)
+            return
+        }
         val duration = exo.duration
         val saved = savedEntry
         val pastEnd = start.positionMs >= duration - END_MARGIN_MS
         val wrongStream = start.source == ResumePolicy.Source.LOCAL && saved != null &&
             (!ResumePolicy.sameLength(saved.durationMs, duration) || ResumePolicy.isWatched(start.positionMs, duration))
         if (pastEnd || wrongStream) startOverInstead(exo)
+    }
+
+    /**
+     * A stream nothing ties to a saved title (an obfuscated Usenet file, no title from the app)
+     * carries on from the film watched last if its length all but matches: switching sources
+     * mid-film. The chip says so, and a double OK starts over.
+     */
+    private fun pickUpLastWatched(exo: ExoPlayer) {
+        val req = request ?: return
+        if (req.fromStart || savedEntry != null || req.startPositionMs >= ResumePolicy.MIN_RESUME_MS) return
+        val (last, lastKeys) = resumeStore.latest() ?: return
+        val fits = ResumePolicy.lastWatchedFits(
+            last, TitleKeys.isEpisode(lastKeys), TitleKeys.isEpisode(titleKeys), exo.duration, System.currentTimeMillis(),
+        )
+        if (!fits) return
+        savedEntry = last
+        start = ResumePolicy.Start(last.positionMs, ResumePolicy.Source.LOCAL)
+        if (measuring) measureStartMs = last.positionMs else exo.seekTo(last.positionMs)
     }
 
     private fun startOverInstead(exo: ExoPlayer) {
@@ -288,7 +313,11 @@ class PlayerActivity : Activity() {
         mainHandler.postDelayed({ if (player === exo && exo.isPlaying) resumeChip.show(text) }, CHIP_DELAY_MS)
     }
 
-    /** OK while the chip shows starts over; any other key puts the chip away and carries on. */
+    /**
+     * Two quick presses of OK while the chip shows start over. The first press does what OK always
+     * does (pause), so a viewer who only wants to pause is never sent back to the start; the
+     * second is taken here and plays from the top. Any other key puts the chip away.
+     */
     private fun handleResumeChipKey(event: KeyEvent): Boolean {
         val isOk = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
         if (chipTookOk && isOk) {
@@ -300,13 +329,19 @@ class PlayerActivity : Activity() {
             if (event.action == KeyEvent.ACTION_DOWN) resumeChip.hide()
             return false
         }
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            chipTookOk = true
-            player?.let { restartFromBeginning(it) }
-            resumeChip.confirm(getString(R.string.resume_starting_over))
-            return true
+        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0) return false
+        if (event.eventTime - chipOkAt > DOUBLE_OK_MS) {
+            chipOkAt = event.eventTime
+            return false
         }
-        return false
+        chipOkAt = 0L
+        chipTookOk = true
+        player?.let {
+            restartFromBeginning(it)
+            it.playWhenReady = true
+        }
+        resumeChip.confirm(getString(R.string.resume_starting_over))
+        return true
     }
 
     private fun initializePlayer() {
@@ -441,6 +476,40 @@ class PlayerActivity : Activity() {
                 return
             }
         }
+    }
+
+    /**
+     * With subtitles always on, swaps a forced track the selector landed on for the full one in
+     * the same language. A pick from the panel is an override and is left alone.
+     */
+    private fun preferFullSubtitles(exo: ExoPlayer, tracks: Tracks) {
+        if (prefs.subtitleMode != PlayerPrefs.SubtitleMode.ALWAYS) return
+        val params = exo.trackSelectionParameters
+        if (params.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return
+        if (params.overrides.keys.any { it.type == C.TRACK_TYPE_TEXT }) return
+        val slots = mutableListOf<Pair<Tracks.Group, Int>>()
+        val candidates = mutableListOf<SubtitlePick.Track>()
+        var selected = -1
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_TEXT) continue
+            for (i in 0 until group.length) {
+                val format = group.getTrackFormat(i)
+                if (group.isTrackSelected(i)) selected = slots.size
+                slots += group to i
+                candidates += SubtitlePick.Track(
+                    language = format.language,
+                    forced = FormatNames.isForced(format),
+                    hearingImpaired = format.roleFlags and C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND != 0,
+                    commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0,
+                    supported = group.isTrackSupported(i),
+                )
+            }
+        }
+        val better = SubtitlePick.fullInsteadOfForced(candidates, selected) ?: return
+        val (group, index) = slots[better]
+        exo.trackSelectionParameters = params.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+            .build()
     }
 
     private fun releasePlayer() {
@@ -729,7 +798,10 @@ class PlayerActivity : Activity() {
 
     private val listener = object : Player.Listener {
         override fun onTracksChanged(tracks: Tracks) {
-            player?.let { selectPendingSubtitle(it, tracks) }
+            player?.let {
+                selectPendingSubtitle(it, tracks)
+                preferFullSubtitles(it, tracks)
+            }
             if (!awaitingDisplayMatch || tracks.isEmpty) return
             val video = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
             val frameRate = video?.let { group ->
@@ -776,6 +848,7 @@ class PlayerActivity : Activity() {
         const val SAVE_EVERY_MS = 10_000L
         const val END_MARGIN_MS = 5_000L
         const val CHIP_DELAY_MS = 700L
+        const val DOUBLE_OK_MS = 600L
 
         const val MEASURE_SPEED = 2f
         const val MEASURE_TIMEOUT_MS = 6_000L

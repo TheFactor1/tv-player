@@ -69,6 +69,7 @@
     <string name="on">On</string>
     <string name="off">Off</string>
     <string name="track_unknown">Track %1$d</string>
+    <string name="subs_forced_hint">Only signs and foreign-language lines, so most scenes show nothing</string>
     <string name="subs_unknown">Subtitles %1$d</string>
     <string name="audio_default_language">Spoken language</string>
     <string name="audio_language_auto">Original (film\'s default)</string>
@@ -121,7 +122,7 @@
     <string name="resume_from_app">Resumed at %1$s</string>
     <string name="resume_from_memory">Resumed at %1$s, where you left off</string>
     <string name="resume_key_ok">OK</string>
-    <string name="resume_start_over">Start over</string>
+    <string name="resume_start_over">twice to start over</string>
     <string name="resume_starting_over">Starting over</string>
     <!-- Player menus: section names, short row names and values; the long text goes in the hint line. -->
     <string name="menu_track">Track</string>
