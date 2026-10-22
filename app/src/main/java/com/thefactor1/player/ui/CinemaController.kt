@@ -2,10 +2,13 @@ package com.thefactor1.player.ui
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.format.DateFormat
+import android.view.Display
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
@@ -137,6 +140,10 @@ class CinemaController(
     private val errorActions: View = activity.findViewById(R.id.error_actions)
     private val retryButton: TextView = activity.findViewById(R.id.btn_retry)
     private val otherPlayerButton: TextView = activity.findViewById(R.id.btn_other_player)
+    private val metaBlock: View = activity.findViewById(R.id.meta_block)
+    private val preShow = PreShow(activity.findViewById(R.id.booth), fonts, ::displayInfo)
+    /** In the booth the backdrop is only a grey ghost behind the log. */
+    private val boothArt = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
 
     /** The error card's two ways out. */
     var onRetry: (() -> Unit)? = null
@@ -237,6 +244,7 @@ class CinemaController(
         exo.setPlaybackSpeed(SPEEDS[speedIndex])
         updatePlayButton()
         updateBadges(exo.currentTracks)
+        preShow.attach(exo, sourceApp)
         skipPrompt.attach(exo)
         updateSkipPrompt()
         PhoneCompanion.host = this
@@ -249,6 +257,7 @@ class CinemaController(
         handler.removeCallbacksAndMessages(null)
         hidePauseScreen(animate = false)
         skipPrompt.detach()
+        preShow.detach()
     }
 
     // ---- Meta screen: film art and details, for loading and for the pause screen ---------------
@@ -273,6 +282,7 @@ class CinemaController(
         metaBackdrop.setImageDrawable(null)
         metaLogo.setImageDrawable(null)
         metaLogo.visibility = View.GONE
+        preShow.setLogo(null)
         loadingTitle.visibility = if (loadingTitle.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         showDetails()
         if (query == null) return
@@ -285,7 +295,7 @@ class CinemaController(
 
             override fun onBackdrop(bitmap: Bitmap) {
                 metaBackdrop.setImageBitmap(bitmap)
-                metaBackdrop.animate().alpha(1f).setDuration(ART_FADE_MS).setInterpolator(easeOut).start()
+                metaBackdrop.animate().alpha(if (preShow.isShowing) BOOTH_ART_ALPHA else 1f).setDuration(ART_FADE_MS).setInterpolator(easeOut).start()
             }
 
             override fun onLogo(bitmap: Bitmap) {
@@ -294,6 +304,7 @@ class CinemaController(
                 metaLogo.visibility = View.VISIBLE
                 metaLogo.animate().alpha(1f).setDuration(ART_FADE_MS).start()
                 loadingTitle.visibility = View.GONE
+                preShow.setLogo(bitmap)
             }
         })
     }
@@ -351,6 +362,7 @@ class CinemaController(
         // The synopsis is for the pause screen; while loading, the status line has the floor.
         metaDescription.visibility = if (pauseScreenShown && !known?.description.isNullOrEmpty()) View.VISIBLE else View.GONE
         metaCastView.visibility = if (pauseScreenShown && castShown.isNotEmpty()) View.VISIBLE else View.GONE
+        preShow.setHeader(title.text, kicker, episode)
     }
 
     /** After a while paused, the picture gives way to the film's art and synopsis, like a TV app's detail page. */
@@ -435,10 +447,43 @@ class CinemaController(
         loadingCard.animate().cancel()
         loadingCard.alpha = 1f
         loadingCard.visibility = View.VISIBLE
+        preShow.begin(line)
+        setBooth(true)
     }
 
     fun setLoadingLine(line: String) {
         loadingLine.text = line
+        preShow.setStatus(line)
+    }
+
+    /** The frame rate the display was matched to, or left at, for the pre-show's log. */
+    fun noteFrameRate(fps: Float) = preShow.setFrameRate(fps)
+
+    /** The loading card shows the pre-show while a stream loads; errors and the pause screen use the meta block. */
+    private fun setBooth(on: Boolean) {
+        if (on) preShow.show() else preShow.hide()
+        metaBlock.visibility = if (on) View.INVISIBLE else View.VISIBLE
+        loadingSource.visibility = if (on) View.GONE else View.VISIBLE
+        metaBackdrop.colorFilter = if (on) boothArt else null
+        if (metaBackdrop.drawable != null) {
+            metaBackdrop.animate().cancel()
+            metaBackdrop.alpha = if (on) BOOTH_ART_ALPHA else 1f
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun displayInfo(): DisplayInfo {
+        val display = activity.windowManager.defaultDisplay
+        val mode = display.mode
+        val hdr = display.hdrCapabilities?.supportedHdrTypes?.toList()?.mapNotNull {
+            when (it) {
+                Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION -> HdrType.DOLBY_VISION
+                Display.HdrCapabilities.HDR_TYPE_HDR10, HDR_TYPE_HDR10_PLUS -> HdrType.HDR10
+                Display.HdrCapabilities.HDR_TYPE_HLG -> HdrType.HLG
+                else -> null
+            }
+        }?.toSet().orEmpty()
+        return DisplayInfo(mode.physicalWidth, mode.physicalHeight, mode.refreshRate, hdr)
     }
 
     /** Errors stay on screen until Back, so they can be read; [code] is small print for bug reports. */
@@ -450,6 +495,7 @@ class CinemaController(
         loadingLine.setTextColor(ContextCompat.getColor(activity, R.color.ink))
         loadingSource.text = activity.getString(R.string.error_footer, code)
         errorShown = true
+        setBooth(false)
         errorActions.visibility = View.VISIBLE
         retryButton.requestFocus()
     }
@@ -880,10 +926,24 @@ class CinemaController(
         updateSkipPrompt()
         // Measuring the frame rate borrows the speed; give the viewer's choice back.
         player?.let { if (it.playbackParameters.speed != SPEEDS[speedIndex]) it.setPlaybackSpeed(SPEEDS[speedIndex]) }
-        loadingCard.animate().alpha(0f).setDuration(320).withLayer()
-            .withEndAction { loadingCard.visibility = View.GONE }
-            .start()
-        showControls(playButton)
+        if (!preShow.isShowing) {
+            loadingCard.animate().alpha(0f).setDuration(320).withLayer()
+                .withEndAction { loadingCard.visibility = View.GONE }
+                .start()
+            showControls(playButton)
+            return
+        }
+        // The film is already playing; the cue mark flashes over its first half second, then it cuts in.
+        preShow.reveal {
+            if (loading) return@reveal
+            loadingCard.animate().alpha(0f).setDuration(CUT_MS)
+                .withEndAction {
+                    loadingCard.visibility = View.GONE
+                    setBooth(false)
+                }
+                .start()
+            showControls(playButton)
+        }
     }
 
     // ---- Panels --------------------------------------------------------------------------------
@@ -1418,6 +1478,10 @@ class CinemaController(
         const val LABEL_MS = 160L
         const val MINI_BAR_MS = 1_600L
         const val ART_FADE_MS = 600L
+        const val CUT_MS = 90L
+        const val BOOTH_ART_ALPHA = 0.16f
+        // Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS, which needs API 29 by name.
+        const val HDR_TYPE_HDR10_PLUS = 4
         const val PAUSE_FADE_MS = 700L
         const val PAUSE_SCREEN_DELAY_MS = 8_000L
         const val DRIFT_MS = 40_000L
