@@ -312,7 +312,7 @@ class CinemaController(
                 metaLogo.visibility = View.VISIBLE
                 metaLogo.animate().alpha(1f).setDuration(artFadeMs()).start()
                 loadingTitle.visibility = View.GONE
-                preShow.setLogo(bitmap)
+                preShow.setLogo(bitmap, artFadeMs())
             }
         })
     }
