@@ -641,6 +641,7 @@ class PlayerActivity : Activity() {
         if (!awaitingDisplayMatch) return
         awaitingDisplayMatch = false
         if (!prefs.matchFrameRate) {
+            controller.noteFrameRate(frameRate)
             player?.playWhenReady = true
             return
         }
@@ -649,7 +650,10 @@ class PlayerActivity : Activity() {
             return
         }
         if (switcher.wouldSwitch(frameRate)) controller.setLoadingLine(getString(R.string.loading_matching, formatRate(frameRate)))
-        switcher.matchFrameRate(frameRate) { player?.playWhenReady = true }
+        switcher.matchFrameRate(frameRate) {
+            controller.noteFrameRate(frameRate)
+            player?.playWhenReady = true
+        }
     }
 
     private fun startMeasuring(exo: ExoPlayer) {
@@ -712,7 +716,10 @@ class PlayerActivity : Activity() {
         stats.measuredFrameRate = fps
         finishMeasuring(exo, thenPlay = false)
         if (switcher.wouldSwitch(fps)) controller.setLoadingLine(getString(R.string.loading_matching, formatRate(fps)))
-        switcher.matchFrameRate(fps) { player?.playWhenReady = true }
+        switcher.matchFrameRate(fps) {
+            controller.noteFrameRate(fps)
+            player?.playWhenReady = true
+        }
     }
 
     private val listener = object : Player.Listener {
