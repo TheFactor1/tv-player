@@ -27,10 +27,19 @@ class CastRow(
     private val context = container.context
     private val density = context.resources.displayMetrics.density
     private val faces = HashMap<String, Pair<ImageView, TextView>>()
+    private var fitted = false
+
+    init {
+        // Whole names or nobody: once laid out, drop the people at the end who'd only fit squeezed.
+        container.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (!fitted || right - left != oldRight - oldLeft) container.post { fit() }
+        }
+    }
 
     fun show(cast: List<CastMember>) {
         container.removeAllViews()
         faces.clear()
+        fitted = false
         cast.take(maxPeople).forEachIndexed { index, member -> container.addView(item(member, first = index == 0)) }
         container.visibility = if (container.childCount > 0) View.VISIBLE else View.GONE
     }
@@ -41,6 +50,23 @@ class CastRow(
         val (face, initials) = faces[member.name] ?: return
         face.setImageBitmap(bitmap)
         initials.visibility = View.GONE
+    }
+
+    private fun fit() {
+        val available = container.width - container.paddingStart - container.paddingEnd
+        if (available <= 0) return
+        fitted = true
+        var used = 0
+        for (index in 0 until container.childCount) {
+            val child = container.getChildAt(index)
+            child.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+            val params = child.layoutParams as LinearLayout.LayoutParams
+            used += child.measuredWidth + params.marginStart + params.marginEnd
+            if (used > available) {
+                container.removeViews(index, container.childCount - index)
+                return
+            }
+        }
     }
 
     private fun item(member: CastMember, first: Boolean): View {
