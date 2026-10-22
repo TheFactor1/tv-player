@@ -34,10 +34,10 @@ class PlayerRenderersFactory(
     init {
         // If a hardware decoder fails to start, try the next one before giving up.
         setEnableDecoderFallback(true)
-        // Platform decoders and passthrough come first; FFmpeg only decodes audio the device can't
-        // (TrueHD, DTS-HD and friends on TVs without them) to multichannel PCM.
+        // Platform decoders and passthrough come first; FFmpeg decodes audio the device can't (TrueHD
+        // on TVs without it, and DTS always) to multichannel PCM.
         setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
-        if (dolbyVisionAsHdr10) setMediaCodecSelector(HEVC_FOR_DOLBY_VISION)
+        setMediaCodecSelector(decoderSelector(dolbyVisionAsHdr10))
     }
 
     override fun buildAudioSink(
@@ -70,9 +70,20 @@ class PlayerRenderersFactory(
     }
 
     private companion object {
-        val HEVC_FOR_DOLBY_VISION = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
-            val mime = if (mimeType == MimeTypes.VIDEO_DOLBY_VISION) MimeTypes.VIDEO_H265 else mimeType
-            MediaCodecUtil.getDecoderInfos(mime, requiresSecure, requiresTunneling)
+        /**
+         * DTS is never decoded by the device: FFmpeg does it instead. TV boxes without a DTS licence
+         * (the onn 4K Plus among them) still list a DTS decoder, and it plays silence. Passthrough to
+         * a receiver that takes DTS doesn't go through a decoder, so it is unaffected.
+         */
+        val FFMPEG_ONLY = setOf(MimeTypes.AUDIO_DTS, MimeTypes.AUDIO_DTS_HD)
+
+        fun decoderSelector(dolbyVisionAsHdr10: Boolean) = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
+            when {
+                mimeType in FFMPEG_ONLY -> emptyList()
+                dolbyVisionAsHdr10 && mimeType == MimeTypes.VIDEO_DOLBY_VISION ->
+                    MediaCodecUtil.getDecoderInfos(MimeTypes.VIDEO_H265, requiresSecure, requiresTunneling)
+                else -> MediaCodecUtil.getDecoderInfos(mimeType, requiresSecure, requiresTunneling)
+            }
         }
     }
 }
