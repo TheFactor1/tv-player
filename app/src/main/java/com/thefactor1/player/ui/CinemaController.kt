@@ -1446,6 +1446,8 @@ class CinemaController(
             val source = activity.getString(R.string.subs_find_source, n)
             Item(name, source, checked = false, hint = source) {
                 showToast(activity.getString(R.string.subs_adding), ADD_TOAST_MS)
+                // The phone's transcript follows the file the TV is now showing.
+                PhoneCompanion.loadTranscript(listOf(sub.url))
                 onAddSubtitle?.invoke(sub.url, sub.language, "$name · OpenSubtitles $n")
             }
         }
