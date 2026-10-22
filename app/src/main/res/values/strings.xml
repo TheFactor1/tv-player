@@ -61,6 +61,8 @@
     <string name="picture_stretch_detail">Stretch to fill</string>
     <string name="picture_match">Match frame rate</string>
     <string name="picture_match_on">On · the TV switches to the video\'s rate</string>
+    <string name="film_colours">Film colours</string>
+    <string name="film_colours_detail">The seek bar takes a colour from the film\'s art</string>
     <string name="picture_match_off">Off · the TV keeps its current rate</string>
     <string name="more_stats">Playback stats</string>
     <string name="more_speed">Playback speed</string>

@@ -38,6 +38,8 @@ class ArtworkLoader(context: Context) {
         fun onDetails(details: MetaDetails)
         fun onBackdrop(bitmap: Bitmap)
         fun onLogo(bitmap: Bitmap)
+        /** The film's own colour, from [FilmAccent]; never called for a black-and-white backdrop. */
+        fun onAccent(color: Int) {}
     }
 
     private val cacheDir = File(context.cacheDir, "artwork")
@@ -83,7 +85,10 @@ class ArtworkLoader(context: Context) {
         post(ticket) { listener.onDetails(details) }
 
         image(meta.optString("background").ifEmpty { "$METAHUB/background/medium/${match.id}/img" }, "${match.id}-bg", screenWidth)
-            ?.let { bitmap -> post(ticket) { listener.onBackdrop(bitmap) } }
+            ?.let { bitmap ->
+                post(ticket) { listener.onBackdrop(bitmap) }
+                accent(bitmap)?.let { color -> post(ticket) { listener.onAccent(color) } }
+            }
         image(meta.optString("logo").ifEmpty { "$METAHUB/logo/medium/${match.id}/img" }, "${match.id}-logo", screenWidth / 2)
             ?.let { bitmap -> post(ticket) { listener.onLogo(bitmap) } }
     }
@@ -119,6 +124,15 @@ class ArtworkLoader(context: Context) {
             video?.optString("overview")?.ifEmpty { null }?.let { description = it }
         }
         return MetaDetails(meta.optString("name").ifEmpty { query.name }, kicker, episodeLine, description)
+    }
+
+    /** Samples a small copy of the backdrop, so this stays cheap on the onn. */
+    private fun accent(bitmap: Bitmap): Int? {
+        val small = Bitmap.createScaledBitmap(bitmap, ACCENT_SAMPLE_W, ACCENT_SAMPLE_H, true)
+        val pixels = IntArray(ACCENT_SAMPLE_W * ACCENT_SAMPLE_H)
+        small.getPixels(pixels, 0, ACCENT_SAMPLE_W, 0, 0, ACCENT_SAMPLE_W, ACCENT_SAMPLE_H)
+        if (small !== bitmap) small.recycle()
+        return FilmAccent.pick(pixels)
     }
 
     /** A cached or freshly downloaded image, decoded no larger than it needs to be for [targetWidth]. */
@@ -176,6 +190,8 @@ class ArtworkLoader(context: Context) {
         const val CINEMETA = "https://v3-cinemeta.strem.io"
         const val METAHUB = "https://images.metahub.space"
         const val TIMEOUT_MS = 5_000
+        const val ACCENT_SAMPLE_W = 48
+        const val ACCENT_SAMPLE_H = 27
         val IMDB_ID = Regex("""tt\d+""")
     }
 }
