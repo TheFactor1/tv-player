@@ -3,6 +3,7 @@ package com.thefactor1.player.ui
 import android.content.Context
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.thefactor1.player.R
+import com.thefactor1.player.companion.PhoneCompanion
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.playback.PlayerPrefs.SubtitleMode
 
@@ -24,6 +25,8 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         heading(R.string.settings_picture),
         item { pictureFit() },
         item { matchFrameRate() },
+        heading(R.string.settings_phone),
+        item { phoneCompanion() },
         heading(R.string.settings_advanced),
         item { audioOutput() },
     )
@@ -158,6 +161,13 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         context.getString(if (prefs.matchFrameRate) R.string.picture_match_on else R.string.picture_match_off),
         checked = prefs.matchFrameRate,
     ) { prefs.matchFrameRate = !prefs.matchFrameRate }
+
+    /** Where the phone page lives and the code to pair a new phone; the code changes after each pairing. */
+    private fun phoneCompanion() = Option(
+        context.getString(R.string.companion_title),
+        PhoneCompanion.address()?.let { context.getString(R.string.companion_detail, it, PhoneCompanion.code) }
+            ?: context.getString(R.string.companion_offline),
+    )
 
     private fun languagePage(title: Int, noPreference: Int, current: () -> String, pick: (String) -> Unit) =
         OptionPage(context.getString(title)) {
