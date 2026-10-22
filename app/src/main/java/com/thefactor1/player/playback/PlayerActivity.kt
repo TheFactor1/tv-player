@@ -441,6 +441,40 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /**
+     * With subtitles always on, swaps a forced track the selector landed on for the full one in
+     * the same language. A pick from the panel is an override and is left alone.
+     */
+    private fun preferFullSubtitles(exo: ExoPlayer, tracks: Tracks) {
+        if (prefs.subtitleMode != PlayerPrefs.SubtitleMode.ALWAYS) return
+        val params = exo.trackSelectionParameters
+        if (params.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return
+        if (params.overrides.keys.any { it.type == C.TRACK_TYPE_TEXT }) return
+        val slots = mutableListOf<Pair<Tracks.Group, Int>>()
+        val candidates = mutableListOf<SubtitlePick.Track>()
+        var selected = -1
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_TEXT) continue
+            for (i in 0 until group.length) {
+                val format = group.getTrackFormat(i)
+                if (group.isTrackSelected(i)) selected = slots.size
+                slots += group to i
+                candidates += SubtitlePick.Track(
+                    language = format.language,
+                    forced = FormatNames.isForced(format),
+                    hearingImpaired = format.roleFlags and C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND != 0,
+                    commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0,
+                    supported = group.isTrackSupported(i),
+                )
+            }
+        }
+        val better = SubtitlePick.fullInsteadOfForced(candidates, selected) ?: return
+        val (group, index) = slots[better]
+        exo.trackSelectionParameters = params.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+            .build()
+    }
+
     private fun releasePlayer() {
         val exo = player ?: return
         capturePosition(exo)
@@ -727,7 +761,10 @@ class PlayerActivity : Activity() {
 
     private val listener = object : Player.Listener {
         override fun onTracksChanged(tracks: Tracks) {
-            player?.let { selectPendingSubtitle(it, tracks) }
+            player?.let {
+                selectPendingSubtitle(it, tracks)
+                preferFullSubtitles(it, tracks)
+            }
             if (!awaitingDisplayMatch || tracks.isEmpty) return
             val video = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
             val frameRate = video?.let { group ->
