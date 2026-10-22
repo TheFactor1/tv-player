@@ -148,7 +148,12 @@ class StatsOverlay(
         val on = enhancement ?: return null
         val names = listOfNotNull("night mode".takeIf { on.nightMode }, "dialogue boost".takeIf { on.dialogueBoost })
         if (names.isEmpty()) return null
-        return names.joinToString(" · ") + if (isPassthrough) " (waiting for decoded audio)" else ""
+        val where = when {
+            isPassthrough -> " (waiting for decoded audio)"
+            on.channelsShaped > 2 -> " (${on.channelsShaped} ch, before downmix)"
+            else -> ""
+        }
+        return names.joinToString(" · ") + where
     }
 
     private fun audioOutput(): String = when (audioOutputEncoding) {

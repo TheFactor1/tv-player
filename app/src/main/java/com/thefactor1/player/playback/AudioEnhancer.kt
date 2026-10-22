@@ -6,17 +6,23 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlin.math.tanh
 
 /** The viewer's night mode and dialogue boost switches, shared with the audio processor so a change applies at once. */
 class AudioEnhancement {
     @Volatile var nightMode = false
     @Volatile var dialogueBoost = false
+
+    /** Channels the processor last saw decoded audio in, 0 before any: shown in the stats. */
+    @Volatile var channelsShaped = 0
 }
 
 /**
@@ -29,8 +35,11 @@ class AudioEnhancerProcessor(private val settings: AudioEnhancement) : BaseAudio
     private var dspFormat: AudioProcessor.AudioFormat? = null
     private var frame = FloatArray(0)
 
-    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat =
-        if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) inputAudioFormat else AudioProcessor.AudioFormat.NOT_SET
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) return AudioProcessor.AudioFormat.NOT_SET
+        settings.channelsShaped = inputAudioFormat.channelCount
+        return inputAudioFormat
+    }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val size = inputBuffer.remaining()
@@ -68,19 +77,34 @@ class AudioEnhancerProcessor(private val settings: AudioEnhancement) : BaseAudio
 
 /**
  * The sound shaping behind night mode and dialogue boost, on one frame (a sample per channel, -1..1)
- * at a time.
+ * at a time. It runs on the decoded channels before Android folds them down to the speakers, so a
+ * 5.1 or 7.1 film still has its centre channel to work with.
  *
- * Dialogue boost lifts the centre channel, where films put the voices, over the rest of the mix; a
- * stereo mix has no centre, so it lifts what both speakers share and narrows the rest. Night mode
- * is a firm compressor (6:1 above -40 dBFS) with makeup gain: explosions come well down and
- * whispers come up, so the whole film plays at about one level. A soft limiter keeps the extra
- * gain from clipping. Switching either on or off fades over a moment instead of clicking.
+ * Dialogue boost lifts the centre channel, where films put the voices, and adds a presence lift
+ * across the speech band (about 700 Hz to 5 kHz) while the rest of the mix steps back. A stereo
+ * mix has no centre, so the same is done to what both speakers share, and the sides are narrowed.
+ *
+ * Night mode is a loudness leveller: it measures the mix the way a loudness meter does (power
+ * summed over the speakers, the LFE left out) and pulls everything towards one level at 4:1, so
+ * dialogue comes up several dB, whispers come up as much as 15 dB, and explosions come down
+ * 10 to 15 dB. It also halves the LFE, the rumble that carries through walls. Gain drops quickly
+ * and recovers slowly, the way broadcast levellers do, so it doesn't pump.
+ *
+ * A peak limiter then keeps the extra gain from clipping. Switching either on or off fades over a
+ * moment instead of clicking.
  */
 class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
+    private val hasCentre = channels in CENTRE_LAYOUTS
+    private val lfe = if (channels >= 6) LFE else -1
+    private val detector = smoothing(sampleRate, DETECTOR_MS)
     private val attack = smoothing(sampleRate, ATTACK_MS)
     private val release = smoothing(sampleRate, RELEASE_MS)
+    private val limiterRelease = smoothing(sampleRate, LIMITER_RELEASE_MS)
     private val mixStep = 1f / (sampleRate * FADE_MS / 1000f)
-    private var envelope = 0f
+    private val speech = Bandpass(sampleRate, SPEECH_HZ, SPEECH_Q)
+    private var power = 0f
+    private var gainDb = 0f
+    private var limiterGain = 1f
     private var nightMix = 0f
     private var dialogueMix = 0f
 
@@ -92,41 +116,57 @@ class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
         nightMix = approach(nightMix, if (nightMode) 1f else 0f)
         dialogueMix = approach(dialogueMix, if (dialogueBoost) 1f else 0f)
         if (dialogueMix > 0f) boostDialogue(frame, dialogueMix)
-        compress(frame, nightMix)
-        for (i in frame.indices) frame[i] = softLimit(frame[i])
+        level(frame, nightMix)
+        limit(frame)
     }
 
     private fun boostDialogue(frame: FloatArray, mix: Float) {
         when {
-            channels in CENTRE_LAYOUTS -> {
+            hasCentre -> {
+                val centre = frame[CENTRE]
+                val presence = speech.process(centre) * PRESENCE_GAIN * mix
                 val others = lerp(1f, SURROUND_GAIN, mix)
                 for (i in 0 until channels) {
-                    frame[i] *= when {
-                        i == CENTRE -> lerp(1f, CENTRE_GAIN, mix)
-                        i == LFE && channels >= 6 -> 1f
-                        else -> others
+                    frame[i] = when (i) {
+                        CENTRE -> centre * lerp(1f, CENTRE_GAIN, mix) + presence
+                        lfe -> frame[i] * lerp(1f, LFE_DIALOGUE_GAIN, mix)
+                        else -> frame[i] * others
                     }
                 }
             }
             channels >= 2 -> {
                 // Voices sit in the middle of a stereo mix: what left and right have in common.
-                val mid = (frame[0] + frame[1]) / 2f * lerp(1f, MID_GAIN, mix)
+                var mid = (frame[0] + frame[1]) / 2f
+                mid = mid * lerp(1f, MID_GAIN, mix) + speech.process(mid) * PRESENCE_GAIN * mix
                 val side = (frame[0] - frame[1]) / 2f * lerp(1f, SIDE_GAIN, mix)
                 frame[0] = mid + side
                 frame[1] = mid - side
             }
+            channels == 1 -> frame[0] += speech.process(frame[0]) * PRESENCE_GAIN * mix
         }
     }
 
-    private fun compress(frame: FloatArray, mix: Float) {
-        // One envelope for all channels, so the stereo image doesn't wander as levels change.
+    private fun level(frame: FloatArray, mix: Float) {
+        // Summed power, as a loudness meter sums its channels: one measure for all of them, so the
+        // picture of the mix doesn't wander as levels change.
+        var sum = 0f
+        for (i in frame.indices) if (i != lfe) sum += frame[i] * frame[i]
+        power = detector * power + (1f - detector) * sum
+        val target = targetGainDb(power)
+        val coefficient = if (target < gainDb) attack else release
+        gainDb = coefficient * gainDb + (1f - coefficient) * target
+        if (mix == 0f) return
+        val gain = dbToGain(gainDb * mix)
+        for (i in frame.indices) frame[i] *= gain
+        if (lfe >= 0) frame[lfe] *= lerp(1f, LFE_NIGHT_GAIN, mix)
+    }
+
+    private fun limit(frame: FloatArray) {
         var peak = 0f
         for (sample in frame) peak = max(peak, abs(sample))
-        val coefficient = if (peak > envelope) attack else release
-        envelope = coefficient * envelope + (1f - coefficient) * peak
-        if (mix == 0f) return
-        val gain = dbToGain(gainDb(envelope) * mix)
-        for (i in frame.indices) frame[i] *= gain
+        limiterGain = limiterRelease * limiterGain + (1f - limiterRelease)
+        if (peak * limiterGain > LIMIT_KNEE) limiterGain = LIMIT_KNEE / peak
+        for (i in frame.indices) frame[i] = softLimit(frame[i] * limiterGain)
     }
 
     private fun approach(value: Float, target: Float): Float = when {
@@ -135,19 +175,66 @@ class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
         else -> value
     }
 
+    /** A constant-gain band-pass filter (RBJ biquad), 0 dB at its centre frequency. */
+    private class Bandpass(sampleRate: Int, hz: Float, q: Float) {
+        private val b0: Float
+        private val a1: Float
+        private val a2: Float
+        private var x1 = 0f
+        private var x2 = 0f
+        private var y1 = 0f
+        private var y2 = 0f
+
+        init {
+            val w = 2.0 * PI * hz / sampleRate
+            val alpha = sin(w) / (2.0 * q)
+            val a0 = 1.0 + alpha
+            b0 = (alpha / a0).toFloat()
+            a1 = (-2.0 * cos(w) / a0).toFloat()
+            a2 = ((1.0 - alpha) / a0).toFloat()
+        }
+
+        fun process(x: Float): Float {
+            // b1 is 0 and b2 is -b0 for this filter.
+            val y = b0 * (x - x2) - a1 * y1 - a2 * y2
+            x2 = x1
+            x1 = x
+            y2 = y1
+            y1 = y
+            return y
+        }
+    }
+
     companion object {
-        const val THRESHOLD_DB = -40f
-        const val RATIO = 6f
-        const val MAKEUP_DB = 14f
-        const val ATTACK_MS = 5f
-        const val RELEASE_MS = 150f
+        /** Night mode pulls the mix towards this level (summed RMS, dBFS)... */
+        const val TARGET_DB = -24f
+        /** ...at this ratio, both from below and from above. */
+        const val RATIO = 4f
+        /** The most night mode lifts the quietest passages. */
+        const val MAX_BOOST_DB = 15f
+        /** Below this, it's silence or hiss, and the lift fades out instead of raising the noise floor. */
+        const val FLOOR_DB = -65f
+        const val FLOOR_FADE_DB = 15f
+        const val DETECTOR_MS = 30f
+        const val ATTACK_MS = 15f
+        const val RELEASE_MS = 600f
+        const val LFE_NIGHT_GAIN = 0.5f
+        const val LIMITER_RELEASE_MS = 80f
         const val FADE_MS = 300f
-        const val CENTRE_GAIN = 2.2f
-        const val SURROUND_GAIN = 0.6f
-        const val MID_GAIN = 1.4f
-        const val SIDE_GAIN = 0.3f
+
+        const val CENTRE_GAIN = 1.6f
+        const val SURROUND_GAIN = 0.5f
+        const val LFE_DIALOGUE_GAIN = 0.7f
+        const val MID_GAIN = 1.25f
+        const val SIDE_GAIN = 0.5f
+        /** How much of the speech band is added back on top: 1 is +6 dB at [SPEECH_HZ]. */
+        const val PRESENCE_GAIN = 1f
+        const val SPEECH_HZ = 2_000f
+        const val SPEECH_Q = 0.7f
+
+        /** The limiter holds peaks here (about -1 dBFS); the soft clip above it is only a backstop. */
         const val LIMIT_KNEE = 0.89f
-        /** Where the limiter tops out, short of full scale (float tanh reaches 1 for large overs). */
+        /** Where the soft clip tops out, short of full scale (float tanh reaches 1 for large overs). */
         const val LIMIT_CEILING = 0.98f
 
         /** Android's channel order puts the centre third (L, R, C, ...) in these layouts; quad has none. */
@@ -155,12 +242,13 @@ class AudioEnhancerDsp(sampleRate: Int, private val channels: Int) {
         private const val CENTRE = 2
         private const val LFE = 3
 
-        /** Night mode's gain, in dB, for a signal whose envelope is at [level] (linear, 0..1). */
-        fun gainDb(level: Float): Float {
-            val levelDb = 20f * log10(max(level, 1e-6f))
-            val over = levelDb - THRESHOLD_DB
-            val reduction = if (over > 0f) over * (1f - 1f / RATIO) else 0f
-            return MAKEUP_DB - reduction
+        /** Night mode's gain, in dB, for a mix whose summed power (mean square) is [power]. */
+        fun targetGainDb(power: Float): Float {
+            val levelDb = 10f * log10(max(power, 1e-12f))
+            val gain = (TARGET_DB - levelDb) * (1f - 1f / RATIO)
+            if (gain <= 0f) return gain
+            val floorFade = ((levelDb - (FLOOR_DB - FLOOR_FADE_DB)) / FLOOR_FADE_DB).coerceIn(0f, 1f)
+            return minOf(gain, MAX_BOOST_DB) * floorFade
         }
 
         /** Untouched below the knee, then eased so nothing ever passes full scale. */
