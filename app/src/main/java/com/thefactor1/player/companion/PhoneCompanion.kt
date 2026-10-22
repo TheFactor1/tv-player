@@ -73,11 +73,15 @@ object PhoneCompanion {
     /** Why the transcript is (or isn't) there, so the phone can say: waiting, loading, file, none, failed, live. */
     @Volatile private var transcriptStatus = "waiting"
 
+    /** Maps the downloaded file's times onto the video, learned from the lines the TV shows. */
+    private val sync = TranscriptSync()
+
     /** Clears what the phone shows, e.g. when a different video starts. */
     fun reset() {
         transcriptTicket++
         transcriptFromFile = false
         transcriptStatus = "waiting"
+        synchronized(sync) { sync.reset() }
         transcript = emptyList()
         cast = emptyList()
     }
@@ -101,6 +105,7 @@ object PhoneCompanion {
                 Log.i(TAG, "Transcript ${url.take(80)}: ${if (text == null) "download failed" else "${cues.size} lines"}")
                 if (cues.isEmpty()) continue
                 if (ticket == transcriptTicket) {
+                    synchronized(sync) { sync.reset() }
                     transcriptFromFile = true
                     transcriptStatus = "file"
                     transcript = cues
@@ -114,7 +119,11 @@ object PhoneCompanion {
     /** A line the TV just showed; fills the transcript as you watch when no subtitle file could be read. */
     fun liveCue(positionMs: Long, text: String) {
         val clean = text.replace(Regex("""\s+"""), " ").trim()
-        if (transcriptFromFile || clean.isEmpty()) return
+        if (clean.isEmpty()) return
+        if (transcriptFromFile) {
+            if (synchronized(sync) { sync.observe(positionMs, clean, transcript) }) transcriptVersion++
+            return
+        }
         val current = transcript
         if (current.any { it.text == clean && kotlin.math.abs(it.startMs - positionMs) < LIVE_REPEAT_MS }) return
         transcript = (current + Cue(positionMs, positionMs, clean)).sortedBy { it.startMs }
@@ -250,7 +259,14 @@ object PhoneCompanion {
 
     private fun transcriptJson(): JSONObject {
         val cues = JSONArray()
-        transcript.forEach { cues.put(JSONArray().put(it.startMs).put(it.endMs).put(it.text)) }
+        val fromFile = transcriptFromFile
+        synchronized(sync) {
+            transcript.forEach {
+                val start = if (fromFile) sync.map(it.startMs) else it.startMs
+                val end = if (fromFile) sync.map(it.endMs) else it.endMs
+                cues.put(JSONArray().put(start).put(end).put(it.text))
+            }
+        }
         return JSONObject().put("version", transcriptVersion).put("cues", cues)
     }
 
