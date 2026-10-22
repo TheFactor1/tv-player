@@ -246,6 +246,8 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
         transcriptVersion = state.transcriptVersion;
         cues = (await api('/api/transcript')).cues;
         renderTranscript();
+        // Results point into the cue list, so a new list means searching again.
+        if ($('q').value) $('q').dispatchEvent(new Event('input'));
         scrollToNow(true);
       }
       if (!cues.length && state.transcriptStatus !== shownStatus) { shownStatus = state.transcriptStatus; renderTranscript(); }

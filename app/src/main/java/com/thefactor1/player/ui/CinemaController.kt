@@ -287,6 +287,8 @@ class CinemaController(
     fun detach() {
         if (PhoneCompanion.host === this) PhoneCompanion.host = null
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
+        // A late answer for this screen's film mustn't land on the next one's.
+        cast.cancel()
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
@@ -415,7 +417,7 @@ class CinemaController(
 
     /** Skip times and online subtitles for the recognised film or episode. */
     private fun loadExtras(imdbId: String, query: MetaQuery) {
-        cast.load(imdbId, query.season, query.episode, object : CastLoader.Listener {
+        cast.load(imdbId, details?.name, query.season, query.episode, object : CastLoader.Listener {
             override fun onCast(people: List<CastMember>) {
                 castShown = people
                 PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }

@@ -31,4 +31,13 @@ class CastOrderTest {
         assertEquals(8, cast.size)
         assertEquals("P7", cast.last().name)
     }
+
+    @Test
+    fun titleMustMatchTmdbsName() {
+        assertEquals(true, CastOrder.sameTitle(listOf("Lanterns", ""), "Lanterns"))
+        assertEquals(true, CastOrder.sameTitle(listOf("DC's Lanterns"), "Lanterns"))
+        assertEquals(true, CastOrder.sameTitle(listOf("Spider-Man", "Spider-Man"), "Spider Man"))
+        assertEquals(false, CastOrder.sameTitle(listOf("Carrie", "Carrie"), "Lanterns"))
+        assertEquals(true, CastOrder.sameTitle(listOf("Carrie"), null))
+    }
 }
