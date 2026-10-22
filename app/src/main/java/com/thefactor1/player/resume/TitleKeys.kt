@@ -62,6 +62,10 @@ object TitleKeys {
         return keys.toList()
     }
 
+    /** The IMDb id among [keys] from [from], if the source app sent one. */
+    fun imdbId(keys: List<String>): String? =
+        keys.firstOrNull { it.startsWith("imdb:") }?.removePrefix("imdb:")?.substringBefore(':')
+
     /** Splits "Crystal.Lake.S01E01.2160p.mkv", "Crystal Lake - S1E1" or "Dune Part Two (2024)". */
     fun parse(raw: String?): Parsed? {
         var text = raw?.trim().orEmpty()
