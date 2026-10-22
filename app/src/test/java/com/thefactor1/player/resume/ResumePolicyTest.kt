@@ -42,11 +42,30 @@ class ResumePolicyTest {
     }
 
     @Test
-    fun forgetWhenFinishedOrBarelyStarted() {
-        assertTrue(ResumePolicy.shouldForget(100_000, 7_200_000, completed = true))
-        assertTrue(ResumePolicy.shouldForget(20_000, 7_200_000, completed = false))
-        assertTrue(ResumePolicy.shouldForget(6_700_000, 7_200_000, completed = false))
-        assertFalse(ResumePolicy.shouldForget(2_400_000, 7_200_000, completed = false))
+    fun forgetOnlyWhenWatchedAndKeepWhenBarelyStarted() {
+        assertEquals(ResumePolicy.Leave.FORGET, ResumePolicy.onLeave(100_000, 7_200_000, completed = true))
+        assertEquals(ResumePolicy.Leave.FORGET, ResumePolicy.onLeave(6_700_000, 7_200_000, completed = false))
+        assertEquals(ResumePolicy.Leave.SAVE, ResumePolicy.onLeave(2_400_000, 7_200_000, completed = false))
+        // A stream that failed to load, or was backed out of, leaves another stream's position alone.
+        assertEquals(ResumePolicy.Leave.KEEP, ResumePolicy.onLeave(20_000, 7_200_000, completed = false))
+        assertEquals(ResumePolicy.Leave.KEEP, ResumePolicy.onLeave(0, 0, completed = false))
+    }
+
+    @Test
+    fun aFewSecondsFromTheAppDoNotHideTheLocalPosition() {
+        assertEquals(ResumePolicy.Start(2_400_000, Source.LOCAL), ResumePolicy.start(4_000, false, saved))
+    }
+
+    @Test
+    fun lastWatchedFilmIsPickedUpByANearlyIdenticalLength() {
+        val now = 1_000_000_000_000L
+        val last = saved.copy(savedAt = now - 60_000)
+        assertTrue(ResumePolicy.lastWatchedFits(last, false, false, 7_212_000, now))
+        assertFalse("different film", ResumePolicy.lastWatchedFits(last, false, false, 7_500_000, now))
+        assertFalse("episodes", ResumePolicy.lastWatchedFits(last, true, false, 7_200_000, now))
+        assertFalse("episodes", ResumePolicy.lastWatchedFits(last, false, true, 7_200_000, now))
+        assertFalse("too long ago", ResumePolicy.lastWatchedFits(last.copy(savedAt = 0), false, false, 7_200_000, now))
+        assertFalse("nothing", ResumePolicy.lastWatchedFits(null, false, false, 7_200_000, now))
     }
 
     @Test
