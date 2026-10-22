@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0C0E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Player</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --ground: #0B0C0E; --card: #15171B; --card-2: #1D2025;
+  --ink: #F3F1EC; --ink-2: #C9CDD3; --dim: rgba(243,241,236,.6); --faint: rgba(243,241,236,.36);
+  --line: rgba(243,241,236,.1); --live: #7FD1A0; --mark: rgba(233,162,59,.4);
+  --ui: "Manrope", system-ui, -apple-system, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--ground); color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased; }
+body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+[hidden] { display: none !important; }
+
+/* pairing */
+#pair { flex: 1; display: grid; align-content: center; gap: 18px; padding: 24px; text-align: center; max-width: 420px; margin: 0 auto; width: 100%; }
+#pair h1 { margin: 0; font-size: 24px; font-weight: 800; }
+#pair p { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+#code { font: 700 34px/1 var(--ui); letter-spacing: .4em; text-align: center; width: 100%; padding: 16px 0 16px .4em; border-radius: 14px; border: 2px solid var(--line); background: var(--card); color: var(--ink); }
+#code:focus { outline: none; border-color: var(--ink); }
+.big { padding: 15px; border-radius: 99px; background: var(--ink); color: var(--ground); font-weight: 700; font-size: 16px; }
+#pairError { color: #F0A58A; min-height: 1.4em; }
+
+/* main */
+#main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.np { display: flex; gap: 12px; align-items: center; padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
+.np .t { font-weight: 700; font-size: 17px; line-height: 1.2; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np .s { font-family: var(--mono); font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.live { font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--live); display: inline-flex; gap: 6px; align-items: center; }
+.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+.live.off { color: var(--faint); } .live.off::before { background: var(--faint); }
+.tabs { display: flex; gap: 6px; padding: 10px 18px; }
+.tab { white-space: nowrap; font-size: 13.5px; font-weight: 600; padding: 8px 14px; border-radius: 99px; background: var(--card); color: var(--ink-2); }
+.tab[aria-selected="true"] { background: var(--ink); color: var(--ground); }
+.pane { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 12px 16px; min-height: 0; }
+.empty { color: var(--dim); text-align: center; padding: 48px 24px; line-height: 1.5; font-size: 15px; }
+
+.ln { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 9px 10px; border-radius: 12px; text-align: left; width: 100%; }
+.ln .ts { font-family: var(--mono); font-size: 11.5px; color: var(--faint); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.ln .q { font-size: 15.5px; line-height: 1.42; color: var(--ink-2); }
+.ln.past .q { color: var(--dim); }
+.ln.now { background: var(--card-2); }
+.ln.now .q { color: var(--ink); font-weight: 600; }
+.ln:active { background: var(--card); }
+mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+.search { position: sticky; top: 0; background: var(--ground); padding: 4px 6px 10px; }
+#q { width: 100%; font: 500 16px var(--ui); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+#q:focus { outline: none; border-color: var(--ink-2); }
+
+.person { display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: center; background: var(--card); border-radius: 14px; padding: 10px 12px; margin: 0 6px 8px; }
+.face { width: 56px; height: 56px; border-radius: 50%; background: var(--card-2) center/cover no-repeat; display: grid; place-items: center; font-weight: 800; color: var(--ink-2); }
+.person b { display: block; font-size: 15.5px; }
+.person span { font-size: 13px; color: var(--dim); }
+
+.remote { display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.rb { justify-self: center; width: 50px; height: 50px; border-radius: 50%; background: var(--card); font-weight: 700; font-size: 13px; color: var(--ink-2); display: grid; place-items: center; }
+.rb.play { width: 62px; height: 62px; background: var(--ink); color: var(--ground); }
+.rb:active { transform: scale(.94); }
+.rb svg { width: 22px; height: 22px; fill: currentColor; }
+.toast { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); background: var(--ink); color: var(--ground); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 99px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+
+<section id="pair" hidden>
+  <h1>Connect to your TV</h1>
+  <p>Enter the 4-digit code shown in the player's settings on the TV.</p>
+  <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" aria-label="Code from the TV">
+  <button class="big" id="connect">Connect</button>
+  <p id="pairError" role="status"></p>
+  <p>You only do this once. After that this page opens straight to whatever's playing.</p>
+</section>
+
+<section id="main" hidden>
+  <div class="np"><div class="t" id="title">Nothing playing</div><span class="s" id="clock"></span><span class="live off" id="live">LIVE</span></div>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="transcript" aria-selected="true">Transcript</button>
+    <button class="tab" role="tab" data-tab="search" aria-selected="false">Search</button>
+    <button class="tab" role="tab" data-tab="cast" aria-selected="false">Cast</button>
+  </div>
+  <div class="pane" id="transcript"></div>
+  <div class="pane" id="search" hidden><div class="search"><input id="q" type="search" placeholder="Search what's said, e.g. why so serious" aria-label="Search the transcript"></div><div id="results"></div></div>
+  <div class="pane" id="cast" hidden></div>
+  <div class="remote">
+    <button class="rb" data-skip="-30000" aria-label="Back 30 seconds">−30</button>
+    <button class="rb" data-skip="-10000" aria-label="Back 10 seconds">−10</button>
+    <button class="rb play" id="play" aria-label="Play or pause"></button>
+    <button class="rb" data-skip="10000" aria-label="Forward 10 seconds">+10</button>
+    <button class="rb" data-skip="30000" aria-label="Forward 30 seconds">+30</button>
+  </div>
+</section>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+  const PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+  let token = null;
+  try { token = localStorage.getItem('token'); } catch (e) {}
+  let state = {}, cues = [], transcriptVersion = -1, castCount = -1, nowIndex = -1, lastScroll = 0, tab = 'transcript';
+
+  const fmt = ms => {
+    const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(r).padStart(2, '0');
+  };
+  const esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const norm = t => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim();
+  const toast = text => { const t = $('toast'); t.textContent = text; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 1600); };
+
+  async function api(path, body) {
+    const res = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: Object.assign({ 'X-Token': token || '' }, body ? { 'Content-Type': 'application/json' } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (res.status === 401) { showPair(); throw new Error('pair'); }
+    return res.json();
+  }
+
+  function showPair() { $('main').hidden = true; $('pair').hidden = false; $('code').focus(); }
+  function showMain() { $('pair').hidden = true; $('main').hidden = false; }
+
+  $('connect').onclick = async () => {
+    const code = $('code').value.trim();
+    if (!/^\d{4}$/.test(code)) { $('pairError').textContent = 'Enter the 4 digits from the TV.'; return; }
+    try {
+      const res = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      if (!res.ok) { $('pairError').textContent = 'That code didn’t match. Check the TV and try again.'; return; }
+      token = (await res.json()).token;
+      try { localStorage.setItem('token', token); } catch (e) {}
+      $('pairError').textContent = '';
+      showMain(); poll();
+    } catch (e) { $('pairError').textContent = 'Can’t reach the TV. Is the phone on the same Wi-Fi?'; }
+  };
+  $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('connect').click(); });
+
+  document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+    tab = b.dataset.tab;
+    document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    ['transcript', 'search', 'cast'].forEach(id => $(id).hidden = id !== tab);
+    if (tab === 'transcript') scrollToNow(true);
+    if (tab === 'search') $('q').focus();
+  });
+
+  const control = async (action, ms) => { try { state = await api('/api/control', { action, ms: ms || 0 }); render(); } catch (e) {} };
+  document.querySelectorAll('[data-skip]').forEach(b => b.onclick = () => control('skip', Number(b.dataset.skip)));
+  $('play').onclick = () => control('toggle');
+  const jump = ms => { control('seek', Math.max(0, ms - 400)); toast('Jumped to ' + fmt(ms)); };
+
+  function cueAt(ms) {
+    let lo = 0, hi = cues.length - 1, found = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (cues[mid][0] <= ms) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+    return found;
+  }
+
+  function renderTranscript() {
+    const pane = $('transcript');
+    if (!cues.length) { pane.innerHTML = '<div class="empty">' + (state.idle ? 'Nothing is playing.' : 'The transcript appears here once subtitles are found for this film.') + '</div>'; return; }
+    pane.innerHTML = cues.map((c, i) => '<button class="ln" data-i="' + i + '"><span class="ts">' + fmt(c[0]) + '</span><span class="q">' + esc(c[2]) + '</span></button>').join('');
+    nowIndex = -1;
+  }
+  $('transcript').addEventListener('click', e => { const b = e.target.closest('.ln'); if (b) jump(cues[b.dataset.i][0]); });
+  $('transcript').addEventListener('scroll', () => { if (!scrollToNow.auto) lastScroll = Date.now(); scrollToNow.auto = false; }, { passive: true });
+
+  function scrollToNow(force) {
+    const i = cueAt(state.positionMs || 0);
+    const pane = $('transcript');
+    if (i !== nowIndex) {
+      pane.querySelectorAll('.ln').forEach((el, k) => { el.classList.toggle('now', k === i); el.classList.toggle('past', k < i); });
+      nowIndex = i;
+    } else if (!force) return;
+    if (tab !== 'transcript' || i < 0 || (!force && Date.now() - lastScroll < 6000)) return;
+    const el = pane.children[i];
+    if (el) { scrollToNow.auto = true; pane.scrollTo({ top: el.offsetTop - pane.clientHeight * 0.35, behavior: force ? 'auto' : 'smooth' }); }
+  }
+
+  $('q').addEventListener('input', () => {
+    const q = norm($('q').value);
+    const out = $('results');
+    if (q.length < 2) { out.innerHTML = '<div class="empty">Type a few words you remember hearing.</div>'; return; }
+    const hits = [];
+    for (let i = 0; i < cues.length && hits.length < 60; i++) if (norm(cues[i][2]).includes(q)) hits.push(i);
+    if (!hits.length) { out.innerHTML = '<div class="empty">' + (cues.length ? 'No line matches that.' : 'No transcript for this film yet.') + '</div>'; return; }
+    const words = $('q').value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('(' + words + ')', 'ig');
+    out.innerHTML = hits.map(i => '<button class="ln" data-i="' + i + '"><span class="ts">' + fmt(cues[i][0]) + '</span><span class="q">' + esc(cues[i][2]).replace(re, '<mark>$1</mark>') + '</span></button>').join('');
+  });
+  $('results').addEventListener('click', e => { const b = e.target.closest('.ln'); if (b) jump(cues[b.dataset.i][0]); });
+
+  async function loadCast() {
+    const data = await api('/api/cast');
+    const pane = $('cast');
+    if (!data.cast.length) { pane.innerHTML = '<div class="empty">The cast shows here when the TV has a TMDB key and recognises the film.</div>'; return; }
+    pane.innerHTML = data.cast.map(p => {
+      const initials = p.name.split(' ').map(w => w[0]).slice(0, 2).join('');
+      const face = p.photo ? '<span class="face" style="background-image:url(\'' + encodeURI(p.photo) + '\')"></span>' : '<span class="face">' + esc(initials) + '</span>';
+      return '<div class="person">' + face + '<div><b>' + esc(p.name) + '</b><span>' + esc(p.character) + '</span></div></div>';
+    }).join('');
+  }
+
+  function render() {
+    $('title').textContent = state.idle ? 'Nothing playing' : (state.title || 'Playing');
+    $('clock').textContent = state.idle ? '' : fmt(state.positionMs || 0) + (state.durationMs ? ' / ' + fmt(state.durationMs) : '');
+    $('live').classList.toggle('off', !!state.idle || !state.playing);
+    $('play').innerHTML = state.playing ? PAUSE : PLAY;
+    scrollToNow(false);
+  }
+
+  let timer = 0;
+  async function poll() {
+    clearTimeout(timer);
+    try {
+      state = await api('/api/state');
+      showMain();
+      if (state.transcriptVersion !== transcriptVersion) {
+        transcriptVersion = state.transcriptVersion;
+        cues = (await api('/api/transcript')).cues;
+        renderTranscript();
+        scrollToNow(true);
+      }
+      if (state.castCount !== castCount) { castCount = state.castCount; loadCast(); }
+      render();
+    } catch (e) {
+      if (e.message === 'pair') return;
+      $('live').classList.add('off');
+    }
+    timer = setTimeout(poll, document.hidden ? 4000 : 1000);
+  }
+
+  if (token) { showMain(); poll(); } else showPair();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && token) poll(); });
+})();
+</script>
+</body>
+</html>
