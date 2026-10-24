@@ -50,12 +50,13 @@ class CastLoader(context: Context, private val apiKey: String) {
         generation++
     }
 
-    fun load(imdbId: String, season: Int?, episode: Int?, listener: Listener) {
+    /** [title] is the name Cinemeta gave; TMDB's entry for the id has to agree before its cast is shown. */
+    fun load(imdbId: String, title: String?, season: Int?, episode: Int?, listener: Listener) {
         if (!enabled) return
         val ticket = ++generation
         executor.execute {
             try {
-                val cast = lookUp(imdbId, season, episode) ?: return@execute
+                val cast = lookUp(imdbId, title, season, episode) ?: return@execute
                 if (cast.isEmpty() || ticket != generation) return@execute
                 post(ticket) { listener.onCast(cast) }
                 for (member in cast) {
@@ -69,19 +70,25 @@ class CastLoader(context: Context, private val apiKey: String) {
         }
     }
 
-    private fun lookUp(imdbId: String, season: Int?, episode: Int?): List<CastMember>? {
+    private fun lookUp(imdbId: String, title: String?, season: Int?, episode: Int?): List<CastMember>? {
         val found = getJson("$API/find/$imdbId?external_source=imdb_id")
-        val credits = if (season != null && episode != null) {
-            val show = found.optJSONArray("tv_results")?.optJSONObject(0)?.optInt("id") ?: return null
-            getJson("$API/tv/$show/season/$season/episode/$episode/credits")
-        } else {
-            val movie = found.optJSONArray("movie_results")?.optJSONObject(0)?.optInt("id") ?: return null
-            getJson("$API/movie/$movie/credits")
+        val series = season != null && episode != null
+        val entry = found.optJSONArray(if (series) "tv_results" else "movie_results")?.optJSONObject(0) ?: return null
+        // A wrong cast is worse than none: the entry TMDB filed under this id must carry the same name.
+        val names = listOf("name", "original_name", "title", "original_title").map { entry.optString(it) }
+        if (!CastOrder.sameTitle(names, title)) return null
+        val id = entry.optInt("id").takeIf { it > 0 } ?: return null
+        var credits = if (series) getJson("$API/tv/$id/season/$season/episode/$episode/credits") else getJson("$API/movie/$id/credits")
+        // Brand-new episodes often have no credits yet; the show's own cast stands in.
+        if (series && credits.optJSONArray("cast").isNullOrEmpty() && credits.optJSONArray("guest_stars").isNullOrEmpty()) {
+            credits = getJson("$API/tv/$id/credits")
         }
         val regulars = credits.optJSONArray("cast").members()
         val guests = credits.optJSONArray("guest_stars").members()
         return CastOrder.billing(regulars, guests, LIMIT)
     }
+
+    private fun JSONArray?.isNullOrEmpty() = this == null || length() == 0
 
     private fun JSONArray?.members(): List<CastMember> {
         if (this == null) return emptyList()
@@ -152,4 +159,20 @@ object CastOrder {
         val ordered = regulars.sortedBy { it.order } + guests.sortedBy { it.order }
         return ordered.filter { seen.add(it.name) }.take(limit)
     }
+
+    /**
+     * Whether any of TMDB's names for the entry is the title we're playing, ignoring case and
+     * punctuation; one may extend the other ("Lanterns" / "DC's Lanterns"). No title, no check.
+     */
+    fun sameTitle(names: List<String>, title: String?): Boolean {
+        val want = normalise(title ?: return true)
+        if (want.isEmpty()) return true
+        return names.map(::normalise).filter { it.isNotEmpty() }.any { have ->
+            have == want || (minOf(have.length, want.length) >= MIN_CONTAINED && (have.contains(want) || want.contains(have)))
+        }
+    }
+
+    private fun normalise(text: String) = text.lowercase().filter { it.isLetterOrDigit() }
+
+    private const val MIN_CONTAINED = 4
 }

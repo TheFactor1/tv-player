@@ -109,7 +109,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   const PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
   let token = null;
   try { token = localStorage.getItem('token'); } catch (e) {}
-  let state = {}, cues = [], transcriptVersion = -1, shownStatus = null, castCount = -1, nowIndex = -1, lastScroll = 0, tab = 'transcript';
+  let state = {}, cues = [], transcriptVersion = -1, shownStatus = null, castVersion = -1, nowIndex = -1, lastScroll = 0, tab = 'transcript';
 
   const fmt = ms => {
     const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
@@ -212,7 +212,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   async function loadCast() {
     const data = await api('/api/cast');
     const pane = $('cast');
-    if (!data.cast.length) { pane.innerHTML = '<div class="empty">The cast shows here when the TV has a TMDB key and recognises the film.</div>'; return; }
+    if (!data.cast.length) { pane.innerHTML = '<div class="empty">No cast for this one yet.</div>'; return; }
     pane.innerHTML = data.cast.map(p => {
       const initials = p.name.split(' ').map(w => w[0]).slice(0, 2).join('');
       const face = p.photo ? '<span class="face" style="background-image:url(\'' + encodeURI(p.photo) + '\')"></span>' : '<span class="face">' + esc(initials) + '</span>';
@@ -246,10 +246,12 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
         transcriptVersion = state.transcriptVersion;
         cues = (await api('/api/transcript')).cues;
         renderTranscript();
+        // Results point into the cue list, so a new list means searching again.
+        if ($('q').value) $('q').dispatchEvent(new Event('input'));
         scrollToNow(true);
       }
       if (!cues.length && state.transcriptStatus !== shownStatus) { shownStatus = state.transcriptStatus; renderTranscript(); }
-      if (state.castCount !== castCount) { castCount = state.castCount; loadCast(); }
+      if (state.castVersion !== castVersion) { castVersion = state.castVersion; loadCast(); }
       render();
     } catch (e) {
       if (e.message === 'pair') return;

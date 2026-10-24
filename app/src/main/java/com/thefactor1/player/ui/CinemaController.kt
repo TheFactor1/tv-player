@@ -438,10 +438,12 @@ class CinemaController(
 
     /** Skip times and online subtitles for the recognised film or episode. */
     private fun loadExtras(imdbId: String, query: MetaQuery) {
-        cast.load(imdbId, query.season, query.episode, object : CastLoader.Listener {
+        cast.load(imdbId, details?.name, query.season, query.episode, object : CastLoader.Listener {
             override fun onCast(people: List<CastMember>) {
                 castShown = people
-                PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }
+                // Keep loading across Home and back (the same film skips loadArtwork), but a late answer
+                // from a screen another one has replaced mustn't reach the phone.
+                if (PhoneCompanion.host === this@CinemaController || PhoneCompanion.host == null) PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }
                 infoCast.show(people)
                 metaCast.show(people)
                 showDetails()
