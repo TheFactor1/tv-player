@@ -432,7 +432,8 @@ class PlayerActivity : Activity() {
             .setUserAgent("Player/${BuildConfig.VERSION_NAME} (Android TV)")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
+            // Usenet sources can go quiet while they fetch the next articles, most of all after a seek.
+            .setReadTimeoutMs(30_000)
             .setDefaultRequestProperties(req.headers)
 
         audioDelay.offsetUs = prefs.audioDelayMs * 1_000L
@@ -449,7 +450,10 @@ class PlayerActivity : Activity() {
 
         val exo = ExoPlayer.Builder(this, renderers)
             .setLoadControl(StreamBuffer.loadControl())
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
+                    .setLoadErrorHandlingPolicy(StreamLoadErrors()),
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -666,6 +670,9 @@ class PlayerActivity : Activity() {
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
         PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> FallbackPolicy.Failure.NETWORK
+        // A busy or struggling server is worth reconnecting to; a missing or forbidden link isn't.
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
+            if (StreamLoadErrors.isTransient(httpStatus(error))) FallbackPolicy.Failure.NETWORK else FallbackPolicy.Failure.OTHER
         PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> FallbackPolicy.Failure.BEHIND_LIVE_WINDOW
         PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
         PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> FallbackPolicy.Failure.AUDIO_OUTPUT
@@ -728,6 +735,9 @@ class PlayerActivity : Activity() {
         }
     }
 
+    private fun httpStatus(error: PlaybackException): Int =
+        (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode ?: 0
+
     /** Says what went wrong in words a viewer can act on. */
     private fun errorMessage(error: PlaybackException): String {
         when (error.errorCode) {
@@ -742,8 +752,7 @@ class PlayerActivity : Activity() {
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> return getString(R.string.error_network)
             PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
-                val status = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode ?: 0
-                return getString(R.string.error_http, status)
+                return getString(R.string.error_http, httpStatus(error))
             }
             PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
             PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
