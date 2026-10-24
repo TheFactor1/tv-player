@@ -70,6 +70,10 @@ import kotlin.math.abs
  * Remote, with controls hidden: OK pauses (or presses "Skip intro" while it shows), Left/Right skip 10 s back / 30 s forward, Up shows the
  * seek bar (a second Up or Down brings the buttons), Down opens subtitles, Back returns to the source app, Menu opens More. Back with
  * controls or a panel showing closes them.
+ *
+ * Touch, on a phone ([touch]): a tap shows all the controls at once or hides them, the bar is dragged,
+ * a double tap on a side skips 10 s, and swipes set brightness and volume ([TouchGestures]). The
+ * screen is resized for a phone by [PhoneLayout]; on a TV none of this runs.
  */
 @OptIn(UnstableApi::class)
 class CinemaController(
@@ -109,6 +113,11 @@ class CinemaController(
 
     /** A list of choices one level down; picking one applies it and returns to the panel. */
     private class Page(val title: String, val items: () -> List<Item>)
+
+    /** A phone or tablet: touch controls and the phone layout. False on a TV, which keeps the remote's. */
+    val touch = TouchMode.isOn(activity)
+    private val phoneLayout = if (touch) PhoneLayout(activity) else null
+    private var gestures: TouchGestures? = null
 
     private val fonts = Fonts(activity)
     private val handler = Handler(Looper.getMainLooper())
@@ -259,10 +268,10 @@ class CinemaController(
         // Title card while loading: the film's own art and name, with only the cue mark from the booth.
         activity.findViewById<View>(R.id.booth_block).visibility = View.GONE
         playButton.setOnClickListener { togglePlayPause(); scheduleHide() }
-        audioButton.setOnClickListener { openPanel(Panel.AUDIO, it) }
-        subtitlesButton.setOnClickListener { openPanel(Panel.SUBTITLES, it) }
-        pictureButton.setOnClickListener { openPanel(Panel.PICTURE, it) }
-        moreButton.setOnClickListener { openPanel(Panel.MORE, it) }
+        audioButton.setOnClickListener { pressPanelButton(Panel.AUDIO, it) }
+        subtitlesButton.setOnClickListener { pressPanelButton(Panel.SUBTITLES, it) }
+        pictureButton.setOnClickListener { pressPanelButton(Panel.PICTURE, it) }
+        moreButton.setOnClickListener { pressPanelButton(Panel.MORE, it) }
         for (button in buttons) {
             // The gliding disc is the focus; the buttons themselves draw none.
             button.background = null
@@ -293,6 +302,72 @@ class CinemaController(
 
         playerView.resizeMode = prefs.resizeMode
         applySubtitleStyle()
+        if (touch) setUpTouch()
+    }
+
+    // ---- Touch, on a phone -----------------------------------------------------------------------
+
+    private fun setUpTouch() {
+        gestures = TouchGestures(
+            activity,
+            activity.findViewById(R.id.touch_surface),
+            canAdjust = { !loading && panel == null && !pauseScreenShown },
+            onTap = ::touchTap,
+            onDoubleTap = ::touchDoubleTap,
+        )
+        // The bar follows the finger and the time with it; the film only seeks once it lets go.
+        seekBar.onDragMove = { ms ->
+            handler.removeCallbacks(autoHide)
+            elapsed.text = formatTime(ms)
+        }
+        seekBar.onDragEnd = { ms ->
+            if (ms != null) player?.seekTo(ms)
+            updateProgress()
+            scheduleHide()
+        }
+        activity.findViewById<View>(R.id.skip_prompt).setOnClickListener { skipPrompt.press() }
+        // A tap inside the card, between its rows, stays in the card rather than closing it.
+        sidePanel.isClickable = true
+        // One level down, the heading is the way back.
+        for (heading in listOf(panelKicker, panelTitle)) heading.setOnClickListener { if (page != null) closePage() }
+    }
+
+    /** A tap on the picture: closes a menu, leaves the pause screen, or shows or hides the controls. */
+    private fun touchTap() {
+        if (loading) return
+        when {
+            pauseScreenShown -> {
+                hidePauseScreen()
+                showControls(playButton)
+            }
+            panel != null -> closePanel(showControlsAfter = true)
+            controlsVisible -> hideControls()
+            else -> showControls(playButton)
+        }
+        if (!pauseScreenShown) schedulePauseScreen()
+    }
+
+    /** A double tap: 10 s back on the left, forward on the right; play or pause in the middle. */
+    private fun touchDoubleTap(side: Int) {
+        if (loading) return
+        if (panel != null) {
+            closePanel(showControlsAfter = true)
+            return
+        }
+        if (pauseScreenShown) leavePauseScreen() else schedulePauseScreen()
+        if (side == 0) {
+            togglePlayPause()
+            showGlyph(if (player?.playWhenReady == true) R.drawable.ic_play else R.drawable.ic_pause)
+            if (controlsVisible) scheduleHide()
+        } else {
+            skip(side * TOUCH_SKIP_MS)
+            if (controlsVisible) scheduleHide()
+        }
+    }
+
+    /** A menu's button: opens its menu, or on a touchscreen closes it again if it's the one open. */
+    private fun pressPanelButton(which: Panel, button: View) {
+        if (touch && panel == which) closePanel(showControlsAfter = true) else openPanel(which, button)
     }
 
     /** [detail] is the episode or year shown under the title, e.g. "S1 E1". */
@@ -325,6 +400,7 @@ class CinemaController(
     fun detach() {
         if (PhoneCompanion.host === this) PhoneCompanion.host = null
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
+        gestures?.release()
         player?.removeListener(listener)
         player = null
         handler.removeCallbacksAndMessages(null)
@@ -900,6 +976,11 @@ class CinemaController(
             scheduleHide()
             return
         }
+        // A touchscreen has no second press to ask for the buttons, so they come with the bar.
+        if (touch) {
+            showControls(playButton)
+            return
+        }
         controlsVisible = true
         barOnly = true
         hideMiniBar()
@@ -962,8 +1043,12 @@ class CinemaController(
         riseIn(infoBar, delay = Motion.STAGGER_MS, from = -Motion.RISE_DP)
         restartTicker()
         focus.requestFocus()
-        // Focus that was already there sends no change, so the disc is placed here too.
-        if (focus in buttons) {
+        // Focus that was already there sends no change, so the disc is placed here too. A
+        // touchscreen has no focus to show, so the disc only marks an open menu's button.
+        if (touch) {
+            buttonGlide.release()
+            labelFocused(null)
+        } else if (focus in buttons) {
             buttonGlide.moveTo(focus, animate = !fresh)
             labelFocused(focus)
         } else {
@@ -1042,7 +1127,8 @@ class CinemaController(
         val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
         val position = exo.currentPosition
         seekBar.update(position, exo.bufferedPosition, duration)
-        elapsed.text = formatTime(position)
+        // While a finger drags the bar, the time shows where it is, not where the film is.
+        if (!seekBar.isDragging) elapsed.text = formatTime(position)
         clock.text = DateFormat.getTimeFormat(activity).format(Date())
         if (duration > 0) {
             val left = ((duration - position) / exo.playbackParameters.speed).toLong()
@@ -1412,9 +1498,10 @@ class CinemaController(
     /** Where the card goes across: centred over [opener], kept on screen. */
     private fun popupX(opener: View): Float {
         val root = sidePanel.parent as View
-        val edge = POPUP_EDGE_DP * density
+        val start = phoneLayout?.left?.toFloat() ?: (POPUP_EDGE_DP * density)
+        val end = phoneLayout?.right?.toFloat() ?: (POPUP_EDGE_DP * density)
         val width = sidePanel.layoutParams.width.toFloat()
-        return (opener.centreIn(root) - width / 2f).coerceIn(edge, maxOf(edge, root.width - width - edge))
+        return (opener.centreIn(root) - width / 2f).coerceIn(start, maxOf(start, root.width - width - end))
     }
 
     /** The card sits just above the buttons and grows up from there, scrolling past the room it has. */
@@ -1430,7 +1517,8 @@ class CinemaController(
         }
         val heading = if (page != null) POPUP_HEADING_DP else 0f
         val hint = if (panelHint.visibility == View.VISIBLE) POPUP_HINT_DP else 0f
-        val room = buttonsTop - gap - (POPUP_TOP_DP + heading + hint) * density - sidePanel.paddingTop - sidePanel.paddingBottom
+        val top = if (touch) TOUCH_POPUP_TOP_DP else POPUP_TOP_DP
+        val room = buttonsTop - gap - (top + heading + hint) * density - sidePanel.paddingTop - sidePanel.paddingBottom
         panelScroll.maxHeight = room.toInt().coerceAtLeast((POPUP_MIN_LIST_DP * density).toInt())
     }
 
@@ -1525,13 +1613,14 @@ class CinemaController(
         panelItems.removeAllViews()
         panelHint.text = null
         // Room for a hint only in lists that have one, and always the same room, so the card never jumps.
-        panelHint.visibility = if (items.any { it.hint != null }) View.VISIBLE else View.GONE
+        // A touchscreen has no focused row to explain, so no hint.
+        panelHint.visibility = if (!touch && items.any { it.hint != null }) View.VISIBLE else View.GONE
         val inflater = LayoutInflater.from(activity)
         val rows = items.mapIndexed { index, item ->
             if (item.section != null && index > 0) panelItems.addView(sectionDivider())
             val row = inflater.inflate(R.layout.item_menu_row, panelItems, false)
             row.background = null
-            row.layoutParams.height = (ROW_DP * density).toInt()
+            row.layoutParams.height = ((if (touch) TOUCH_ROW_DP else ROW_DP) * density).toInt()
             row.findViewById<TextView>(R.id.item_label).apply {
                 typeface = fonts.semibold
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ROW_LABEL_SP)
@@ -1540,6 +1629,7 @@ class CinemaController(
                 typeface = fonts.semibold
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ROW_VALUE_SP)
             }
+            if (touch) makeArrowsTappable(row)
             bindRow(row, item)
             row.id = View.generateViewId()
             row.setTag(R.id.item_label, index)
@@ -1555,8 +1645,13 @@ class CinemaController(
                 val adjust = current.adjust
                 when {
                     opens != null -> openPage(opens, fromIndex = index)
-                    // OK runs through a short set of choices; on a long range it means done.
-                    adjust != null -> if (adjust.count <= CYCLE_MAX) stepFocused(1, wrap = true) else closePanel(showControlsAfter = true)
+                    // OK runs through a short set of choices; on a long range it means done. A tap steps
+                    // up, and its arrows step either way.
+                    adjust != null -> when {
+                        adjust.count <= CYCLE_MAX -> stepRow(row, 1, wrap = true)
+                        touch -> stepRow(row, 1)
+                        else -> closePanel(showControlsAfter = true)
+                    }
                     inPage != null -> { current.action(); closePage() }
                     current.keepOpen -> { current.action(); refreshRow(row) }
                     else -> { current.action(); closePanel(showControlsAfter = true) }
@@ -1576,6 +1671,12 @@ class CinemaController(
             else -> items.indexOfFirst { it.checked && !it.switch }.takeIf { it >= 0 } ?: 0
         }
         fitPopup()
+        if (touch) {
+            // No highlight to place; the checked row's tick says where the list stands.
+            panelGlide.clear()
+            rows.getOrNull(target)?.let { row -> row.post { panelScroll.scrollTo(0, (row.top - panelScroll.verticalFadingEdgeLength).coerceAtLeast(0)) } }
+            return
+        }
         rows.getOrNull(target)?.let { row ->
             // A rebuilt list lands on its row at once; only moves within a list glide.
             panelGlide.clear()
@@ -1601,6 +1702,11 @@ class CinemaController(
     /** Left or Right on a stepped setting. False when the focused row isn't one, so Left can step out instead. */
     private fun stepFocused(delta: Int, wrap: Boolean = false): Boolean {
         val row = panelItems.focusedChild ?: return false
+        return stepRow(row, delta, wrap)
+    }
+
+    /** Steps [row]'s setting by [delta]; false when it isn't a stepped setting. */
+    private fun stepRow(row: View, delta: Int, wrap: Boolean = false): Boolean {
         val adjust = (row.tag as? Item)?.adjust ?: return false
         val next = if (wrap) (adjust.index + delta).mod(adjust.count) else (adjust.index + delta).coerceIn(0, adjust.count - 1)
         if (next != adjust.index) {
@@ -1608,6 +1714,23 @@ class CinemaController(
             refreshRow(row)
         }
         return true
+    }
+
+    /** On a touchscreen a stepped row's arrows are buttons, sized for a finger; on a list row, the arrow opens it. */
+    private fun makeArrowsTappable(row: View) {
+        val size = (TOUCH_ARROW_DP * density).toInt()
+        val pad = ((TOUCH_ARROW_DP - 16f) / 2f * density).toInt()
+        for ((id, delta) in listOf(R.id.item_less to -1, R.id.item_more to 1)) {
+            row.findViewById<ImageView>(id).apply {
+                layoutParams = (layoutParams as ViewGroup.MarginLayoutParams).apply {
+                    width = size
+                    height = size
+                    marginStart = 0
+                }
+                setPadding(pad, pad, pad, pad)
+                setOnClickListener { if (!stepRow(row, delta)) row.performClick() }
+            }
+        }
     }
 
     /** Between a menu's groups (tracks, then sound settings): a hairline rather than a heading. */
@@ -1626,8 +1749,9 @@ class CinemaController(
         val item = row.tag as? Item ?: return
         row.findViewById<TextView>(R.id.item_label).setTextColor(ColorUtils.blendARGB(ink, onFocus, amount))
         row.findViewById<TextView>(R.id.item_value).setTextColor(ColorUtils.blendARGB(inkDim, onFocusSecondary, amount))
-        // Stepping arrows show only under the highlight; the arrow into a list always shows.
-        val stepArrow = ColorStateList.valueOf(ColorUtils.blendARGB(0, onFocusSecondary, amount))
+        // Stepping arrows show only under the highlight; the arrow into a list always shows. On a
+        // touchscreen there's no highlight, and the arrows are what you tap, so they always show.
+        val stepArrow = ColorStateList.valueOf(ColorUtils.blendARGB(if (touch) inkDim else 0, onFocusSecondary, amount))
         row.findViewById<ImageView>(R.id.item_less).imageTintList = stepArrow
         row.findViewById<ImageView>(R.id.item_more).imageTintList =
             if (item.adjust != null) stepArrow else ColorStateList.valueOf(ColorUtils.blendARGB(inkDim, onFocusSecondary, amount))
@@ -2148,6 +2272,12 @@ class CinemaController(
         const val POPUP_HINT_DP = 44f
         const val POPUP_MIN_LIST_DP = 120f
         const val ROW_DP = 34f
+        /** Touch: rows tall enough for a finger, arrow buttons likewise, and less room kept above the card. */
+        const val TOUCH_ROW_DP = 44f
+        const val TOUCH_ARROW_DP = 36f
+        const val TOUCH_POPUP_TOP_DP = 12f
+        /** Touch: each double tap, or further tap, on a side skips this far, either way. */
+        const val TOUCH_SKIP_MS = 10_000L
         const val ROW_LABEL_SP = 15f
         const val ROW_VALUE_SP = 13f
         const val DIVIDER_GAP_DP = 5f
