@@ -28,17 +28,17 @@
     <string name="scan_starting">Starting the camera…</string>
     <string name="scan_aim">Fit the TV picture inside the frame and hold steady.</string>
     <string name="scan_looking">Looking for the code… %1$d%%</string>
-    <string name="scan_read">Read the TV's code in %1$.1f s</string>
-    <string name="scan_wrong">Read %1$d, but that isn't the TV's code. Still looking…</string>
+    <string name="scan_read">Read the TV\'s code in %1$.1f s</string>
+    <string name="scan_wrong">Read %1$d, but that isn\'t the TV\'s code. Still looking…</string>
     <string name="scan_detail">%1$d%% sure · camera %2$.1f fps · TV %3$.2f Hz · read %4$d times</string>
     <string name="scan_strength">Stronger (%1$d)</string>
     <string name="scan_fainter">Fainter</string>
     <string name="scan_shutter">Shutter 1/%1$d</string>
     <string name="scan_again">Again</string>
-    <string name="scan_refresh">The TV is running at %1$.2f Hz, which would make the code flicker visibly. Turn off Match frame rate, or try from the TV's home screen.</string>
+    <string name="scan_refresh">The TV is running at %1$.2f Hz, which would make the code flicker visibly. Turn off Match frame rate, or try from the TV\'s home screen.</string>
     <string name="scan_open_tv">Open TV Player on the TV first.</string>
-    <string name="scan_no_tv">Couldn't reach the TV.</string>
+    <string name="scan_no_tv">Couldn\'t reach the TV.</string>
     <string name="scan_not_paired">Connect this phone to the TV first, then come back here.</string>
-    <string name="scan_no_camera">The camera isn't available.</string>
-    <string name="scan_no_manual">This phone's camera can't set its own shutter speed, which reading the code needs.</string>
+    <string name="scan_no_camera">The camera isn\'t available.</string>
+    <string name="scan_no_manual">This phone\'s camera can\'t set its own shutter speed, which reading the code needs.</string>
 </resources>
