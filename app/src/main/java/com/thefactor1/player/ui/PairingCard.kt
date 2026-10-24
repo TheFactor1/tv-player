@@ -43,6 +43,24 @@ object PairingCard {
     private val easeOut = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
     private val easeIn = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
+    /**
+     * Only a press that starts while the card is up counts. The card can appear while OK is held
+     * (to pause, say), and that press's release must not answer it: above all, not let a phone in.
+     */
+    private class KeyPresses {
+        private var down = KeyEvent.KEYCODE_UNKNOWN
+
+        fun completes(event: KeyEvent): Boolean {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0) down = event.keyCode
+                return false
+            }
+            if (event.action != KeyEvent.ACTION_UP || event.keyCode != down) return false
+            down = KeyEvent.KEYCODE_UNKNOWN
+            return true
+        }
+    }
+
     fun show(context: Context, fonts: Fonts) {
         val url = PhoneCompanion.pairUrl()
         val address = PhoneCompanion.address()
@@ -141,9 +159,10 @@ object PairingCard {
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             setWindowAnimations(0)
         }
+        val keys = KeyPresses()
         dialog.setOnKeyListener { _, keyCode, event ->
             val handled = keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
-            if (handled && event.action == KeyEvent.ACTION_UP) close()
+            if (handled && keys.completes(event)) close()
             handled
         }
         dialog.setOnDismissListener { handler.removeCallbacksAndMessages(null) }
@@ -211,10 +230,11 @@ object PairingCard {
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             setWindowAnimations(0)
         }
+        val keys = KeyPresses()
         dialog.setOnKeyListener { _, keyCode, event ->
             val allow = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
             val handled = allow || keyCode == KeyEvent.KEYCODE_BACK
-            if (handled && event.action == KeyEvent.ACTION_UP) close(approved = allow)
+            if (handled && keys.completes(event)) close(approved = allow)
             handled
         }
         dialog.setOnDismissListener {
