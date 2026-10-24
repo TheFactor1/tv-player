@@ -28,6 +28,13 @@ interface CompanionHost {
     fun companionControl(action: String, ms: Long)
 }
 
+/** Whatever screen can put the invisible pairing code over the picture. Calls arrive on the main thread. */
+interface BeaconScreen {
+    /** Shows [cells] for [seconds]; the display's refresh rate, negative when too slow to hide it, or null with no screen. */
+    fun showBeacon(cells: BooleanArray, strength: Int, seconds: Int): Float?
+    fun hideBeacon()
+}
+
 /** A cast member as the phone shows them, with a full photo URL. */
 data class CompanionPerson(val name: String, val character: String?, val photoUrl: String?)
 
@@ -53,6 +60,11 @@ object PhoneCompanion {
      * the main thread; [answer] takes the viewer's choice.
      */
     @Volatile var approver: ((device: String, answer: (Boolean) -> Unit) -> Unit)? = null
+
+    /** Puts the invisible code on screen; set by the screen that's showing. */
+    @Volatile var beaconScreen: BeaconScreen? = null
+    /** The code the beacon is showing, kept until it stops so the phone can read it across renewals. */
+    @Volatile private var beaconCode: Int? = null
 
     private val requests = PairRequests()
     private var nsd: NsdManager.RegistrationListener? = null
@@ -260,6 +272,8 @@ object PhoneCompanion {
             "/api/transcript" -> json(200, transcriptJson())
             "/api/cast" -> json(200, castJson())
             "/api/control" -> control(request)
+            "/api/beacon" -> beacon(request)
+            "/api/beacon/check" -> json(200, JSONObject().put("match", query(request, "code")?.toIntOrNull()?.let { it == beaconCode } == true))
             else -> Http.Response(404, "text/plain", "Not found".toByteArray())
         }
     }
@@ -384,6 +398,35 @@ object PhoneCompanion {
         return json(200, state())
     }
 
+    /**
+     * A prototype of pairing by camera: the phone's scanner asks for the invisible code, reads it off
+     * the picture, and checks it here. Strength is how far each cell moves, in 8-bit levels.
+     */
+    private fun beacon(request: Http.Request): Http.Response {
+        if (request.method != "POST") return json(405, JSONObject())
+        val body = try {
+            JSONObject(request.body)
+        } catch (e: Exception) {
+            return json(400, JSONObject())
+        }
+        val seconds = body.optInt("seconds", BEACON_SECONDS).coerceAtMost(MAX_BEACON_SECONDS)
+        if (seconds <= 0) {
+            beaconCode = null
+            onMain { beaconScreen?.hideBeacon() }
+            return json(200, JSONObject().put("showing", false))
+        }
+        val code = beaconCode ?: random.nextInt(1 shl BeaconPattern.CODE_BITS).also { beaconCode = it }
+        val strength = body.optInt("strength", BEACON_STRENGTH)
+        val refresh = onMain { beaconScreen?.showBeacon(BeaconPattern.cells(code), strength, seconds) }
+            ?: return json(503, JSONObject().put("error", "screen"))
+        if (refresh < 0) {
+            beaconCode = null
+            return json(409, JSONObject().put("error", "refresh").put("refresh", -refresh))
+        }
+        return json(200, JSONObject().put("showing", true).put("refresh", refresh).put("strength", strength)
+            .put("cols", BeaconPattern.COLS).put("rows", BeaconPattern.ROWS))
+    }
+
     /** Runs [block] on the main thread, where the player lives, and waits briefly for its answer. */
     private fun <T> onMain(block: () -> T): T? {
         val task = FutureTask(block)
@@ -412,5 +455,8 @@ object PhoneCompanion {
     private const val MAX_DEVICE_NAME = 40
     private const val WAIT_MS = 25_000L
     private const val WAIT_STEP_MS = 600L
+    private const val BEACON_SECONDS = 20
+    private const val MAX_BEACON_SECONDS = 60
+    private const val BEACON_STRENGTH = 4
     private val ACTIONS = setOf("play", "pause", "toggle", "seek", "skip")
 }

@@ -44,6 +44,14 @@ class TvApi(val host: String, val port: Int, private val token: String?) {
         call("POST", "/api/control", JSONObject().put("action", action), CALL_TIMEOUT_MS)
     }
 
+    /** Asks the TV to show the invisible code for [seconds] (0 stops it). The status and the TV's answer. */
+    fun beacon(strength: Int, seconds: Int): Pair<Int, JSONObject> =
+        call("POST", "/api/beacon", JSONObject().put("strength", strength).put("seconds", seconds), CALL_TIMEOUT_MS)
+
+    /** True when [code] is the one the TV is showing. */
+    fun beaconMatches(code: Int): Boolean =
+        call("GET", "/api/beacon/check?code=$code", null, CALL_TIMEOUT_MS).second.optBoolean("match")
+
     /** True when the TV answers at this address with this token. */
     fun reachable(): Boolean = try {
         call("GET", "/api/state", null, PROBE_TIMEOUT_MS).first == 200
