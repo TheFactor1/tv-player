@@ -89,6 +89,7 @@ class PlayerActivity : Activity() {
 
     // Survive onStop/onStart (e.g. the home button) without restarting from the beginning.
     private var resumePositionMs = C.TIME_UNSET
+    private var stopped = false
     private var lastPositionMs = 0L
     private var lastDurationMs = 0L
     private var completed = false
@@ -157,6 +158,11 @@ class PlayerActivity : Activity() {
         setIntent(intent)
         releasePlayer()
         resumePositionMs = C.TIME_UNSET
+        // The last title's spot and length must not be handed back, or saved, for this one.
+        lastPositionMs = 0L
+        lastDurationMs = 0L
+        chipTookOk = false
+        chipOkAt = 0L
         completed = false
         tried = FallbackPolicy.Tried()
         addedSubtitles.clear()
@@ -169,11 +175,16 @@ class PlayerActivity : Activity() {
     override fun onStart() {
         super.onStart()
         PhoneCompanion.start(this)
+        // Back from Home the film loads again from scratch: under the card, so a display switch
+        // or a frame-rate check never shows, but only until the picture moves.
+        if (stopped && player == null && request != null) controller.showLoading(brief = true)
+        stopped = false
         initializePlayer()
     }
 
     override fun onStop() {
         super.onStop()
+        stopped = true
         PhoneCompanion.stop()
         releasePlayer()
         switcher.reset()
@@ -592,6 +603,8 @@ class PlayerActivity : Activity() {
         resumePositionMs = lastPositionMs
         if (request != null) rememberPosition()
         resumeChip.hide()
+        // A display switch still settling must not start whichever player comes next.
+        switcher.cancel()
         stopMeasuring(exo)
         exo.removeListener(listener)
         stats.detach()

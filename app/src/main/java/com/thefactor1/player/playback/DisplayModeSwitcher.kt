@@ -36,6 +36,16 @@ class DisplayModeSwitcher(private val activity: Activity) {
         handler.postDelayed(finishSwitch, SWITCH_TIMEOUT_MS)
     }
 
+    /**
+     * Forgets the wait for a switch without undoing it, so a player that has gone can't be started
+     * by it; the next [matchFrameRate] picks up from whatever mode the display lands in.
+     */
+    fun cancel() {
+        handler.removeCallbacksAndMessages(null)
+        displayManager.unregisterDisplayListener(listener)
+        onReady = null
+    }
+
     /** Drops any pending switch and hands the display back to the system default. */
     fun reset() {
         handler.removeCallbacksAndMessages(null)

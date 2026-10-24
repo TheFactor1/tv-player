@@ -51,6 +51,10 @@ class MainActivity : Activity() {
     private var entries: List<WatchHistory.Entry> = emptyList()
     /** The title shown large; the rest are cards. */
     private var hero: WatchHistory.Entry? = null
+    /** Kept apart from the panel's visibility, which lasts a moment longer while it slides out. */
+    private var panelOpen = false
+    /** Which title's art is on screen, so the same one isn't loaded again. */
+    private var shownArtKey: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,7 +100,7 @@ class MainActivity : Activity() {
         hero = entries.firstOrNull()
         showHome()
         // The phone code may have changed since the list was built: a phone paired, or the network came up.
-        if (panel.visibility == View.VISIBLE) settings.show(settings.focusedIndex())
+        if (panelOpen) settings.show(settings.focusedIndex())
     }
 
     override fun onStop() {
@@ -106,7 +110,7 @@ class MainActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (panel.visibility == View.VISIBLE) {
+        if (panelOpen) {
             when (keyCode) {
                 // Left and Right step the focused setting; they never leave the panel.
                 KeyEvent.KEYCODE_DPAD_LEFT -> { settings.step(-1); return true }
@@ -122,7 +126,7 @@ class MainActivity : Activity() {
 
     @Deprecated("Still delivered on every Android version this app supports without opting in to predictive back.")
     override fun onBackPressed() {
-        if (panel.visibility == View.VISIBLE) {
+        if (panelOpen) {
             closePanel()
             return
         }
@@ -140,12 +144,12 @@ class MainActivity : Activity() {
         }
         findViewById<View>(R.id.home_empty).visibility = if (empty) View.VISIBLE else View.GONE
         if (current == null) {
-            if (panel.visibility != View.VISIBLE) findViewById<View>(R.id.home_empty_settings).requestFocus()
+            if (!panelOpen) findViewById<View>(R.id.home_empty_settings).requestFocus()
             return
         }
         showHero(current)
         showCards(current)
-        if (panel.visibility != View.VISIBLE) {
+        if (!panelOpen) {
             (if (continueButton.visibility == View.VISIBLE) continueButton else settingsButton).requestFocus()
         }
     }
@@ -153,9 +157,6 @@ class MainActivity : Activity() {
     private fun showHero(entry: WatchHistory.Entry) {
         findViewById<TextView>(R.id.home_kicker).setText(if (entry.watched) R.string.home_watched_kicker else R.string.home_continue_kicker)
         title.text = entry.name
-        title.visibility = View.VISIBLE
-        logo.setImageDrawable(null)
-        logo.visibility = View.GONE
         showDetails(entry.episodeLine, entry.kicker ?: entry.year?.toString(), entry.description)
 
         val fill = findViewById<View>(R.id.home_progress_fill)
@@ -169,6 +170,13 @@ class MainActivity : Activity() {
         continueButton.visibility = if (app != null) View.VISIBLE else View.GONE
         continueButton.text = app?.let { getString(if (entry.watched) R.string.home_open else R.string.home_continue, it) }
 
+        // Coming back to the same title keeps its art up instead of blanking it and fading it in again.
+        val artKey = listOf(entry.key, entry.imdbId, entry.season, entry.episode).joinToString("|")
+        if (artKey == shownArtKey && backdrop.drawable != null) return
+        shownArtKey = artKey
+        title.visibility = View.VISIBLE
+        logo.setImageDrawable(null)
+        logo.visibility = View.GONE
         backdrop.animate().cancel()
         backdrop.alpha = 0f
         backdrop.setImageDrawable(null)
@@ -297,7 +305,9 @@ class MainActivity : Activity() {
     // ---- Settings panel -------------------------------------------------------------------------
 
     private fun openPanel(focusIndex: Int = -1) {
+        panelOpen = true
         findViewById<View>(R.id.panel_scrim).visibility = View.VISIBLE
+        panel.animate().cancel()
         panel.visibility = View.VISIBLE
         panel.translationX = panel.width * PANEL_SLIDE
         panel.alpha = 0f
@@ -306,9 +316,12 @@ class MainActivity : Activity() {
     }
 
     private fun closePanel() {
+        panelOpen = false
         findViewById<View>(R.id.panel_scrim).visibility = View.GONE
+        // Out the way it came in, a touch quicker, rather than vanishing.
         panel.animate().cancel()
-        panel.visibility = View.INVISIBLE
+        panel.animate().translationX(panel.width * PANEL_SLIDE).alpha(0f).setDuration(PANEL_OUT_MS)
+            .withEndAction { panel.visibility = View.INVISIBLE }.start()
         (if (hero == null) findViewById<View>(R.id.home_empty_settings) else settingsButton).requestFocus()
     }
 
@@ -316,6 +329,7 @@ class MainActivity : Activity() {
         const val MAX_CARDS = 8
         const val ART_FADE_MS = 320L
         const val PANEL_MS = 180L
+        const val PANEL_OUT_MS = 140L
         const val PANEL_SLIDE = 0.08f
         const val CARD_LIFT = 1.06f
         const val CARD_LIFT_MS = 140L

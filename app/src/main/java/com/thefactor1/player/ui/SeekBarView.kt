@@ -37,14 +37,7 @@ class SeekBarView @JvmOverloads constructor(
 
     // 0 = resting (thin, no thumb), 1 = focused (thick, thumb shown).
     private var focusAmount = 0f
-    private val focusAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-        duration = 160
-        interpolator = DecelerateInterpolator()
-        addUpdateListener {
-            focusAmount = it.animatedValue as Float
-            invalidate()
-        }
-    }
+    private var focusAnimator: ValueAnimator? = null
 
     init {
         isFocusable = true
@@ -67,7 +60,18 @@ class SeekBarView @JvmOverloads constructor(
 
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
-        if (gainFocus) focusAnimator.start() else focusAnimator.reverse()
+        // From wherever it is now, so focus passing quickly back and forth never snaps the bar thin.
+        val target = if (gainFocus) 1f else 0f
+        focusAnimator?.cancel()
+        focusAnimator = ValueAnimator.ofFloat(focusAmount, target).apply {
+            duration = (FOCUS_MS * kotlin.math.abs(target - focusAmount)).toLong()
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                focusAmount = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -115,5 +119,6 @@ class SeekBarView @JvmOverloads constructor(
     private companion object {
         const val THUMB_RADIUS_DP = 9f
         const val HALO_DP = 4f
+        const val FOCUS_MS = 160f
     }
 }
