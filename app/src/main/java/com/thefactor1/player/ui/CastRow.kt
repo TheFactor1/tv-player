@@ -1,5 +1,6 @@
 package com.thefactor1.player.ui
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Outline
 import android.util.TypedValue
@@ -9,6 +10,7 @@ import android.view.ViewOutlineProvider
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.animation.doOnEnd
 import androidx.core.content.ContextCompat
 import com.thefactor1.player.R
 import com.thefactor1.player.meta.CastMember
@@ -46,10 +48,34 @@ class CastRow(
 
     fun clear() = show(emptyList())
 
+    /** The faces arrive one after another, from [delayMs]: a short rise each, never all at once. */
+    fun appear(delayMs: Long = 0L) {
+        for (index in 0 until container.childCount) {
+            val item = container.getChildAt(index)
+            item.animate().cancel()
+            item.alpha = 0f
+            item.translationY = RISE_DP * density
+            item.animate().alpha(1f).translationY(0f).setStartDelay(delayMs + index * STAGGER_MS)
+                .setDuration(APPEAR_MS).setInterpolator(Motion.enter).start()
+        }
+    }
+
+    /** The photo fades in over the initials, which then make way. */
     fun setPhoto(member: CastMember, bitmap: Bitmap) {
         val (face, initials) = faces[member.name] ?: return
         face.setImageBitmap(bitmap)
-        initials.visibility = View.GONE
+        face.imageAlpha = 0
+        ValueAnimator.ofInt(0, 255).apply {
+            duration = PHOTO_MS
+            interpolator = Motion.enter
+            addUpdateListener {
+                val value = it.animatedValue as Int
+                face.imageAlpha = value
+                initials.alpha = 1f - value / 255f
+            }
+            doOnEnd { initials.visibility = View.GONE }
+            start()
+        }
     }
 
     private fun fit() {
@@ -125,5 +151,12 @@ class CastRow(
                 if (!first) marginStart = (24 * density).toInt()
             }
         }
+    }
+
+    private companion object {
+        const val RISE_DP = 6f
+        const val STAGGER_MS = 50L
+        const val APPEAR_MS = 240L
+        const val PHOTO_MS = 200L
     }
 }

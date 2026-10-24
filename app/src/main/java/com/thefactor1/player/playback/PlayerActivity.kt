@@ -177,7 +177,7 @@ class PlayerActivity : Activity() {
         PhoneCompanion.start(this)
         // Back from Home the film loads again from scratch: under the card, so a display switch
         // or a frame-rate check never shows, but only until the picture moves.
-        if (stopped && player == null && request != null) controller.showLoading(brief = true)
+        if (stopped && player == null && request != null) controller.showLoading()
         stopped = false
         initializePlayer()
     }

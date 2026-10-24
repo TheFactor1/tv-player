@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The focus highlight that glides between menu rows. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/focus_fill" />
+    <corners android:radius="9dp" />
+</shape>
