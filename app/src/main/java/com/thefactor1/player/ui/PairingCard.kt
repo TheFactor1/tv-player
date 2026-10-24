@@ -13,7 +13,6 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -32,16 +31,13 @@ object PairingCard {
     private const val QR_DP = 132
     private const val QUIET_DP = 8
     private const val EDGE_DP = 48
-    private const val RISE_DP = 14f
-    private const val IN_MS = 320L
-    private const val OUT_MS = 220L
+    private const val RISE_DP = 8f
+    private const val IN_MS = 260L
+    private const val QR_DELAY_MS = 100L
+    private const val STATUS_SWAP_MS = 120L
     private const val WATCH_MS = 1_000L
     private const val CLOSE_AFTER_PAIRED_MS = 1_600L
     private const val ASK_TIMEOUT_MS = 60_000L
-
-    // Material's emphasized curves: a soft landing on the way in, an easy start on the way out.
-    private val easeOut = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
-    private val easeIn = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
     /**
      * Only a press that starts while the card is up counts. The card can appear while OK is held
@@ -106,7 +102,10 @@ object PairingCard {
                 setStroke(dp(1), ContextCompat.getColor(context, R.color.hairline))
             }
             if (url != null) {
+                // The code settles in just after its card, so the card reads as one thing arriving.
                 val qr = ImageView(context).apply {
+                    alpha = 0f
+                    animate().alpha(1f).setStartDelay(QR_DELAY_MS).setDuration(IN_MS).setInterpolator(Motion.enter).start()
                     setImageBitmap(QrCode.bitmap(url, dp(QR_DP)))
                     setPadding(dp(QUIET_DP), dp(QUIET_DP), dp(QUIET_DP), dp(QUIET_DP))
                     background = GradientDrawable().apply {
@@ -136,7 +135,7 @@ object PairingCard {
             if (closing) return
             closing = true
             handler.removeCallbacksAndMessages(null)
-            card.animate().alpha(0f).translationY(RISE_DP * density / 2).setDuration(OUT_MS).setInterpolator(easeIn)
+            card.animate().alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)
                 .withEndAction { if (dialog.isShowing) dialog.dismiss() }.start()
         }
 
@@ -144,8 +143,12 @@ object PairingCard {
         val watch = object : Runnable {
             override fun run() {
                 if (PhoneCompanion.code != code) {
-                    status.text = context.getString(R.string.pair_done)
-                    status.setTextColor(ContextCompat.getColor(context, R.color.ink))
+                    // The line crossfades to its news rather than jumping.
+                    status.animate().alpha(0f).setDuration(STATUS_SWAP_MS).setInterpolator(Motion.exit).withEndAction {
+                        status.text = context.getString(R.string.pair_done)
+                        status.setTextColor(ContextCompat.getColor(context, R.color.ink))
+                        status.animate().alpha(1f).setDuration(Motion.FOCUS_MS).setInterpolator(Motion.enter).start()
+                    }.start()
                     handler.postDelayed({ close() }, CLOSE_AFTER_PAIRED_MS)
                 } else {
                     handler.postDelayed(this, WATCH_MS)
@@ -168,7 +171,7 @@ object PairingCard {
         dialog.setOnDismissListener { handler.removeCallbacksAndMessages(null) }
         dialog.show()
         root.requestFocus()
-        card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(easeOut).start()
+        card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(Motion.enter).start()
         if (url != null) handler.postDelayed(watch, WATCH_MS)
     }
 
@@ -220,7 +223,7 @@ object PairingCard {
             answered = true
             answer(approved)
             handler.removeCallbacksAndMessages(null)
-            card.animate().alpha(0f).translationY(RISE_DP * density / 2).setDuration(OUT_MS).setInterpolator(easeIn)
+            card.animate().alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)
                 .withEndAction { if (dialog.isShowing) dialog.dismiss() }.start()
         }
 
@@ -246,7 +249,7 @@ object PairingCard {
         }
         dialog.show()
         root.requestFocus()
-        card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(easeOut).start()
+        card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(Motion.enter).start()
         handler.postDelayed({ close(approved = false) }, ASK_TIMEOUT_MS)
     }
 }
