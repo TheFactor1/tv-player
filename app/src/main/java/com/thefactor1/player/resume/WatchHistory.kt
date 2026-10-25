@@ -2,6 +2,7 @@ package com.thefactor1.player.resume
 
 import android.content.Context
 import androidx.core.content.edit
+import com.thefactor1.player.launch.SavedStream
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -34,6 +35,8 @@ class WatchHistory(context: Context) {
         /** The app that opened the stream, so Continue can go back to it. */
         val sourcePackage: String?,
         val savedAt: Long,
+        /** The stream it was last played from, so the home screen can start it again itself. */
+        val stream: SavedStream? = null,
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("key", key)
@@ -51,6 +54,7 @@ class WatchHistory(context: Context) {
             put("watched", watched)
             putOpt("source", sourcePackage)
             put("savedAt", savedAt)
+            putOpt("stream", stream?.toJson())
         }
 
         companion object {
@@ -73,6 +77,7 @@ class WatchHistory(context: Context) {
                     watched = json.optBoolean("watched"),
                     sourcePackage = json.text("source"),
                     savedAt = json.optLong("savedAt"),
+                    stream = SavedStream.from(json.optJSONObject("stream")),
                 )
             }
 
@@ -93,7 +98,9 @@ class WatchHistory(context: Context) {
     /** Puts [entry] first, replacing the one with the same key; what it doesn't know is kept from that one. */
     fun record(entry: Entry) {
         val existing = all()
-        val previous = existing.firstOrNull { it.key == entry.key }
+        // The same title kept under its name before the home screen learned its id is the same entry.
+        fun same(other: Entry) = other.key == entry.key || (entry.imdbId != null && other.imdbId == entry.imdbId)
+        val previous = existing.firstOrNull(::same)
         val sameEpisode = previous != null && previous.season == entry.season && previous.episode == entry.episode
         val merged = if (previous == null) entry else entry.copy(
             imdbId = entry.imdbId ?: previous.imdbId,
@@ -101,9 +108,25 @@ class WatchHistory(context: Context) {
             episodeLine = entry.episodeLine ?: previous.episodeLine.takeIf { sameEpisode },
             description = entry.description ?: previous.description.takeIf { sameEpisode },
             sourcePackage = entry.sourcePackage ?: previous.sourcePackage,
+            stream = entry.stream ?: previous.stream.takeIf { sameEpisode },
         )
-        val kept = listOf(merged) + existing.filter { it.key != entry.key }.take(MAX_ENTRIES - 1)
+        val kept = listOf(merged) + existing.filterNot(::same).take(MAX_ENTRIES - 1)
         prefs.edit { putString(KEY, JSONArray(kept.map { it.toJson() }).toString()) }
+    }
+
+    /**
+     * Fills in what the home screen found out later about the entry under [key], such as the IMDb id
+     * of a title playback never recognised, without moving it in the list. Returns the updated entry.
+     */
+    fun learn(key: String, imdbId: String?, details: (Entry) -> Entry = { it }): Entry? {
+        val existing = all()
+        val index = existing.indexOfFirst { it.key == key }.takeIf { it >= 0 } ?: return null
+        val old = existing[index]
+        val updated = details(old.copy(imdbId = old.imdbId ?: imdbId))
+        if (updated == old) return old
+        val kept = existing.toMutableList().apply { set(index, updated) }
+        prefs.edit { putString(KEY, JSONArray(kept.map { it.toJson() }).toString()) }
+        return updated
     }
 
     private companion object {

@@ -118,6 +118,24 @@
             android:layout_marginTop="18dp"
             android:orientation="horizontal">
 
+            <!-- Starts the saved stream here; the source app's button is the way back when it won't. -->
+            <TextView
+                android:id="@+id/home_play"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/control_button_bg"
+                android:drawableStart="@drawable/ic_play"
+                android:drawablePadding="10dp"
+                android:drawableTint="@color/control_icon"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:paddingStart="18dp"
+                android:paddingEnd="22dp"
+                android:textColor="@color/control_text"
+                android:textSize="15sp"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/home_continue"
                 android:layout_width="wrap_content"
@@ -154,7 +172,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="22dp"
+        android:layout_marginBottom="12dp"
         android:orientation="vertical">
 
         <TextView
@@ -167,16 +185,18 @@
             android:textColor="@color/ink_secondary"
             android:textSize="12sp" />
 
-        <!-- Padded so a focused card's frame and lift have room inside the scroller. -->
+        <!-- Each card carries the room for its own focus ring, so the cards line up with the label at
+             56 dp less that room. A view is clipped to its own bounds, so the row itself is padded
+             wide enough to hold a focused card's slight lift and, below, its raised shadow: the first
+             card's ring used to be cut flat on the left where the row began. -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clipChildren="false"
             android:clipToPadding="false"
             android:fadingEdge="none"
-            android:paddingStart="50dp"
-            android:paddingTop="4dp"
-            android:paddingEnd="50dp"
-            android:paddingBottom="6dp"
+            android:paddingStart="43.5dp"
+            android:paddingEnd="43.5dp"
             android:scrollbars="none">
 
             <LinearLayout
@@ -184,8 +204,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:clipChildren="false"
+                android:clipToPadding="false"
                 android:orientation="horizontal"
-                android:padding="6dp" />
+                android:paddingStart="8dp"
+                android:paddingTop="5.5dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="17.5dp" />
         </HorizontalScrollView>
     </LinearLayout>
 

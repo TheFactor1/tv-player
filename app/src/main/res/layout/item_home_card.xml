@@ -1,54 +1,66 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A Recently played card: the title's backdrop, its name, and how far in. -->
+<!-- A Recently played card: the title's backdrop, its name, and how far in. The card sits in the
+     outer frame by a margin, not padding: a foreground is drawn inside padding, which would put the
+     focus ring on the card's edge instead of around it. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="@dimen/home_card_width"
-    android:layout_height="95dp"
-    android:layout_marginEnd="14dp"
-    android:background="@drawable/home_card_bg"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginEnd="5dp"
     android:clickable="true"
+    android:clipChildren="false"
     android:focusable="true"
     android:foreground="@drawable/home_card_focus">
 
-    <ImageView
-        android:id="@+id/card_art"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:importantForAccessibility="no"
-        android:scaleType="centerCrop" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:layout_gravity="bottom"
-        android:background="@drawable/scrim_bottom" />
-
-    <TextView
-        android:id="@+id/card_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginStart="10dp"
-        android:layout_marginEnd="10dp"
-        android:layout_marginBottom="13dp"
-        android:ellipsize="end"
-        android:maxLines="2"
-        android:textColor="@color/ink"
-        android:textSize="13sp" />
-
     <FrameLayout
-        android:id="@+id/card_progress"
-        android:layout_width="match_parent"
-        android:layout_height="2.5dp"
-        android:layout_gravity="bottom"
-        android:layout_marginStart="10dp"
-        android:layout_marginEnd="10dp"
-        android:layout_marginBottom="6dp"
-        android:background="@drawable/home_progress_track">
+        android:id="@+id/card_body"
+        android:layout_width="@dimen/home_card_width"
+        android:layout_height="95dp"
+        android:layout_margin="@dimen/home_card_ring_room"
+        android:background="@drawable/home_card_bg"
+        android:duplicateParentState="true"
+        android:elevation="@dimen/home_card_elevation">
+
+        <ImageView
+            android:id="@+id/card_art"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop" />
 
         <View
-            android:id="@+id/card_progress_fill"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:background="@drawable/home_progress_fill" />
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_gravity="bottom"
+            android:background="@drawable/scrim_bottom" />
+
+        <TextView
+            android:id="@+id/card_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="13dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="@color/ink"
+            android:textSize="13sp" />
+
+        <FrameLayout
+            android:id="@+id/card_progress"
+            android:layout_width="match_parent"
+            android:layout_height="2.5dp"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/home_progress_track">
+
+            <View
+                android:id="@+id/card_progress_fill"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="@drawable/home_progress_fill" />
+        </FrameLayout>
     </FrameLayout>
 </FrameLayout>

@@ -52,6 +52,10 @@ object MetaMatch {
     private val NOT_ALNUM = Regex("""[^a-z0-9]+""")
     private val MARKS = Regex("""\p{Mn}+""")
     private val DIGITS = Regex("""\d+""")
+    // Where a catalogue name splits into a franchise and the film: "Star Wars: Episode V - The Empire Strikes Back".
+    private val SEGMENT_BREAK = Regex("""\s*(?:[:|–—]|\s-\s)\s*""")
+    private val LEADING_ARTICLE = Regex("""^(the|a|an) """)
+    private val ROMAN = mapOf("ii" to "2", "iii" to "3", "iv" to "4", "v" to "5", "vi" to "6", "vii" to "7", "viii" to "8", "ix" to "9", "x" to "10")
 
     fun normalize(text: String): String =
         MARKS.replace(Normalizer.normalize(text.lowercase(), Normalizer.Form.NFD), "")
@@ -85,12 +89,53 @@ object MetaMatch {
             kotlin.math.abs(year - candidateYear) == 1 -> 1
             else -> -2
         }
+        val loose = loosen(wanted)
         return when {
             name == wanted -> 3 + yearScore
+            // "Empire Strikes Back", "Rocky II" or "Spiderman" against "The Empire Strikes Back",
+            // "Rocky 2" or "Spider-Man".
+            loosen(name).replace(" ", "") == loose.replace(" ", "") -> 3 + yearScore - 1
+            // "The Empire Strikes Back" is the last part of "Star Wars: Episode V - The Empire Strikes Back".
+            // The whole film part, never the franchise in front ("Dune" isn't "Dune: Part Two"), never
+            // against the year, and a one-word name needs the year to back it.
+            yearScore >= 0 && (yearScore == 2 || ' ' in loose) && lastSegment(candidate.name)?.let(::loosen) == loose -> 2 + yearScore
+            // "Ready or Not, Here I Come" against "Ready or Not 2: Here I Come": a sequel's number left
+            // out. Weakest of all, so the film without the number wins when it's there too.
+            yearScore >= 0 && ' ' in loose && withoutNumbers(loose) == loose && loose == withoutNumbers(loosen(name)) ->
+                if (yearScore == 2) 2 else 1
             // "Dune Part Two" against "Dune: Part Two - Extended": only trusted with the year to back it.
             yearScore == 2 && (name.startsWith("$wanted ") || wanted.startsWith("$name ")) -> 2
             else -> 0
         }
+    }
+
+    private fun withoutNumbers(loose: String): String = loose.split(' ').filterNot { it.all(Char::isDigit) }.joinToString(" ")
+
+    /** What follows the last colon or spaced dash of a catalogue name, when it has one. */
+    private fun lastSegment(name: String): String? {
+        val parts = name.split(SEGMENT_BREAK).map(::normalize).filter { it.isNotEmpty() }
+        return if (parts.size > 1) parts.last() else null
+    }
+
+    /** [normalize]d, without a leading "the", and with Roman numerals as digits, for a forgiving comparison. */
+    fun loosen(normalized: String): String =
+        LEADING_ARTICLE.replace(normalized, "").split(' ').joinToString(" ") { ROMAN[it] ?: it }
+
+    /**
+     * Other names worth searching the catalogue by when [name] finds nothing: each side of a colon,
+     * and the name without a leading article. "Alien: Romulus" tries "Alien Romulus" and "Romulus".
+     */
+    fun searchVariants(name: String): List<String> {
+        val variants = LinkedHashSet<String>()
+        val parts = name.split(SEGMENT_BREAK).map { it.trim() }.filter { normalize(it).isNotEmpty() }
+        if (parts.size > 1) {
+            variants += parts.joinToString(" ")
+            variants += parts.last()
+        }
+        val withoutArticle = name.trim().replaceFirst(Regex("""^(?i)(the|a|an)\s+"""), "")
+        if (withoutArticle != name.trim() && withoutArticle.isNotEmpty()) variants += withoutArticle
+        variants.remove(name.trim())
+        return variants.filter { normalize(it).length >= MIN_VARIANT }
     }
 
     /** A file-safe name for what [query] was matched to, the same for every episode of a show. */
@@ -114,4 +159,5 @@ object MetaMatch {
 
     private const val MAX_CANDIDATES = 10
     private const val MAX_KEY_NAME = 80
+    private const val MIN_VARIANT = 3
 }

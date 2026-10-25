@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A focused card gets a white frame; the art stays as it is. -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- A focused card gets a thin ring standing just off its edge, with corners that follow the card's,
+     so the art is never covered or cut. It fades in and out rather than snapping. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:enterFadeDuration="160"
+    android:exitFadeDuration="120">
     <item android:state_focused="true">
         <shape>
-            <stroke android:width="3dp" android:color="@color/ink" />
-            <corners android:radius="8dp" />
+            <stroke android:width="@dimen/home_card_ring" android:color="@color/home_card_ring" />
+            <!-- The card's 8 dp corner plus the gap, so the ring runs parallel all the way round. -->
+            <corners android:radius="12dp" />
         </shape>
     </item>
     <item android:drawable="@android:color/transparent" />
