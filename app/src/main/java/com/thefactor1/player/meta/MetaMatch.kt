@@ -98,11 +98,17 @@ object MetaMatch {
             // The whole film part, never the franchise in front ("Dune" isn't "Dune: Part Two"), never
             // against the year, and a one-word name needs the year to back it.
             yearScore >= 0 && (yearScore == 2 || ' ' in loose) && lastSegment(candidate.name)?.let(::loosen) == loose -> 2 + yearScore
+            // "Ready or Not, Here I Come" against "Ready or Not 2: Here I Come": a sequel's number left
+            // out. Weakest of all, so the film without the number wins when it's there too.
+            yearScore >= 0 && ' ' in loose && withoutNumbers(loose) == loose && loose == withoutNumbers(loosen(name)) ->
+                if (yearScore == 2) 2 else 1
             // "Dune Part Two" against "Dune: Part Two - Extended": only trusted with the year to back it.
             yearScore == 2 && (name.startsWith("$wanted ") || wanted.startsWith("$name ")) -> 2
             else -> 0
         }
     }
+
+    private fun withoutNumbers(loose: String): String = loose.split(' ').filterNot { it.all(Char::isDigit) }.joinToString(" ")
 
     /** What follows the last colon or spaced dash of a catalogue name, when it has one. */
     private fun lastSegment(name: String): String? {

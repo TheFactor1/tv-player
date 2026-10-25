@@ -6,7 +6,7 @@
     android:exitFadeDuration="120">
     <item android:state_focused="true">
         <shape>
-            <stroke android:width="@dimen/home_card_ring" android:color="@color/ink" />
+            <stroke android:width="@dimen/home_card_ring" android:color="@color/home_card_ring" />
             <!-- The card's 8 dp corner plus the gap, so the ring runs parallel all the way round. -->
             <corners android:radius="12dp" />
         </shape>

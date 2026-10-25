@@ -14,10 +14,12 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.launch.SavedStream
 import com.thefactor1.player.meta.ArtworkLoader
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.playback.PlayerPrefs
+import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.resume.WatchHistory
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
@@ -35,6 +37,7 @@ class MainActivity : Activity() {
 
     private lateinit var fonts: Fonts
     private lateinit var history: WatchHistory
+    private val resume by lazy { ResumeStore(this) }
     private lateinit var defaults: DefaultSettings
     private lateinit var settings: OptionList
     private val heroArt by lazy { ArtworkLoader(this) }
@@ -100,7 +103,7 @@ class MainActivity : Activity() {
         PhoneCompanion.start(this)
         PhoneCompanion.approver = askToConnect
         // Back from a film: it's now the newest entry, so it takes the big spot.
-        entries = history.all()
+        entries = history.all().map(::withStream)
         hero = entries.firstOrNull()
         showHome()
         // The phone code may have changed since the list was built: a phone paired, or the network came up.
@@ -270,11 +273,17 @@ class MainActivity : Activity() {
                 v.animate().scaleX(scale).scaleY(scale)
                     .setInterpolator(if (hasFocus) Motion.enter else Motion.exit)
                     .setDuration(if (hasFocus) Motion.FOCUS_MS else Motion.FOCUS_MS * 3 / 4).start()
+                // After focus has settled, so moving along the row doesn't flicker the cards in between.
+                cards.post(::dimShelf)
             }
-            // OK brings the card up as the big one, ready to continue.
+            // OK carries on watching straight away; a title without a kept stream comes up as the big one instead.
             card.setOnClickListener {
-                hero = entry
-                showHome()
+                if (entry.stream != null) {
+                    playHere(entry)
+                } else {
+                    hero = entry
+                    showHome()
+                }
             }
             cards.addView(card)
         }
@@ -284,11 +293,36 @@ class MainActivity : Activity() {
         }
     }
 
+    /** While a card has focus the others step back a little, so the ring isn't all that marks it. */
+    private fun dimShelf() {
+        val focused = cards.focusedChild
+        for (i in 0 until cards.childCount) {
+            val card = cards.getChildAt(i)
+            val target = if (focused == null || card === focused) 1f else CARD_DIM
+            if (card.alpha != target) card.animate().alpha(target).setDuration(Motion.FOCUS_MS).start()
+        }
+    }
+
+    /**
+     * A title played before streams were kept with the history gets the address its position was
+     * saved under, when there is one, so it can be resumed here too.
+     */
+    private fun withStream(entry: WatchHistory.Entry): WatchHistory.Entry {
+        if (entry.stream != null || entry.watched) return entry
+        val id = entry.imdbId ?: return entry
+        val keys = listOfNotNull(
+            if (entry.season != null && entry.episode != null) "imdb:$id:s${entry.season}e${entry.episode}" else null,
+            "imdb:$id".takeIf { entry.season == null },
+        )
+        val url = resume.streamUrl(keys) ?: return entry
+        return entry.copy(stream = SavedStream(url, null, entry.name, null, emptyMap(), emptyList()))
+    }
+
     private fun query(entry: WatchHistory.Entry) = MetaQuery(entry.searchName ?: entry.name, entry.year, entry.season, entry.episode)
 
     /** Saves what was found out about [entry] and puts the updated one in this screen's list. */
     private fun remember(entry: WatchHistory.Entry, imdbId: String?, details: (WatchHistory.Entry) -> WatchHistory.Entry = { it }) {
-        val updated = history.learn(entry.key, imdbId, details) ?: return
+        val updated = history.learn(entry.key, imdbId, details)?.let(::withStream) ?: return
         entries = entries.map { if (it.key == updated.key) updated else it }
         if (hero?.key == updated.key) hero = updated
     }
@@ -391,5 +425,6 @@ class MainActivity : Activity() {
         const val PANEL_OUT_MS = 140L
         const val PANEL_SLIDE = 0.08f
         const val CARD_LIFT = 1.03f
+        const val CARD_DIM = 0.7f
     }
 }

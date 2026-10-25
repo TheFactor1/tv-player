@@ -19,5 +19,7 @@
     <color name="hairline">#1FF3F1EC</color>
     <color name="control_rest_fill">#1FFFFFFF</color>
     <color name="card_ground">#15171A</color>
+    <!-- The focus ring around a home card: the ink, a touch softer so it frames rather than shouts. -->
+    <color name="home_card_ring">#D9F3F1EC</color>
     <color name="panel_scrim">#59000000</color>
 </resources>
