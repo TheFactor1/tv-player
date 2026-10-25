@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Reading the TV's invisible code (a prototype). -->
+    <!-- Pairing by pointing the camera at the TV. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -39,6 +39,10 @@
             android:exported="true"
             android:screenOrientation="landscape"
             android:configChanges="screenSize|screenLayout|keyboardHidden" />
+
+        <activity
+            android:name=".PairingActivity"
+            android:exported="true" />
 
         <activity
             android:name=".CompanionActivity"

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Long-press the app icon: the invisible-code scanner (a prototype). -->
+    <!-- Long-press the app icon. -->
     <shortcut
         android:shortcutId="scan"
         android:enabled="true"
@@ -10,5 +10,15 @@
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.thefactor1.player.phone"
             android:targetClass="com.thefactor1.player.phone.ScannerActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="pairing"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher"
+        android:shortcutShortLabel="@string/pairing_shortcut">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.thefactor1.player.phone"
+            android:targetClass="com.thefactor1.player.phone.PairingActivity" />
     </shortcut>
 </shortcuts>

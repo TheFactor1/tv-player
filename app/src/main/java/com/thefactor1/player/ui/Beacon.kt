@@ -19,7 +19,7 @@ import com.thefactor1.player.companion.BeaconScreen
 import java.lang.ref.WeakReference
 
 /**
- * The invisible pairing code (a prototype): the code's grid over the whole picture, each cell a
+ * The invisible pairing code: the code's grid over the whole picture, each cell a
  * shade brighter on one screen refresh and the same shade darker on the next. The eye averages each
  * pair of refreshes into nothing; a phone camera with a short shutter catches one or the other. It
  * shows only while the phone's scanner asks for it, and only at 50 Hz or more, since at 24 Hz the
@@ -64,6 +64,11 @@ object Beacon : BeaconScreen {
         handler.removeCallbacks(hideLater)
         dialog?.let { if (it.isShowing) it.dismiss() }
         dialog = null
+    }
+
+    override fun phoneConnected(name: String) {
+        val activity = screen?.get()?.takeUnless { it.isFinishing || it.isDestroyed } ?: return
+        PairingCard.connected(activity, Fonts(activity), name)
     }
 
     private fun open(activity: Activity): BeaconView {

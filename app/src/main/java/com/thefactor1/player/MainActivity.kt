@@ -80,6 +80,8 @@ class MainActivity : Activity() {
 
         defaults = DefaultSettings(this, PlayerPrefs(this)) { facts }
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
+        // A phone removed takes its row with it; rebuilt after the press, keeping focus near where it was.
+        defaults.onRowsChanged = { window.decorView.post { settings.show(settings.focusedIndex()) } }
         continueButton.setOnClickListener { hero?.let(::openInSource) }
         settingsButton.setOnClickListener { openPanel() }
         findViewById<View>(R.id.home_empty_settings).setOnClickListener { openPanel() }

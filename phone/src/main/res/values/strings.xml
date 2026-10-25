@@ -23,22 +23,37 @@
     <string name="action_pause">Pause</string>
     <string name="forget">Forget this TV</string>
 
-    <!-- The invisible-code scanner, a prototype. -->
-    <string name="scan_shortcut">Scan the TV</string>
-    <string name="scan_starting">Starting the camera…</string>
-    <string name="scan_aim">Fit the TV picture inside the frame and hold steady.</string>
-    <string name="scan_looking">Looking for the code… %1$d%%</string>
-    <string name="scan_read">Read the TV\'s code in %1$.1f s</string>
-    <string name="scan_wrong">Read %1$d, but that isn\'t the TV\'s code. Still looking…</string>
-    <string name="scan_detail">%1$d%% sure · camera %2$.1f fps · TV %3$.2f Hz · read %4$d times</string>
-    <string name="scan_strength">Stronger (%1$d)</string>
-    <string name="scan_fainter">Fainter</string>
-    <string name="scan_shutter">Shutter 1/%1$d</string>
-    <string name="scan_again">Again</string>
-    <string name="scan_refresh">The TV is running at %1$.2f Hz, which would make the code flicker visibly. Turn off Match frame rate, or try from the TV\'s home screen.</string>
-    <string name="scan_open_tv">Open TV Player on the TV first.</string>
-    <string name="scan_no_tv">Couldn\'t reach the TV.</string>
-    <string name="scan_not_paired">Connect this phone to the TV first, then come back here.</string>
-    <string name="scan_no_camera">The camera isn\'t available.</string>
-    <string name="scan_no_manual">This phone\'s camera can\'t set its own shutter speed, which reading the code needs.</string>
+    <!-- Pairing by pointing the camera at the TV. -->
+    <string name="scan_shortcut">Point at the TV</string>
+    <string name="scan_aim">Point the camera at the TV picture</string>
+    <string name="scan_reading">Reading the TV</string>
+    <string name="scan_steady">Almost. Hold steady</string>
+    <string name="scan_connected">Connected</string>
+    <string name="scan_other_ways">Other ways</string>
+    <string name="scan_refresh">The TV is running at %1$.0f Hz for this film, which would show the code. Use Other ways, or try from the TV\'s home screen.</string>
+    <string name="scan_open_tv">Open TV Player on the TV first</string>
+    <string name="scan_wait">The TV paused pairing for a moment. Try again in half a minute</string>
+    <string name="scan_no_tv">No TV Player found on this Wi-Fi yet</string>
+    <string name="scan_no_camera">The camera isn\'t available</string>
+    <string name="scan_no_manual">This phone\'s camera can\'t read the TV. Use Other ways to connect</string>
+
+    <!-- Other ways to pair, and managing the pairing. -->
+    <string name="find_point">Point at the TV</string>
+    <string name="find_point_detail">Hold your phone up to the picture. Nothing shows on screen.</string>
+    <string name="find_nearby">On this Wi-Fi</string>
+    <string name="find_manual">Enter address and code</string>
+    <string name="manual_title">Enter address and code</string>
+    <string name="manual_detail">Both are in the TV\'s settings, under Phone companion.</string>
+    <string name="manual_address">Address, e.g. 192.168.1.20</string>
+    <string name="manual_code">4-digit code</string>
+    <string name="manual_connect">Connect</string>
+    <string name="manual_wrong">That code didn\'t match. Check the TV\'s settings and try again.</string>
+    <string name="manual_unreachable">Couldn\'t reach a TV at that address.</string>
+    <string name="pairing_title">Pairing</string>
+    <string name="pairing_connected">Connected to %1$s</string>
+    <string name="pairing_again">Pair again</string>
+    <string name="pairing_again_detail">Connect afresh, or to a different TV</string>
+    <string name="pairing_forget">Forget this TV</string>
+    <string name="pairing_forget_detail">The TV forgets this phone too</string>
+    <string name="pairing_shortcut">Pairing</string>
 </resources>

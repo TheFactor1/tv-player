@@ -48,9 +48,25 @@ class TvApi(val host: String, val port: Int, private val token: String?) {
     fun beacon(strength: Int, seconds: Int): Pair<Int, JSONObject> =
         call("POST", "/api/beacon", JSONObject().put("strength", strength).put("seconds", seconds), CALL_TIMEOUT_MS)
 
-    /** True when [code] is the one the TV is showing. */
-    fun beaconMatches(code: Int): Boolean =
-        call("GET", "/api/beacon/check?code=$code", null, CALL_TIMEOUT_MS).second.optBoolean("match")
+    /** Answers the invisible code read off the screen; the token when it's this TV's code. */
+    fun beaconPair(code: Int, device: String): String? {
+        val (status, body) = call("POST", "/api/beacon/pair", JSONObject().put("code", code).put("device", device), CALL_TIMEOUT_MS)
+        return body.optString("token").takeIf { status == 200 && it.isNotEmpty() }
+    }
+
+    /** Pairs with the 4-digit code the TV shows in its settings. The token, or why not ("code", or a status). */
+    fun pair(code: String, device: String): Result<String> = try {
+        val (status, body) = call("POST", "/api/pair", JSONObject().put("code", code).put("device", device), CALL_TIMEOUT_MS)
+        if (status == 200 && body.optString("token").isNotEmpty()) Result.success(body.getString("token"))
+        else Result.failure(IOException(body.optString("error", "status $status")))
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    /** Tells the TV to forget this phone. */
+    fun unpair() {
+        call("POST", "/api/unpair", JSONObject(), PROBE_TIMEOUT_MS)
+    }
 
     /** True when the TV answers at this address with this token. */
     fun reachable(): Boolean = try {
