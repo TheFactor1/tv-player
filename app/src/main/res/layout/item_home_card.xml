@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A Recently played card: the title's backdrop, its name, and how far in. The outer frame is the
-     room the focus ring sits in, so the ring is drawn around the card instead of over its edge. -->
+<!-- A Recently played card: the title's backdrop, its name, and how far in. The card sits in the
+     outer frame by a margin, not padding: a foreground is drawn inside padding, which would put the
+     focus ring on the card's edge instead of around it. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:layout_marginEnd="5dp"
     android:clickable="true"
     android:focusable="true"
-    android:foreground="@drawable/home_card_focus"
-    android:foregroundInsidePadding="false"
-    android:padding="@dimen/home_card_ring_room">
+    android:foreground="@drawable/home_card_focus">
 
     <FrameLayout
         android:id="@+id/card_body"
         android:layout_width="@dimen/home_card_width"
         android:layout_height="95dp"
+        android:layout_margin="@dimen/home_card_ring_room"
         android:background="@drawable/home_card_bg"
         android:duplicateParentState="true">
 
