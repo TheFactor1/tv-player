@@ -92,8 +92,9 @@ object MetaMatch {
         val loose = loosen(wanted)
         return when {
             name == wanted -> 3 + yearScore
-            // "Empire Strikes Back" or "Rocky II" against "The Empire Strikes Back" or "Rocky 2".
-            loosen(name) == loose -> 3 + yearScore - 1
+            // "Empire Strikes Back", "Rocky II" or "Spiderman" against "The Empire Strikes Back",
+            // "Rocky 2" or "Spider-Man".
+            loosen(name).replace(" ", "") == loose.replace(" ", "") -> 3 + yearScore - 1
             // "The Empire Strikes Back" is the last part of "Star Wars: Episode V - The Empire Strikes Back".
             // The whole film part, never the franchise in front ("Dune" isn't "Dune: Part Two"), never
             // against the year, and a one-word name needs the year to back it.

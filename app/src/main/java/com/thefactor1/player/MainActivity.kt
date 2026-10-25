@@ -268,22 +268,22 @@ class MainActivity : Activity() {
                 }
             }
             // The ring fades in with the drawable's own timing; the card rises on the shared focus curve.
+            val body = card.findViewById<View>(R.id.card_body)
+            val raise = resources.getDimension(R.dimen.home_card_raise)
             card.setOnFocusChangeListener { v, hasFocus ->
                 val scale = if (hasFocus) CARD_LIFT else 1f
-                v.animate().scaleX(scale).scaleY(scale)
-                    .setInterpolator(if (hasFocus) Motion.enter else Motion.exit)
-                    .setDuration(if (hasFocus) Motion.FOCUS_MS else Motion.FOCUS_MS * 3 / 4).start()
+                val ease = if (hasFocus) Motion.enter else Motion.exit
+                val ms = if (hasFocus) Motion.FOCUS_MS else Motion.FOCUS_MS * 3 / 4
+                v.animate().scaleX(scale).scaleY(scale).setInterpolator(ease).setDuration(ms).start()
+                // Its shadow deepens as it rises, so it reads as lifted off the page, not just outlined.
+                body.animate().translationZ(if (hasFocus) raise else 0f).setInterpolator(ease).setDuration(ms).start()
                 // After focus has settled, so moving along the row doesn't flicker the cards in between.
                 cards.post(::dimShelf)
             }
-            // OK carries on watching straight away; a title without a kept stream comes up as the big one instead.
+            // OK brings the card up as the big one, with Resume focused; it never starts playing by itself.
             card.setOnClickListener {
-                if (entry.stream != null) {
-                    playHere(entry)
-                } else {
-                    hero = entry
-                    showHome()
-                }
+                hero = entry
+                showHome()
             }
             cards.addView(card)
         }

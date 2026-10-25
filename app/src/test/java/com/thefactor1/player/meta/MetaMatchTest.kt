@@ -80,6 +80,7 @@ class MetaMatchTest {
     fun articlesAndRomanNumeralsAreForgiven() {
         assertEquals("tt1", MetaMatch.pick(MetaQuery("Rocky 2", 1979, null, null), listOf(MetaCandidate("tt1", "Rocky II", "1979")))?.id)
         assertEquals("tt2", MetaMatch.pick(MetaQuery("Batman", null, null, null), listOf(MetaCandidate("tt2", "The Batman", "2022")))?.id)
+        assertEquals("tt9", MetaMatch.pick(MetaQuery("Spiderman Homecoming", 2017, null, null), listOf(MetaCandidate("tt9", "Spider-Man: Homecoming", "2017")))?.id)
         // An exact name still wins over a forgiven one.
         val both = listOf(MetaCandidate("tt2", "The Batman", "2022"), MetaCandidate("tt3", "Batman", "1989"))
         assertEquals("tt3", MetaMatch.pick(MetaQuery("Batman", null, null, null), both)?.id)

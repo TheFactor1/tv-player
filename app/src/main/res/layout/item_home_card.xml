@@ -7,6 +7,7 @@
     android:layout_height="wrap_content"
     android:layout_marginEnd="5dp"
     android:clickable="true"
+    android:clipChildren="false"
     android:focusable="true"
     android:foreground="@drawable/home_card_focus">
 
@@ -16,7 +17,8 @@
         android:layout_height="95dp"
         android:layout_margin="@dimen/home_card_ring_room"
         android:background="@drawable/home_card_bg"
-        android:duplicateParentState="true">
+        android:duplicateParentState="true"
+        android:elevation="@dimen/home_card_elevation">
 
         <ImageView
             android:id="@+id/card_art"

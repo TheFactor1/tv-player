@@ -172,7 +172,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="22dp"
+        android:layout_marginBottom="12dp"
         android:orientation="vertical">
 
         <TextView
@@ -186,7 +186,7 @@
             android:textSize="12sp" />
 
         <!-- Each card carries the room for its own focus ring, so the cards line up with the label at
-             56 dp less that room, and the padding is only for the slight lift. -->
+             56 dp less that room; the padding is for the slight lift and, below, the raised shadow. -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -195,7 +195,7 @@
             android:paddingStart="51.5dp"
             android:paddingTop="5.5dp"
             android:paddingEnd="51.5dp"
-            android:paddingBottom="7.5dp"
+            android:paddingBottom="17.5dp"
             android:scrollbars="none">
 
             <LinearLayout
