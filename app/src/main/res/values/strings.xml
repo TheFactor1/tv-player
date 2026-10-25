@@ -19,6 +19,9 @@
     <string name="home_continue">Continue in %1$s</string>
     <string name="home_open">Open in %1$s</string>
     <string name="home_settings">Settings</string>
+    <string name="home_resume">Resume</string>
+    <string name="home_play">Play</string>
+    <string name="home_play_again">Play again</string>
     <string name="home_recent">RECENTLY PLAYED</string>
     <string name="home_position">%1$s · %2$s</string>
     <string name="home_left_hm">%1$dh %2$dm left</string>

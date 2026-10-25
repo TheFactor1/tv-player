@@ -21,12 +21,13 @@ import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.resume.WatchHistory
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
+import com.thefactor1.player.ui.Motion
 import com.thefactor1.player.ui.OptionList
 import com.thefactor1.player.ui.PairingCard
 import com.thefactor1.player.ui.ThisTv
 
 /**
- * The home screen: the last film played, full screen with its art and a way back into it, the
+ * The home screen: the last film played, full screen with its art and a way to start it again, the
  * other titles played lately along the bottom, and the settings for every video in a side panel.
  * Before anything has been played it says how to open a film in Player instead.
  */
@@ -43,6 +44,7 @@ class MainActivity : Activity() {
     private lateinit var backdrop: ImageView
     private lateinit var logo: ImageView
     private lateinit var title: TextView
+    private lateinit var playButton: TextView
     private lateinit var continueButton: TextView
     private lateinit var settingsButton: TextView
     private lateinit var cards: LinearLayout
@@ -64,6 +66,7 @@ class MainActivity : Activity() {
         backdrop = findViewById(R.id.home_backdrop)
         logo = findViewById(R.id.home_logo)
         title = findViewById(R.id.home_title)
+        playButton = findViewById(R.id.home_play)
         continueButton = findViewById(R.id.home_continue)
         settingsButton = findViewById(R.id.home_settings)
         cards = findViewById(R.id.home_cards)
@@ -71,7 +74,7 @@ class MainActivity : Activity() {
 
         fonts.apply(fonts.bold, title, findViewById(R.id.home_empty_title), findViewById(R.id.settings_title))
         fonts.apply(fonts.semibold, findViewById(R.id.home_kicker), findViewById(R.id.home_meta), findViewById(R.id.home_position),
-            continueButton, settingsButton, findViewById(R.id.home_recent), findViewById(R.id.home_empty_kicker),
+            playButton, continueButton, settingsButton, findViewById(R.id.home_recent), findViewById(R.id.home_empty_kicker),
             findViewById(R.id.home_empty_steps), findViewById(R.id.home_empty_settings), findViewById(R.id.settings_kicker))
         fonts.apply(fonts.medium, findViewById(R.id.home_plot), findViewById(R.id.home_empty_body), findViewById(R.id.settings_hint))
         findViewById<TextView>(R.id.home_empty_steps).text =
@@ -79,6 +82,7 @@ class MainActivity : Activity() {
 
         defaults = DefaultSettings(this, PlayerPrefs(this)) { facts }
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
+        playButton.setOnClickListener { hero?.let(::playHere) }
         continueButton.setOnClickListener { hero?.let(::openInSource) }
         settingsButton.setOnClickListener { openPanel() }
         findViewById<View>(R.id.home_empty_settings).setOnClickListener { openPanel() }
@@ -149,10 +153,11 @@ class MainActivity : Activity() {
         }
         showHero(current)
         showCards(current)
-        if (!panelOpen) {
-            (if (continueButton.visibility == View.VISIBLE) continueButton else settingsButton).requestFocus()
-        }
+        if (!panelOpen) firstButton().requestFocus()
     }
+
+    /** The hero's first button: Resume when the stream was kept, else back to the app, else Settings. */
+    private fun firstButton(): View = listOf(playButton, continueButton).firstOrNull { it.visibility == View.VISIBLE } ?: settingsButton
 
     private fun showHero(entry: WatchHistory.Entry) {
         findViewById<TextView>(R.id.home_kicker).setText(if (entry.watched) R.string.home_watched_kicker else R.string.home_continue_kicker)
@@ -167,11 +172,21 @@ class MainActivity : Activity() {
             entry.watched -> getString(R.string.home_watched)
             else -> getString(R.string.home_position, clock(entry.positionMs), timeLeft(entry))
         }
+        val stream = entry.stream
+        playButton.visibility = if (stream != null) View.VISIBLE else View.GONE
+        playButton.setText(when {
+            entry.watched -> R.string.home_play_again
+            entry.positionMs > 0 -> R.string.home_resume
+            else -> R.string.home_play
+        })
         continueButton.visibility = if (app != null) View.VISIBLE else View.GONE
-        continueButton.text = app?.let { getString(if (entry.watched) R.string.home_open else R.string.home_continue, it) }
+        // With Resume in front, the app is the way to pick another stream: no second play mark.
+        continueButton.text = app?.let { getString(if (entry.watched || stream != null) R.string.home_open else R.string.home_continue, it) }
+        continueButton.setCompoundDrawablesRelativeWithIntrinsicBounds(if (stream != null) null else getDrawable(R.drawable.ic_play), null, null, null)
+        continueButton.setPaddingRelative(dp(if (stream != null) 22 else 18), 0, dp(22), 0)
 
         // Coming back to the same title keeps its art up instead of blanking it and fading it in again.
-        val artKey = listOf(entry.key, entry.imdbId, entry.season, entry.episode).joinToString("|")
+        val artKey = listOf(entry.key, entry.season, entry.episode).joinToString("|")
         if (artKey == shownArtKey && backdrop.drawable != null) return
         shownArtKey = artKey
         title.visibility = View.VISIBLE
@@ -181,11 +196,18 @@ class MainActivity : Activity() {
         backdrop.alpha = 0f
         backdrop.setImageDrawable(null)
         heroArt.cancel()
-        val query = MetaQuery(entry.searchName ?: entry.name, entry.year, entry.season, entry.episode)
-        heroArt.load(query, imdbHint = entry.imdbId, listener = object : ArtworkLoader.Listener {
+        heroArt.load(query(entry), imdbHint = entry.imdbId, listener = object : ArtworkLoader.Listener {
             override fun onDetails(details: MetaDetails) {
                 // Fills in what playback didn't get to: a title that was left before it was recognised.
                 if (entry.description == null) showDetails(details.episodeLine, details.kicker, details.description)
+                // And keeps it, so its card has art next time and the details don't wait on the network.
+                remember(entry, details.imdbId) {
+                    it.copy(
+                        kicker = it.kicker ?: details.kicker,
+                        episodeLine = it.episodeLine ?: details.episodeLine,
+                        description = it.description ?: details.description,
+                    )
+                }
             }
 
             override fun onBackdrop(bitmap: Bitmap) {
@@ -221,9 +243,9 @@ class MainActivity : Activity() {
         val widthPx = resources.getDimensionPixelSize(R.dimen.home_card_width)
         rest.forEach { entry ->
             val card = inflater.inflate(R.layout.item_home_card, cards, false)
-            card.clipToOutline = true
+            card.findViewById<View>(R.id.card_body).clipToOutline = true
             card.id = View.generateViewId()
-            card.nextFocusUpId = R.id.home_continue.takeIf { continueButton.visibility == View.VISIBLE } ?: R.id.home_settings
+            card.nextFocusUpId = firstButton().id
             val name = card.findViewById<TextView>(R.id.card_title)
             name.typeface = fonts.bold
             name.text = entry.name
@@ -232,9 +254,22 @@ class MainActivity : Activity() {
             val fill = card.findViewById<View>(R.id.card_progress_fill)
             fill.layoutParams = fill.layoutParams.apply { width = ((widthPx - 20 * resources.displayMetrics.density) * fraction(entry)).toInt() }
             val art = card.findViewById<ImageView>(R.id.card_art)
-            entry.imdbId?.let { id -> cardArt.backdrop(id, widthPx) { art.setImageBitmap(it) } }
+            val id = entry.imdbId
+            if (id != null) {
+                cardArt.backdrop(id, widthPx) { art.setImageBitmap(it) }
+            } else {
+                // Never recognised while it played: look it up by name now, and keep what's found.
+                cardArt.identify(query(entry)) { found ->
+                    remember(entry, found)
+                    if (card.isAttachedToWindow) cardArt.backdrop(found, widthPx) { art.setImageBitmap(it) }
+                }
+            }
+            // The ring fades in with the drawable's own timing; the card rises on the shared focus curve.
             card.setOnFocusChangeListener { v, hasFocus ->
-                v.animate().scaleX(if (hasFocus) CARD_LIFT else 1f).scaleY(if (hasFocus) CARD_LIFT else 1f).setDuration(CARD_LIFT_MS).start()
+                val scale = if (hasFocus) CARD_LIFT else 1f
+                v.animate().scaleX(scale).scaleY(scale)
+                    .setInterpolator(if (hasFocus) Motion.enter else Motion.exit)
+                    .setDuration(if (hasFocus) Motion.FOCUS_MS else Motion.FOCUS_MS * 3 / 4).start()
             }
             // OK brings the card up as the big one, ready to continue.
             card.setOnClickListener {
@@ -245,10 +280,34 @@ class MainActivity : Activity() {
         }
         // Down from the buttons lands on the first card, not the one under the cursor.
         cards.getChildAt(0)?.let { first ->
-            continueButton.nextFocusDownId = first.id
-            settingsButton.nextFocusDownId = first.id
+            listOf(playButton, continueButton, settingsButton).forEach { it.nextFocusDownId = first.id }
         }
     }
+
+    private fun query(entry: WatchHistory.Entry) = MetaQuery(entry.searchName ?: entry.name, entry.year, entry.season, entry.episode)
+
+    /** Saves what was found out about [entry] and puts the updated one in this screen's list. */
+    private fun remember(entry: WatchHistory.Entry, imdbId: String?, details: (WatchHistory.Entry) -> WatchHistory.Entry = { it }) {
+        val updated = history.learn(entry.key, imdbId, details) ?: return
+        entries = entries.map { if (it.key == updated.key) updated else it }
+        if (hero?.key == updated.key) hero = updated
+    }
+
+    /**
+     * Starts the title's last stream in the player straight from here; the saved position does the
+     * rest. A link that has expired since shows the player's own error, and the source app's button
+     * is still here to pick a fresh stream.
+     */
+    private fun playHere(entry: WatchHistory.Entry) {
+        val stream = entry.stream ?: return
+        try {
+            startActivity(stream.intent(this, entry.imdbId))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.error_no_stream, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     /**
      * Back into the app the title was played from, which hands it to Player again; the saved
@@ -331,7 +390,6 @@ class MainActivity : Activity() {
         const val PANEL_MS = 180L
         const val PANEL_OUT_MS = 140L
         const val PANEL_SLIDE = 0.08f
-        const val CARD_LIFT = 1.06f
-        const val CARD_LIFT_MS = 140L
+        const val CARD_LIFT = 1.03f
     }
 }
