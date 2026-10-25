@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.format.DateFormat
+import android.util.Log
 import android.util.TypedValue
 import android.view.Display
 import android.view.KeyEvent
@@ -475,6 +476,8 @@ class CinemaController(
         artwork.load(query, imdbHint = imdbId, listener = object : ArtworkLoader.Listener {
             override fun onDetails(details: MetaDetails) {
                 this@CinemaController.details = details
+                // What the film was recognised as decides the cast and the phone's transcript, so note it.
+                Log.i(TAG, "Recognised \"${query.name}\" as \"${details.name}\" (${details.imdbId ?: "no IMDb id"})")
                 onDetails?.invoke(details)
                 showDetails()
                 details.imdbId?.let { loadExtras(it, query) }
@@ -578,6 +581,7 @@ class CinemaController(
         refreshSubtitlePanel()
         extras.subtitles(imdbId, query.season, query.episode) { found ->
             onlineSubtitles = found
+            Log.i(TAG, "Online subtitles for $imdbId: ${found.size}")
             val preferred = listOf(prefs.subtitleLanguage.ifEmpty { Locale.getDefault().language }, "en")
             // The launching app's own files first (they match this release), then the best few found online.
             PhoneCompanion.loadTranscript(PhoneCompanion.launchSubtitles + SubtitleLanguages.rank(found, preferred, TRANSCRIPT_TRIES).map { it.url })
@@ -2214,6 +2218,7 @@ class CinemaController(
     }
 
     private companion object {
+        const val TAG = "Cinema"
         const val TRANSCRIPT_TRIES = 3
         val SPEEDS = floatArrayOf(1f, 1.25f, 1.5f, 2f, 0.75f)
         /** The same speeds, slowest first, as the speed list shows them. */

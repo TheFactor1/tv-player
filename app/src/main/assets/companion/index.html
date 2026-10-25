@@ -69,6 +69,10 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
 .rb svg { width: 22px; height: 22px; fill: currentColor; }
 .toast { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); background: var(--ink); color: var(--ground); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 99px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.on { opacity: 1; }
+.transcript-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tonow { position: absolute; left: 50%; bottom: 14px; transform: translate(-50%, 6px); padding: 9px 16px; border-radius: 99px; background: var(--card-2); border: 1px solid var(--line); color: var(--ink); font-weight: 600; font-size: 13.5px; opacity: 0; pointer-events: none; transition: opacity .22s ease, transform .22s ease; }
+.tonow.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.note { color: var(--faint); font-size: 13px; line-height: 1.5; padding: 14px 10px 4px 76px; }
 </style>
 </head>
 <body>
@@ -89,7 +93,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     <button class="tab" role="tab" data-tab="search" aria-selected="false">Search</button>
     <button class="tab" role="tab" data-tab="cast" aria-selected="false">Cast</button>
   </div>
-  <div class="pane" id="transcript"></div>
+  <div class="transcript-wrap" id="transcriptWrap"><div class="pane" id="transcript"></div><button class="tonow" id="toNow">Back to now</button></div>
   <div class="pane" id="search" hidden><div class="search"><input id="q" type="search" placeholder="Search what's said, e.g. why so serious" aria-label="Search the transcript"></div><div id="results"></div></div>
   <div class="pane" id="cast" hidden></div>
   <div class="remote">
@@ -109,7 +113,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   const PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
   let token = null;
   try { token = localStorage.getItem('token'); } catch (e) {}
-  let state = {}, cues = [], transcriptVersion = -1, shownStatus = null, castVersion = -1, nowIndex = -1, lastScroll = 0, tab = 'transcript';
+  let state = {}, cues = [], transcriptVersion = -1, shownStatus = null, castVersion = -1, nowIndex = -1, tab = 'transcript';
 
   const fmt = ms => {
     const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
@@ -119,14 +123,22 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   const norm = t => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim();
   const toast = text => { const t = $('toast'); t.textContent = text; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 1600); };
 
-  async function api(path, body) {
-    const res = await fetch(path, {
-      method: body ? 'POST' : 'GET',
-      headers: Object.assign({ 'X-Token': token || '' }, body ? { 'Content-Type': 'application/json' } : {}),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (res.status === 401) { showPair(); throw new Error('pair'); }
-    return res.json();
+  // Every call gives up after a while, so one answer lost on the Wi-Fi can't stall the page for good.
+  async function api(path, body, waitMs) {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), waitMs || 8000);
+    try {
+      const res = await fetch(path, {
+        method: body ? 'POST' : 'GET',
+        headers: Object.assign({ 'X-Token': token || '' }, body ? { 'Content-Type': 'application/json' } : {}),
+        body: body ? JSON.stringify(body) : undefined,
+        signal: abort.signal,
+      });
+      if (res.status === 401) { showPair(); throw new Error('pair'); }
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   function showPair() { $('main').hidden = true; $('pair').hidden = false; $('code').focus(); }
@@ -150,7 +162,8 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     tab = b.dataset.tab;
     document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === b)));
     ['transcript', 'search', 'cast'].forEach(id => $(id).hidden = id !== tab);
-    if (tab === 'transcript') scrollToNow(true);
+    $('transcriptWrap').hidden = tab !== 'transcript';
+    if (tab === 'transcript') follow(true);
     if (tab === 'search') $('q').focus();
   });
 
@@ -178,22 +191,44 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   function renderTranscript() {
     const pane = $('transcript');
     if (!cues.length) { pane.innerHTML = '<div class="empty">' + emptyNote() + '</div>'; return; }
-    pane.innerHTML = cues.map((c, i) => '<button class="ln" data-i="' + i + '"><span class="ts">' + fmt(c[0]) + '</span><span class="q">' + esc(c[2]) + '</span></button>').join('');
+    pane.innerHTML = cues.map((c, i) => '<button class="ln" data-i="' + i + '"><span class="ts">' + fmt(c[0]) + '</span><span class="q">' + esc(c[2]) + '</span></button>').join('')
+      + (FILLING[state.transcriptStatus] ? '<div class="note">' + FILLING[state.transcriptStatus] + '</div>' : '');
     nowIndex = -1;
   }
-  $('transcript').addEventListener('click', e => { const b = e.target.closest('.ln'); if (b) jump(cues[b.dataset.i][0]); });
-  $('transcript').addEventListener('scroll', () => { if (!scrollToNow.auto) lastScroll = Date.now(); scrollToNow.auto = false; }, { passive: true });
+  // Without a subtitle file the transcript is only what the TV has shown so far, so say why there's nothing ahead.
+  const FILLING = {
+    live: 'No subtitle file was found for this one, so lines appear here as the TV shows them. Nothing to read ahead yet.',
+    failed: 'The subtitle file wouldn’t download, so lines appear here as the TV shows them.',
+    none: 'No subtitle file was found for this one, so lines appear here as the TV shows them.',
+  };
+  /** Same lines with better times (the TV keeps refining its sync): just change the times, so nothing jumps. */
+  function retime() {
+    const rows = $('transcript').querySelectorAll('.ln .ts');
+    rows.forEach((el, i) => { el.textContent = fmt(cues[i][0]); });
+    nowIndex = -1;
+  }
+  $('transcript').addEventListener('click', e => { const b = e.target.closest('.ln'); if (b) { jump(cues[b.dataset.i][0]); follow(true); } });
+  // Scrolling by hand (to read back or ahead) stops the page following the TV until "Back to now".
+  let following = true;
+  const browse = () => { if (!following) return; following = false; $('toNow').classList.add('on'); };
+  ['touchmove', 'wheel'].forEach(type => $('transcript').addEventListener(type, browse, { passive: true }));
+  function follow(jumpNow) {
+    following = true;
+    $('toNow').classList.remove('on');
+    scrollToNow(true, jumpNow);
+  }
+  $('toNow').onclick = () => follow(false);
 
-  function scrollToNow(force) {
+  function scrollToNow(force, instant) {
     const i = cueAt(nowMs());
     const pane = $('transcript');
     if (i !== nowIndex) {
       pane.querySelectorAll('.ln').forEach((el, k) => { el.classList.toggle('now', k === i); el.classList.toggle('past', k < i); });
       nowIndex = i;
     } else if (!force) return;
-    if (tab !== 'transcript' || i < 0 || (!force && Date.now() - lastScroll < 6000)) return;
+    if (tab !== 'transcript' || i < 0 || !following) return;
     const el = pane.children[i];
-    if (el) { scrollToNow.auto = true; pane.scrollTo({ top: el.offsetTop - pane.clientHeight * 0.35, behavior: force ? 'auto' : 'smooth' }); }
+    if (el) pane.scrollTo({ top: el.offsetTop - pane.clientHeight * 0.35, behavior: instant ? 'auto' : 'smooth' });
   }
 
   $('q').addEventListener('input', () => {
@@ -243,14 +278,19 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
       state = stamp(await api('/api/state'));
       showMain();
       if (state.transcriptVersion !== transcriptVersion) {
+        const next = (await api('/api/transcript', null, 20000)).cues;
+        const first = !cues.length;
+        const sameLines = next.length === cues.length && next.every((c, i) => c[2] === cues[i][2]);
+        cues = next;
+        // Only once it's in hand, so a lost answer is asked for again next time.
         transcriptVersion = state.transcriptVersion;
-        cues = (await api('/api/transcript')).cues;
-        renderTranscript();
+        shownStatus = state.transcriptStatus;
+        if (sameLines) retime(); else renderTranscript();
         // Results point into the cue list, so a new list means searching again.
-        if ($('q').value) $('q').dispatchEvent(new Event('input'));
-        scrollToNow(true);
+        if (!sameLines && $('q').value) $('q').dispatchEvent(new Event('input'));
+        scrollToNow(first, first);
       }
-      if (!cues.length && state.transcriptStatus !== shownStatus) { shownStatus = state.transcriptStatus; renderTranscript(); }
+      if (state.transcriptStatus !== shownStatus) { shownStatus = state.transcriptStatus; renderTranscript(); }
       if (state.castVersion !== castVersion) { castVersion = state.castVersion; loadCast(); }
       render();
     } catch (e) {

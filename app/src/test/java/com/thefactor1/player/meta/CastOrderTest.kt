@@ -39,5 +39,8 @@ class CastOrderTest {
         assertEquals(true, CastOrder.sameTitle(listOf("Spider-Man", "Spider-Man"), "Spider Man"))
         assertEquals(false, CastOrder.sameTitle(listOf("Carrie", "Carrie"), "Lanterns"))
         assertEquals(true, CastOrder.sameTitle(listOf("Carrie"), null))
+        assertEquals(true, CastOrder.sameTitle(listOf("Ready or Not 2: Here I Come"), "Ready or Not: Here I Come"))
+        assertEquals(true, CastOrder.sameTitle(listOf("Ready or Not: Here I Come"), "Ready or Not, Here I Come"))
+        assertEquals(false, CastOrder.sameTitle(listOf("Ready or Not"), "Here I Come Again"))
     }
 }
