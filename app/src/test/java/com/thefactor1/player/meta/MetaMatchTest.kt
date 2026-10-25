@@ -86,6 +86,19 @@ class MetaMatchTest {
     }
 
     @Test
+    fun aSequelNumberLeftOutStillMatches() {
+        val sequel = listOf(MetaCandidate("tt5", "Ready or Not 2: Here I Come", "2026"))
+        assertEquals("tt5", MetaMatch.pick(MetaQuery("Ready or Not, Here I Come", 2026, null, null), sequel)?.id)
+        assertEquals("tt5", MetaMatch.pick(MetaQuery("Ready or Not, Here I Come", null, null, null), sequel)?.id)
+        assertNull(MetaMatch.pick(MetaQuery("Ready or Not, Here I Come", 2019, null, null), sequel))
+        // The other way round, a number the source sent is never dropped: "Rocky 2" isn't "Rocky".
+        assertNull(MetaMatch.pick(MetaQuery("Rocky 2", null, null, null), listOf(MetaCandidate("tt6", "Rocky", "1976"))))
+        // And the film without a number wins over its sequel.
+        val both = listOf(MetaCandidate("tt7", "Toy Story 2", "1999"), MetaCandidate("tt8", "Toy Story", "1995"))
+        assertEquals("tt8", MetaMatch.pick(MetaQuery("Toy Story", null, null, null), both)?.id)
+    }
+
+    @Test
     fun otherNamesToSearchBy() {
         assertEquals(listOf("Alien Romulus", "Romulus"), MetaMatch.searchVariants("Alien: Romulus"))
         assertEquals(listOf("Empire Strikes Back"), MetaMatch.searchVariants("The Empire Strikes Back"))

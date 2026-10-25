@@ -8,6 +8,7 @@
     android:clickable="true"
     android:focusable="true"
     android:foreground="@drawable/home_card_focus"
+    android:foregroundInsidePadding="false"
     android:padding="@dimen/home_card_ring_room">
 
     <FrameLayout
