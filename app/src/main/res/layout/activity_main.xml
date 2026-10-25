@@ -186,16 +186,17 @@
             android:textSize="12sp" />
 
         <!-- Each card carries the room for its own focus ring, so the cards line up with the label at
-             56 dp less that room; the padding is for the slight lift and, below, the raised shadow. -->
+             56 dp less that room. A view is clipped to its own bounds, so the row itself is padded
+             wide enough to hold a focused card's slight lift and, below, its raised shadow: the first
+             card's ring used to be cut flat on the left where the row began. -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:clipChildren="false"
             android:clipToPadding="false"
             android:fadingEdge="none"
-            android:paddingStart="51.5dp"
-            android:paddingTop="5.5dp"
-            android:paddingEnd="51.5dp"
-            android:paddingBottom="17.5dp"
+            android:paddingStart="43.5dp"
+            android:paddingEnd="43.5dp"
             android:scrollbars="none">
 
             <LinearLayout
@@ -203,7 +204,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:clipChildren="false"
-                android:orientation="horizontal" />
+                android:clipToPadding="false"
+                android:orientation="horizontal"
+                android:paddingStart="8dp"
+                android:paddingTop="5.5dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="17.5dp" />
         </HorizontalScrollView>
     </LinearLayout>
 
