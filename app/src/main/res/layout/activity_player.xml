@@ -20,6 +20,14 @@
         app:surface_type="surface_view"
         app:use_controller="false" />
 
+    <!-- Phones only: takes the taps, double taps and swipes that land on the picture. -->
+    <View
+        android:id="@+id/touch_surface"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/info_bar"
         android:layout_width="match_parent"
@@ -471,6 +479,39 @@
         android:textColor="@color/ink_dim"
         android:textSize="14sp"
         android:visibility="invisible" />
+
+    <!-- Phones only: brightness or volume while a swipe changes it, a small pill at the top. -->
+    <LinearLayout
+        android:id="@+id/touch_level"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="20dp"
+        android:alpha="0"
+        android:background="@drawable/toast_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="8dp"
+        android:visibility="invisible">
+
+        <ImageView
+            android:id="@+id/touch_level_icon"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_volume"
+            android:tint="@color/ink" />
+
+        <com.thefactor1.player.ui.SeekBarView
+            android:id="@+id/touch_level_bar"
+            android:layout_width="132dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:focusable="false" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/stats_overlay"

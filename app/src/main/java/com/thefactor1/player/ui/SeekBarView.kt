@@ -7,12 +7,14 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 
 /**
  * A thin seek bar for the remote: Left and Right scrub while it has focus, and it thickens with a
- * thumb to show it does. Draws with preallocated paints, so a redraw allocates nothing.
+ * thumb to show it does. On a touchscreen ([onDragEnd] set) it is dragged instead, thickening while
+ * held. Draws with preallocated paints, so a redraw allocates nothing.
  */
 class SeekBarView @JvmOverloads constructor(
     context: Context,
@@ -21,6 +23,16 @@ class SeekBarView @JvmOverloads constructor(
 
     /** Called with how far to jump, in ms; repeats of a held key ask for longer jumps. */
     var onScrub: ((deltaMs: Long) -> Unit)? = null
+
+    /** Touch: the spot under the finger while it's held, in ms. */
+    var onDragMove: ((positionMs: Long) -> Unit)? = null
+    /** Touch: where the finger let go, or null when the drag was taken away (nothing to seek to). */
+    var onDragEnd: ((positionMs: Long?) -> Unit)? = null
+
+    /** A finger is on the bar; the player's own position waits until it lets go. */
+    var isDragging = false
+        private set
+    private var positionBeforeDrag = 0L
 
     private var durationMs = 0L
     private var positionMs = 0L
@@ -51,6 +63,12 @@ class SeekBarView @JvmOverloads constructor(
     }
 
     fun update(positionMs: Long, bufferedMs: Long, durationMs: Long) {
+        if (isDragging) {
+            this.bufferedMs = bufferedMs
+            this.durationMs = durationMs
+            invalidate()
+            return
+        }
         if (positionMs == this.positionMs && bufferedMs == this.bufferedMs && durationMs == this.durationMs) return
         this.positionMs = positionMs
         this.bufferedMs = bufferedMs
@@ -60,8 +78,11 @@ class SeekBarView @JvmOverloads constructor(
 
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
-        // From wherever it is now, so focus passing quickly back and forth never snaps the bar thin.
-        val target = if (gainFocus) 1f else 0f
+        animateFocus(if (gainFocus || isDragging) 1f else 0f)
+    }
+
+    // From wherever it is now, so focus passing quickly back and forth never snaps the bar thin.
+    private fun animateFocus(target: Float) {
         focusAnimator?.cancel()
         focusAnimator = ValueAnimator.ofFloat(focusAmount, target).apply {
             duration = (FOCUS_MS * kotlin.math.abs(target - focusAmount)).toLong()
@@ -72,6 +93,43 @@ class SeekBarView @JvmOverloads constructor(
             }
             start()
         }
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val end = onDragEnd ?: return super.onTouchEvent(event)
+        if (durationMs <= 0 && !isDragging) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                isDragging = true
+                positionBeforeDrag = positionMs
+                animateFocus(1f)
+                dragTo(event.x)
+            }
+            MotionEvent.ACTION_MOVE -> if (isDragging) dragTo(event.x)
+            MotionEvent.ACTION_UP -> if (isDragging) {
+                dragTo(event.x)
+                isDragging = false
+                animateFocus(if (isFocused) 1f else 0f)
+                performClick()
+                end(positionMs)
+            }
+            MotionEvent.ACTION_CANCEL -> if (isDragging) {
+                isDragging = false
+                positionMs = positionBeforeDrag
+                animateFocus(if (isFocused) 1f else 0f)
+                end(null)
+            }
+        }
+        return true
+    }
+
+    private fun dragTo(x: Float) {
+        val left = paddingLeft + thumbReach
+        val span = (width - paddingRight - thumbReach - left).coerceAtLeast(1f)
+        positionMs = (((x - left) / span).coerceIn(0f, 1f) * durationMs).toLong()
+        invalidate()
+        onDragMove?.invoke(positionMs)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
