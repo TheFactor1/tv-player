@@ -21,6 +21,7 @@ import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.resume.WatchHistory
+import com.thefactor1.player.ui.Beacon
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.Motion
@@ -86,6 +87,8 @@ class MainActivity : Activity() {
         defaults = DefaultSettings(this, PlayerPrefs(this)) { facts }
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
         playButton.setOnClickListener { hero?.let(::playHere) }
+        // A phone removed takes its row with it; rebuilt after the press, keeping focus near where it was.
+        defaults.onRowsChanged = { window.decorView.post { settings.show(settings.focusedIndex()) } }
         continueButton.setOnClickListener { hero?.let(::openInSource) }
         settingsButton.setOnClickListener { openPanel() }
         findViewById<View>(R.id.home_empty_settings).setOnClickListener { openPanel() }
@@ -102,6 +105,8 @@ class MainActivity : Activity() {
         super.onStart()
         PhoneCompanion.start(this)
         PhoneCompanion.approver = askToConnect
+        Beacon.attach(this)
+        PhoneCompanion.beaconScreen = Beacon
         // Back from a film: it's now the newest entry, so it takes the big spot.
         entries = history.all().map(::withStream)
         hero = entries.firstOrNull()
@@ -113,6 +118,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
+        Beacon.detach(this)
         PhoneCompanion.stop()
     }
 

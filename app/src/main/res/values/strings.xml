@@ -197,6 +197,14 @@
     <string name="pair_manual">Or open %1$s and enter</string>
     <string name="pair_close">OK or Back to close</string>
     <string name="pair_done">Phone connected</string>
+    <string name="pair_connected">%1$s connected</string>
+    <string name="pair_connected_detail">The transcript and cast are on it now</string>
+    <string name="phones_title">Connected phones</string>
+    <string name="phones_none">None yet</string>
+    <string name="phone_since">Since %1$s · OK to remove</string>
+    <string name="phone_confirm">OK again to remove</string>
+    <string name="phone_remove_hint">OK to remove this phone</string>
+    <string name="phone_confirm_hint">It will need to pair again to connect</string>
     <string name="pair_ask_title">Connect “%1$s”?</string>
     <string name="pair_ask_detail">OK to allow · Back to ignore</string>
 </resources>

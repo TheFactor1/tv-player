@@ -51,6 +51,7 @@ import com.thefactor1.player.resume.ResumePolicy
 import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.resume.TitleKeys
 import com.thefactor1.player.resume.WatchHistory
+import com.thefactor1.player.ui.Beacon
 import com.thefactor1.player.ui.CinemaController
 import com.thefactor1.player.ui.FormatNames
 import com.thefactor1.player.ui.Fonts
@@ -182,12 +183,15 @@ class PlayerActivity : Activity() {
         // or a frame-rate check never shows, but only until the picture moves.
         if (stopped && player == null && request != null) controller.showLoading()
         stopped = false
+        Beacon.attach(this)
+        PhoneCompanion.beaconScreen = Beacon
         initializePlayer()
     }
 
     override fun onStop() {
         super.onStop()
         stopped = true
+        Beacon.detach(this)
         PhoneCompanion.stop()
         releasePlayer()
         switcher.reset()

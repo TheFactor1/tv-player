@@ -2,6 +2,7 @@ package com.thefactor1.player.phone
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -10,17 +11,20 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
+import android.text.InputFilter
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * First run: finds the TV on the Wi-Fi and asks it to let this phone in (one OK on the TV remote).
- * Once paired it goes straight to the companion, and the now-playing notification takes over.
+ * Connecting to a TV, three ways: point the camera at the picture (nothing to press), pick a TV
+ * found on the Wi-Fi (one OK on the TV remote), or type the TV's address and code. Once paired it
+ * goes straight to the companion, and the now-playing notification takes over.
  */
 class MainActivity : Activity() {
     private val store by lazy { TvStore(this) }
@@ -39,7 +43,6 @@ class MainActivity : Activity() {
             finish()
             return
         }
-        store.forget()
         askForNotifications()
         buildScreen()
         finder = TvFinder(this) { tv -> show(tv) }
@@ -63,17 +66,44 @@ class MainActivity : Activity() {
 
     private fun buildScreen() {
         val pad = dp(28)
-        status = text(16f, R.color.ink_secondary, medium()).apply {
+        status = text(15f, R.color.ink_secondary, medium()).apply {
             setText(R.string.find_looking)
-            setPadding(0, dp(10), 0, dp(24))
+            setPadding(0, dp(4), 0, dp(14))
         }
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val point = card().apply {
+            addView(text(18f, R.color.ink, bold()).apply { setText(R.string.find_point) })
+            addView(text(13f, R.color.ink_dim, medium()).apply {
+                setText(R.string.find_point_detail)
+                setPadding(0, dp(3), 0, 0)
+            })
+            setOnClickListener { startActivity(Intent(this@MainActivity, ScannerActivity::class.java)) }
+        }
+        val manual = text(15f, R.color.ink_secondary, bold()).apply {
+            setText(R.string.find_manual)
+            setPadding(0, dp(14), 0, dp(14))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showManual() }
+        }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(pad, dp(96), pad, pad)
-            addView(text(30f, R.color.ink, bold()).apply { setText(R.string.find_title) })
+            setPadding(pad, dp(88), pad, pad)
+            addView(text(30f, R.color.ink, bold()).apply {
+                setText(R.string.find_title)
+                setPadding(0, 0, 0, dp(22))
+            })
+            addView(point, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(28)
+            })
+            addView(text(13f, R.color.ink_dim, bold()).apply {
+                setText(R.string.find_nearby)
+                isAllCaps = true
+                letterSpacing = 0.08f
+            })
             addView(status)
             addView(list)
+            addView(manual)
         }
         setContentView(ScrollView(this).apply {
             isFillViewport = true
@@ -81,21 +111,77 @@ class MainActivity : Activity() {
         })
     }
 
+    private fun card() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(18), dp(20), dp(18))
+        background = GradientDrawable().apply {
+            cornerRadius = dp(14).toFloat()
+            setColor(getColor(R.color.raised))
+            setStroke(dp(1), getColor(R.color.hairline))
+        }
+        isClickable = true
+        isFocusable = true
+    }
+
+    /** The TV's address and the 4-digit code from its settings, for when finding it doesn't work. */
+    private fun showManual() {
+        val address = field(R.string.manual_address, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        store.host?.let { address.setText(it) }
+        val code = field(R.string.manual_code, InputType.TYPE_CLASS_NUMBER).apply {
+            filters = arrayOf(InputFilter.LengthFilter(4))
+        }
+        val error = text(13f, R.color.ink_secondary, medium()).apply { setPadding(0, dp(8), 0, 0) }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(8), dp(4), 0)
+            addView(text(13f, R.color.ink_dim, medium()).apply { setText(R.string.manual_detail) })
+            addView(address)
+            addView(code)
+            addView(error)
+        }
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(R.string.manual_title)
+            .setView(form)
+            .setPositiveButton(R.string.manual_connect, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val host = address.text.toString().trim().substringBefore(':').removePrefix("http://")
+                val typed = code.text.toString().trim()
+                if (host.isEmpty() || typed.length != 4) return@setOnClickListener
+                error.text = ""
+                Thread {
+                    val result = TvApi(host, PORT, null).pair(typed, DeviceName.of(this))
+                    main.post {
+                        result.onSuccess { token ->
+                            dialog.dismiss()
+                            savePairing(FoundTv(TV_NAME, host, PORT), token)
+                        }.onFailure { e ->
+                            error.setText(if (e.message == "code") R.string.manual_wrong else R.string.manual_unreachable)
+                        }
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun field(hint: Int, type: Int) = EditText(this).apply {
+        setHint(hint)
+        inputType = type
+        setSingleLine()
+        setTextColor(getColor(R.color.ink))
+        setHintTextColor(getColor(R.color.ink_dim))
+        typeface = medium()
+    }
+
     private fun show(tv: FoundTv) {
         val key = "${tv.host}:${tv.port}"
         if (key in found) return
         found[key] = tv
         if (!asking) status.setText(R.string.find_pick)
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(18))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(14).toFloat()
-                setColor(getColor(R.color.raised))
-                setStroke(dp(1), getColor(R.color.hairline))
-            }
-            isClickable = true
-            isFocusable = true
+        val row = card().apply {
             addView(text(18f, R.color.ink, bold()).apply { text = tv.name })
             addView(text(13f, R.color.ink_dim, medium()).apply { text = tv.host })
             setOnClickListener { ask(tv) }
@@ -113,8 +199,7 @@ class MainActivity : Activity() {
         if (asking) return
         asking = true
         status.setText(R.string.find_asking)
-        val device = Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME)
-            ?: "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
+        val device = DeviceName.of(this)
         Thread {
             val api = TvApi(tv.host, tv.port, null)
             val request = api.hello(device)
@@ -152,6 +237,7 @@ class MainActivity : Activity() {
     }
 
     private fun savePairing(tv: FoundTv, token: String) {
+        store.forget()
         store.host = tv.host
         store.port = tv.port
         store.name = tv.name
@@ -185,5 +271,8 @@ class MainActivity : Activity() {
         private const val NONE_FOUND_MS = 8_000L
         private const val ANSWER_WAIT_MS = 65_000L
         private const val CHECK_MS = 1_000L
+        private const val PORT = 8765
+        // What every TV Player advertises itself as on the Wi-Fi.
+        const val TV_NAME = "TV Player"
     }
 }

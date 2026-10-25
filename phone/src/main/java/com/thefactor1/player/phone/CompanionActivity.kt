@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
@@ -28,6 +29,8 @@ class CompanionActivity : Activity() {
             settings.domStorageEnabled = true
             setBackgroundColor(getColor(R.color.ground))
             webViewClient = WebViewClient()
+            // The page shows a pairing button when it's opened here rather than in a browser.
+            addJavascriptInterface(Bridge(), "TvCompanionApp")
             // Fade in once the page has drawn, rather than flashing white first.
             alpha = 0f
             visibility = View.INVISIBLE
@@ -63,6 +66,14 @@ class CompanionActivity : Activity() {
                 web.animate().alpha(1f).setStartDelay(FADE_DELAY_MS).setDuration(FADE_MS).start()
             }
         }.start()
+    }
+
+    /** What the TV's page can ask of the app; nothing beyond opening its own screens. */
+    private inner class Bridge {
+        @JavascriptInterface
+        fun openPairing() {
+            main.post { startActivity(Intent(this@CompanionActivity, PairingActivity::class.java)) }
+        }
     }
 
     private fun pairAgain() {

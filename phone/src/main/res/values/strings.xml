@@ -22,4 +22,38 @@
     <string name="action_play">Play</string>
     <string name="action_pause">Pause</string>
     <string name="forget">Forget this TV</string>
+
+    <!-- Pairing by pointing the camera at the TV. -->
+    <string name="scan_shortcut">Point at the TV</string>
+    <string name="scan_aim">Point the camera at the TV picture</string>
+    <string name="scan_reading">Reading the TV</string>
+    <string name="scan_steady">Almost. Hold steady</string>
+    <string name="scan_connected">Connected</string>
+    <string name="scan_other_ways">Other ways</string>
+    <string name="scan_refresh">The TV is running at %1$.0f Hz for this film, which would show the code. Use Other ways, or try from the TV\'s home screen.</string>
+    <string name="scan_open_tv">Open TV Player on the TV first</string>
+    <string name="scan_wait">The TV paused pairing for a moment. Try again in half a minute</string>
+    <string name="scan_no_tv">No TV Player found on this Wi-Fi yet</string>
+    <string name="scan_no_camera">The camera isn\'t available</string>
+    <string name="scan_no_manual">This phone\'s camera can\'t read the TV. Use Other ways to connect</string>
+
+    <!-- Other ways to pair, and managing the pairing. -->
+    <string name="find_point">Point at the TV</string>
+    <string name="find_point_detail">Hold your phone up to the picture. Nothing shows on screen.</string>
+    <string name="find_nearby">On this Wi-Fi</string>
+    <string name="find_manual">Enter address and code</string>
+    <string name="manual_title">Enter address and code</string>
+    <string name="manual_detail">Both are in the TV\'s settings, under Phone companion.</string>
+    <string name="manual_address">Address, e.g. 192.168.1.20</string>
+    <string name="manual_code">4-digit code</string>
+    <string name="manual_connect">Connect</string>
+    <string name="manual_wrong">That code didn\'t match. Check the TV\'s settings and try again.</string>
+    <string name="manual_unreachable">Couldn\'t reach a TV at that address.</string>
+    <string name="pairing_title">Pairing</string>
+    <string name="pairing_connected">Connected to %1$s</string>
+    <string name="pairing_again">Pair again</string>
+    <string name="pairing_again_detail">Connect afresh, or to a different TV</string>
+    <string name="pairing_forget">Forget this TV</string>
+    <string name="pairing_forget_detail">The TV forgets this phone too</string>
+    <string name="pairing_shortcut">Pairing</string>
 </resources>
