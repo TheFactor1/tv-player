@@ -9,4 +9,7 @@
     <!-- The focus ring's line, and the room around a card it sits in (line plus a clear gap). -->
     <dimen name="home_card_ring">2dp</dimen>
     <dimen name="home_card_ring_room">4.5dp</dimen>
+    <!-- A card's shadow at rest, and how much higher it rises when focused. -->
+    <dimen name="home_card_elevation">3dp</dimen>
+    <dimen name="home_card_raise">9dp</dimen>
 </resources>

@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -182,11 +183,46 @@ class ArtworkLoader(context: Context) {
                 if (!wanted()) return null
                 val match = MetaMatch.pick(query, safely { results.get() }.orEmpty()) ?: continue
                 if (!IMDB_ID.matches(match.id)) continue
+                Log.i(TAG, "matched \"${query.name}\" ${query.year ?: ""} to ${match.name} (${match.releaseInfo}) ${match.id} by \"$name\"")
                 saveMatch(query, type, match.id)
                 return type to match.id
             }
         }
+        // Cinemeta's search wants close to its own spelling. IMDb's own search box is far more
+        // forgiving (other titles, sequel numbers, punctuation), and answers with the same ids.
+        if (!wanted()) return null
+        val suggested = safely { suggestions(query.name) }.orEmpty()
+        val match = MetaMatch.pick(query, suggested.filter { query.isSeries == (it.second == "series") }.map { it.first })
+            ?: MetaMatch.pick(query, suggested.map { it.first }).takeIf { !query.isSeries }
+        if (match != null) {
+            val type = suggested.first { it.first === match }.second
+            Log.i(TAG, "matched \"${query.name}\" ${query.year ?: ""} to ${match.name} (${match.releaseInfo}) ${match.id} by IMDb search")
+            saveMatch(query, type, match.id)
+            return type to match.id
+        }
+        Log.i(TAG, "no match for \"${query.name}\" ${query.year ?: ""}${if (query.isSeries) " (series)" else ""}")
         return null
+    }
+
+    /** IMDb's search suggestions for [name], each with "movie" or "series" for the catalogue to ask. */
+    private fun suggestions(name: String): List<Pair<MetaCandidate, String>> {
+        val cleaned = MetaMatch.normalize(name)
+        if (cleaned.isEmpty()) return emptyList()
+        val encoded = URLEncoder.encode(cleaned, "UTF-8").replace("+", "%20")
+        val results = getJson("$IMDB_SUGGEST/${cleaned.first()}/$encoded.json").optJSONArray("d") ?: return emptyList()
+        return (0 until results.length()).mapNotNull { i ->
+            val item = results.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optString("id").takeIf { IMDB_ID.matches(it) } ?: return@mapNotNull null
+            val title = item.optString("l").ifEmpty { return@mapNotNull null }
+            val kind = item.optString("qid")
+            val type = when (kind) {
+                "movie", "tvMovie", "video" -> "movie"
+                "tvSeries", "tvMiniSeries" -> "series"
+                else -> return@mapNotNull null
+            }
+            val year = item.optString("yr").ifEmpty { item.optString("y") }.ifEmpty { null }
+            MetaCandidate(id, title, year) to type
+        }
     }
 
     /**
@@ -372,6 +408,9 @@ class ArtworkLoader(context: Context) {
     private companion object {
         const val CINEMETA = "https://v3-cinemeta.strem.io"
         const val METAHUB = "https://images.metahub.space"
+        const val IMDB_SUGGEST = "https://v3.sg.media-imdb.com/suggestion"
+        /** `adb logcat -s Meta` shows what each title was matched to, or that it wasn't. */
+        const val TAG = "Meta"
         const val TIMEOUT_MS = 5_000
         const val MATCH_TTL_MS = 30L * 24 * 60 * 60 * 1000
         const val META_TTL_MS = 3L * 24 * 60 * 60 * 1000
