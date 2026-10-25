@@ -5,11 +5,8 @@
     <string name="home_this_tv">This TV</string>
     <string name="settings_kicker">SETTINGS</string>
     <string name="settings_title">Every video</string>
-    <string name="settings_audio">Audio</string>
     <string name="settings_subtitles">Subtitles</string>
     <string name="settings_picture">Picture</string>
-    <string name="settings_advanced">Advanced</string>
-    <string name="settings_picture_size">Picture size</string>
     <string name="settings_subs_language_note">Used when subtitles are Always on</string>
     <string name="home_body">Films you play show up here with their art, so you can pick up where you left off.</string>
     <string name="home_step_open">Open a film in Stremio or Nuvio</string>
@@ -28,7 +25,7 @@
     <string name="home_no_app">Couldn\'t open %1$s</string>
     <string name="home_audio_language_hint">The audio track picked when a video starts</string>
     <string name="tv_screen">Screen</string>
-    <string name="tv_screen_sdr">No HDR on this screen, so HDR films play in SDR</string>
+    <string name="tv_screen_sdr">No HDR on this screen, so HDR films are converted to SDR</string>
     <string name="tv_screen_hdr">Plays %1$s as it is</string>
     <string name="tv_sound">Sound</string>
     <string name="tv_sound_pcm">PCM only</string>
@@ -82,7 +79,6 @@
     <string name="panel_more">More</string>
     <string name="subs_off">Off</string>
     <string name="subs_off_detail">No subtitles</string>
-    <string name="subs_size">Subtitle size</string>
     <string name="picture_fit">Fit</string>
     <string name="picture_fit_detail">Original aspect ratio</string>
     <string name="picture_fill">Fill</string>
@@ -101,7 +97,6 @@
     <string name="track_unknown">Track %1$d</string>
     <string name="subs_forced_hint">Only signs and foreign-language lines, so most scenes show nothing</string>
     <string name="subs_unknown">Subtitles %1$d</string>
-    <string name="audio_default_language">Spoken language</string>
     <string name="audio_language_auto">Original (film\'s default)</string>
     <string name="audio_sync">Audio sync</string>
     <string name="audio_sync_none">In sync (no adjustment)</string>
@@ -109,12 +104,10 @@
     <string name="audio_sync_early">Sound early by %1$d ms</string>
     <string name="audio_sync_late_hint">Pick this if voices come after the lips move</string>
     <string name="audio_sync_early_hint">Pick this if voices come before the lips move</string>
-    <string name="audio_output">Audio output</string>
     <string name="audio_output_passthrough">Passthrough</string>
     <string name="audio_output_passthrough_detail">Sends Dolby and DTS untouched to your TV or receiver</string>
     <string name="audio_output_decode_detail">Decodes to multichannel PCM. Try this if audio is silent or crackles</string>
     <string name="audio_output_decode">Decode to PCM</string>
-    <string name="subs_default">Default subtitles</string>
     <string name="subs_mode_auto">Film\'s default</string>
     <string name="subs_mode_off">Off</string>
     <string name="subs_mode_forced">Forced only</string>
@@ -123,7 +116,6 @@
     <string name="subs_mode_off_detail">No subtitles unless you turn them on</string>
     <string name="subs_mode_forced_detail">Only signs and foreign-language lines</string>
     <string name="subs_mode_always_detail">Full subtitles in your chosen language</string>
-    <string name="subs_language">Subtitle language</string>
     <string name="subs_language_device">Device language</string>
     <string name="skip_intro">Skip intro</string>
     <string name="skip_recap">Skip recap</string>
@@ -132,8 +124,6 @@
     <string name="night_mode_detail">Quieter explosions, clearer whispers</string>
     <string name="dialogue_boost">Dialogue boost</string>
     <string name="dialogue_boost_detail">Lifts voices over music and effects</string>
-    <string name="subs_style">Subtitle style</string>
-    <string name="subs_position">Subtitle position</string>
     <string name="subs_timing">Subtitle timing</string>
     <string name="subs_timing_none">In sync (no adjustment)</string>
     <string name="subs_timing_later">%1$s s later</string>
@@ -182,7 +172,6 @@
     <string name="audio_sync_none_hint">Shift the sound if voices and lips drift apart</string>
     <string name="subs_timing_none_hint">Shift the subtitles if lines and speech drift apart</string>
     <string name="companion_jumped">Jumped to %1$s from your phone</string>
-    <string name="settings_phone">Phone</string>
     <string name="companion_title">Phone companion</string>
     <string name="companion_detail">On your phone, open %1$s · code %2$s</string>
     <string name="companion_value">%1$s · %2$s</string>
@@ -196,4 +185,38 @@
     <string name="pair_done">Phone connected</string>
     <string name="pair_ask_title">Connect “%1$s”?</string>
     <string name="pair_ask_detail">OK to allow · Back to ignore</string>
+    <!-- Settings, short labels under their section's heading -->
+    <string name="settings_sound">Sound</string>
+    <string name="setting_language">Language</string>
+    <string name="setting_sync">Sync</string>
+    <string name="setting_enhance">Enhance</string>
+    <string name="setting_output">Output</string>
+    <string name="setting_show">Show</string>
+    <string name="setting_style">Style</string>
+    <string name="setting_size">Size</string>
+    <string name="setting_position">Position</string>
+    <string name="setting_shape">Shape</string>
+    <string name="enhance_off">Off</string>
+    <string name="enhance_night">Night mode</string>
+    <string name="enhance_dialogue">Dialogue boost</string>
+    <string name="enhance_both">Night + dialogue</string>
+    <string name="enhance_off_detail">Night mode evens out loud and quiet scenes; dialogue boost lifts voices</string>
+    <string name="enhance_both_detail">Quieter explosions, clearer whispers, voices lifted</string>
+    <string name="settings_sync_hint">The default; a film or show you set it for keeps its own</string>
+    <!-- HDR to SDR -->
+    <string name="picture_hdr_to_sdr">HDR to SDR</string>
+    <string name="picture_hdr_to_sdr_on">On · the player converts HDR for this screen</string>
+    <string name="picture_hdr_to_sdr_off">Off · the TV box converts it</string>
+    <string name="settings_hdr_hint">For HDR films on a screen without HDR. Off leaves it to the TV box</string>
+    <string name="loading_picture">Changing the picture</string>
+    <string name="fallback_tone_map">Handing HDR back to the TV box</string>
+    <string name="fallback_note_tone_map">HDR by the TV box (player conversion failed)</string>
+    <string name="tone_map_note_player">Player (OpenGL)</string>
+    <string name="tone_map_note_box">TV box</string>
+    <string name="tone_map_note_dolby_vision">TV box (Dolby Vision)</string>
+    <!-- Chapters -->
+    <string name="menu_chapters">Chapters</string>
+    <string name="chapters_value">%1$d of %2$d</string>
+    <string name="chapter_number">Chapter %1$d</string>
+    <string name="chapters_hint">Jump to a chapter. A remote\'s next and previous keys step through them</string>
 </resources>

@@ -1,6 +1,7 @@
 package com.thefactor1.player.playback
 
 import android.content.Context
+import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.MimeTypes
@@ -13,6 +14,10 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.text.TextRenderer
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper
+import androidx.media3.exoplayer.video.VideoFrameReleaseControl
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 /**
  * Renderers with the two switches the fallback chain can flip: Dolby Vision decoded as its HDR10
@@ -61,6 +66,50 @@ class PlayerRenderersFactory(
         out: ArrayList<Renderer>,
     ) {
         out.add(DelayedTextRenderer(TextRenderer(output, outputLooper), subtitleDelay))
+    }
+
+    /**
+     * The usual video renderer, except that once video effects are set (PlayerActivity does, for HDR on an SDR screen) its frames
+     * go through OpenGL and come out tone mapped to SDR. Without effects nothing changes: frames
+     * go straight from the decoder to the screen.
+     */
+    override fun buildVideoRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        allowedVideoJoiningTimeMs: Long,
+        out: ArrayList<Renderer>,
+    ) {
+        val built = ArrayList<Renderer>()
+        super.buildVideoRenderers(
+            context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener,
+            allowedVideoJoiningTimeMs, built,
+        )
+        val index = built.indexOfFirst { it is MediaCodecVideoRenderer }
+        if (index >= 0) {
+            built[index] = ToneMappingVideoRenderer(
+                MediaCodecVideoRenderer.Builder(context)
+                    .setCodecAdapterFactory(getCodecAdapterFactory())
+                    .setMediaCodecSelector(mediaCodecSelector)
+                    .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+                    .setEnableDecoderFallback(enableDecoderFallback)
+                    .setEventHandler(eventHandler)
+                    .setEventListener(eventListener)
+                    .setMaxDroppedFramesToNotify(DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
+            )
+        }
+        out.addAll(built)
+    }
+
+    private class ToneMappingVideoRenderer(builder: MediaCodecVideoRenderer.Builder) : MediaCodecVideoRenderer(builder) {
+        override fun createPlaybackVideoGraphWrapper(
+            context: Context,
+            videoFrameReleaseControl: VideoFrameReleaseControl,
+        ): PlaybackVideoGraphWrapper =
+            super.createPlaybackVideoGraphWrapper(context, videoFrameReleaseControl).apply { setRequestOpenGlToneMapping(true) }
     }
 
     private companion object {

@@ -11,8 +11,8 @@ android {
         applicationId = "com.thefactor1.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 44
-        versionName = "0.9.32"
+        versionCode = 53
+        versionName = "0.9.41"
 
         // X-Ray's cast comes from TMDB; CI passes the key from the TMDB_API_KEY secret. Without one, X-Ray stays off.
         buildConfigField("String", "TMDB_API_KEY", "\"${System.getenv("TMDB_API_KEY").orEmpty().trim()}\"")
@@ -70,6 +70,8 @@ dependencies {
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.ui)
+    // OpenGL tone mapping: HDR played on an SDR screen, converted by the player.
+    implementation(libs.media3.effect)
     implementation(libs.media3.ffmpeg.decoder)
     implementation(libs.zxing.core)
 
