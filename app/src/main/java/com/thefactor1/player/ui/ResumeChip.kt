@@ -3,6 +3,7 @@ package com.thefactor1.player.ui
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -31,6 +32,16 @@ class ResumeChip(activity: Activity, fonts: Fonts) {
     }
 
     val isShowing: Boolean get() = chip.visibility == View.VISIBLE
+
+    /** On a phone: phone-sized, and "Tap to start over" on the chip itself rather than OK twice. */
+    fun useTouch(startOver: () -> Unit) {
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        action.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        key.setText(R.string.resume_key_tap)
+        action.setText(R.string.resume_tap_start_over)
+        chip.setOnClickListener { if (key.visibility == View.VISIBLE) startOver() }
+    }
 
     fun show(text: String) {
         label.text = text

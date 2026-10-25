@@ -122,8 +122,10 @@ class PlayerActivity : Activity() {
         prefs = PlayerPrefs(this)
         resumeStore = ResumeStore(this)
         history = WatchHistory(this)
-        controller = CinemaController(this, playerView, prefs, stats, enhancement, subtitleDelay, onExit = ::finish)
+        // The chip first, so the phone layout finds it in place.
         resumeChip = ResumeChip(this, Fonts(this))
+        controller = CinemaController(this, playerView, prefs, stats, enhancement, subtitleDelay, onExit = ::finish)
+        if (controller.touch) resumeChip.useTouch(::startOver)
         controller.onRetry = ::retryFromScratch
         controller.onDetails = { metaDetails = it }
         controller.onOpenElsewhere = ::openInAnotherPlayer
@@ -177,7 +179,7 @@ class PlayerActivity : Activity() {
         PhoneCompanion.start(this)
         // Back from Home the film loads again from scratch: under the card, so a display switch
         // or a frame-rate check never shows, but only until the picture moves.
-        if (stopped && player == null && request != null) controller.showLoading(brief = true)
+        if (stopped && player == null && request != null) controller.showLoading()
         stopped = false
         initializePlayer()
     }
@@ -416,12 +418,16 @@ class PlayerActivity : Activity() {
         }
         chipOkAt = 0L
         chipTookOk = true
+        startOver()
+        return true
+    }
+
+    private fun startOver() {
         player?.let {
             restartFromBeginning(it)
             it.playWhenReady = true
         }
         resumeChip.confirm(getString(R.string.resume_starting_over))
-        return true
     }
 
     private fun initializePlayer() {
