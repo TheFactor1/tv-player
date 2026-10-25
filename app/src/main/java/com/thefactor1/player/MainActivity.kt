@@ -19,6 +19,7 @@ import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.resume.WatchHistory
+import com.thefactor1.player.ui.Beacon
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.OptionList
@@ -95,6 +96,8 @@ class MainActivity : Activity() {
         super.onStart()
         PhoneCompanion.start(this)
         PhoneCompanion.approver = askToConnect
+        Beacon.attach(this)
+        PhoneCompanion.beaconScreen = Beacon
         // Back from a film: it's now the newest entry, so it takes the big spot.
         entries = history.all()
         hero = entries.firstOrNull()
@@ -106,6 +109,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
+        Beacon.detach(this)
         PhoneCompanion.stop()
     }
 
