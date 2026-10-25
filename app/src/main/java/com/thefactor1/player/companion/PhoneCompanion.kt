@@ -47,6 +47,12 @@ object PhoneCompanion {
         }
     @Volatile private var transcriptVersion = 0
     @Volatile var cast: List<CompanionPerson> = emptyList()
+        set(value) {
+            field = value
+            castVersion++
+        }
+    // Counted per change, not per size: two shows with eight people each are still different casts.
+    @Volatile private var castVersion = 0
 
     /**
      * Asks whoever is on screen whether a phone may connect; null while no screen can ask. Called on
@@ -347,7 +353,7 @@ object PhoneCompanion {
 
     private fun state(): JSONObject {
         val state = onMain { host?.companionState() } ?: JSONObject().put("idle", true)
-        return state.put("transcriptVersion", transcriptVersion).put("transcriptStatus", transcriptStatus).put("castCount", cast.size)
+        return state.put("transcriptVersion", transcriptVersion).put("transcriptStatus", transcriptStatus).put("castCount", cast.size).put("castVersion", castVersion)
     }
 
     private fun transcriptJson(): JSONObject {
