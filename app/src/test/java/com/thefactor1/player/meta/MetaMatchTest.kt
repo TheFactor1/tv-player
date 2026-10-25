@@ -58,6 +58,41 @@ class MetaMatchTest {
     }
 
     @Test
+    fun theFilmPartOfAFranchiseNameMatches() {
+        val candidates = listOf(MetaCandidate("tt0080684", "Star Wars: Episode V - The Empire Strikes Back", "1980"))
+        assertEquals("tt0080684", MetaMatch.pick(MetaQuery("The Empire Strikes Back", null, null, null), candidates)?.id)
+        assertEquals("tt0080684", MetaMatch.pick(MetaQuery("Empire Strikes Back", 1980, null, null), candidates)?.id)
+        // Never against the year.
+        assertNull(MetaMatch.pick(MetaQuery("The Empire Strikes Back", 2004, null, null), candidates))
+    }
+
+    @Test
+    fun theFranchiseInFrontIsNoMatch() {
+        val candidates = listOf(MetaCandidate("tt15239678", "Dune: Part Two", "2024"))
+        assertNull(MetaMatch.pick(MetaQuery("Dune", null, null, null), candidates))
+        // A one-word film part needs the year.
+        val fallout = listOf(MetaCandidate("tt4912910", "Mission: Impossible - Fallout", "2018"))
+        assertNull(MetaMatch.pick(MetaQuery("Fallout", null, null, null), fallout))
+        assertEquals("tt4912910", MetaMatch.pick(MetaQuery("Fallout", 2018, null, null), fallout)?.id)
+    }
+
+    @Test
+    fun articlesAndRomanNumeralsAreForgiven() {
+        assertEquals("tt1", MetaMatch.pick(MetaQuery("Rocky 2", 1979, null, null), listOf(MetaCandidate("tt1", "Rocky II", "1979")))?.id)
+        assertEquals("tt2", MetaMatch.pick(MetaQuery("Batman", null, null, null), listOf(MetaCandidate("tt2", "The Batman", "2022")))?.id)
+        // An exact name still wins over a forgiven one.
+        val both = listOf(MetaCandidate("tt2", "The Batman", "2022"), MetaCandidate("tt3", "Batman", "1989"))
+        assertEquals("tt3", MetaMatch.pick(MetaQuery("Batman", null, null, null), both)?.id)
+    }
+
+    @Test
+    fun otherNamesToSearchBy() {
+        assertEquals(listOf("Alien Romulus", "Romulus"), MetaMatch.searchVariants("Alien: Romulus"))
+        assertEquals(listOf("Empire Strikes Back"), MetaMatch.searchVariants("The Empire Strikes Back"))
+        assertEquals(emptyList<String>(), MetaMatch.searchVariants("Carrie"))
+    }
+
+    @Test
     fun showYearsAreRanges() {
         assertEquals(2019, MetaMatch.firstYear("2019–2023"))
         assertEquals("tt4", MetaMatch.pick(MetaQuery("Crystal Lake", null, 1, 1), listOf(MetaCandidate("tt4", "Crystal Lake", "2025–")))?.id)

@@ -166,18 +166,38 @@ class ArtworkLoader(context: Context) {
 
     // ---- Finding the film --------------------------------------------------------------------
 
-    /** For a film, the movie and series catalogues are searched side by side and a movie wins. */
-    private fun search(query: MetaQuery, ticket: Int): Pair<String, String>? {
+    /**
+     * For a film, the movie and series catalogues are searched side by side and a movie wins. A
+     * name that finds nothing is tried again in its other forms ("Alien Romulus", "Romulus"), since
+     * the catalogue may file it under a longer or shorter name than the source app sent.
+     */
+    private fun search(query: MetaQuery, ticket: Int): Pair<String, String>? =
+        search(query) { ticket == generation }
+
+    private fun search(query: MetaQuery, wanted: () -> Boolean): Pair<String, String>? {
         val types = if (query.isSeries) listOf("series") else listOf("movie", "series")
-        val searches = types.map { type -> type to executor.submit(Callable { searchCatalog(type, query.name) }) }
-        for ((type, results) in searches) {
-            if (ticket != generation) return null
-            val match = MetaMatch.pick(query, safely { results.get() }.orEmpty()) ?: continue
-            if (!IMDB_ID.matches(match.id)) continue
-            saveMatch(query, type, match.id)
-            return type to match.id
+        for (name in listOf(query.name) + MetaMatch.searchVariants(query.name)) {
+            val searches = types.map { type -> type to executor.submit(Callable { searchCatalog(type, name) }) }
+            for ((type, results) in searches) {
+                if (!wanted()) return null
+                val match = MetaMatch.pick(query, safely { results.get() }.orEmpty()) ?: continue
+                if (!IMDB_ID.matches(match.id)) continue
+                saveMatch(query, type, match.id)
+                return type to match.id
+            }
         }
         return null
+    }
+
+    /**
+     * Just the IMDb id for [query], from the disk when it was matched before, for a title the home
+     * screen kept without one. Independent of [load] and [cancel], like [backdrop].
+     */
+    fun identify(query: MetaQuery, onFound: (String) -> Unit) {
+        background {
+            val (_, id) = cachedMatch(query) ?: search(query) { true } ?: return@background
+            main.post { onFound(id) }
+        }
     }
 
     private fun searchCatalog(type: String, name: String): List<MetaCandidate> {
