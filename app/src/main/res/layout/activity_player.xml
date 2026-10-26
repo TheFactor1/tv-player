@@ -123,7 +123,7 @@
         android:paddingStart="64dp"
         android:paddingTop="120dp"
         android:paddingEnd="64dp"
-        android:paddingBottom="24dp"
+        android:paddingBottom="28dp"
         android:visibility="invisible">
 
         <!-- The first Up shows only this: the bar and its times. It sits where the buttons would, and
@@ -397,7 +397,7 @@
         android:paddingStart="51dp"
         android:paddingTop="56dp"
         android:paddingEnd="64dp"
-        android:paddingBottom="22dp"
+        android:paddingBottom="26dp"
         android:visibility="invisible">
 
         <com.thefactor1.player.ui.SeekBarView
