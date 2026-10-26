@@ -223,7 +223,9 @@ class CinemaController(
     var chapters: List<Chapter> = emptyList()
         set(value) {
             field = value
-            seekBar.setMarks(LongArray(value.size) { value[it].startMs })
+            val marks = LongArray(value.size) { value[it].startMs }
+            seekBar.setMarks(marks)
+            miniSeek.setMarks(marks)
         }
     /** The film or episode, once recognised; the home screen lists it with these. */
     var onDetails: ((MetaDetails) -> Unit)? = null
@@ -2125,13 +2127,14 @@ class CinemaController(
         return text
     }
 
-    /** "Chapters  3 of 12", opening the list; none when the stream has no chapters. */
+    /** "Chapters  3 of 12" ("12 chapters" before the first), opening the list; none when the stream has no chapters. */
     private fun chaptersItem(): Item? {
         if (chapters.isEmpty()) return null
         val current = chapterAt(player?.currentPosition ?: 0L)
         return Item(
             activity.getString(R.string.menu_chapters),
-            activity.getString(R.string.chapters_value, current + 1, chapters.size),
+            if (current < 0) activity.getString(R.string.chapters_count, chapters.size)
+            else activity.getString(R.string.chapters_value, current + 1, chapters.size),
             checked = false,
             opens = Page(activity.getString(R.string.menu_chapters)) {
                 val now = chapterAt(player?.currentPosition ?: 0L)
@@ -2272,8 +2275,10 @@ class CinemaController(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            // Audio-only streams never render a frame.
-            if (isPlaying && (firstFrameRendered || player?.videoFormat == null)) hideLoading()
+            // Audio-only streams never render a frame. A video track switched off for a moment (to
+            // restart it with HDR to SDR) is still listed, so its picture is waited for.
+            val audioOnly = player?.let { it.videoFormat == null && !it.currentTracks.containsType(C.TRACK_TYPE_VIDEO) } ?: true
+            if (isPlaying && (firstFrameRendered || audioOnly)) hideLoading()
             if (controlsVisible) scheduleHide()
             if (isPlaying) hidePauseScreen() else schedulePauseScreen()
             updatePlayButton()

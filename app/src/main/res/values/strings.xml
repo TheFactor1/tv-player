@@ -222,6 +222,7 @@
     <string name="tone_map_note_dolby_vision">TV box (Dolby Vision)</string>
     <!-- Chapters -->
     <string name="menu_chapters">Chapters</string>
+    <string name="chapters_count">%1$d chapters</string>
     <string name="chapters_value">%1$d of %2$d</string>
     <string name="chapter_number">Chapter %1$d</string>
     <string name="chapters_hint">Jump to a chapter. A remote\'s next and previous keys step through them</string>
