@@ -8,40 +8,82 @@ import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.playback.PlayerPrefs.SubtitleMode
 
 /**
- * The settings that apply to every video, and what this TV can do, as rows for the home screen's
- * panel: four short sections, each row named in a word or two under its heading.
+ * The settings that apply to every video, and what this TV can do, as pages for the home screen's
+ * settings: the everyday choices on the first page, the subtitle look and the set-once rest one step in.
+ * Each row names what it previews beside the list.
  */
 class DefaultSettings(private val context: Context, private val prefs: PlayerPrefs, private val thisTv: () -> List<ThisTv.Fact>) {
 
-    fun rows(): List<OptionList.RowSpec> = listOf(
-        heading(R.string.settings_sound),
-        item { audioLanguage() },
-        item { enhance() },
-        item { audioSync() },
-        item { audioOutput() },
-        heading(R.string.settings_subtitles),
-        item { subtitleMode() },
-        item { subtitleLanguage() },
-        item { subtitleStyle() },
-        item { subtitleSize() },
-        item { subtitlePosition() },
-        heading(R.string.settings_picture),
-        item { pictureFit() },
-        item { matchFrameRate() },
-        item { hdrToSdr() },
-        item { filmColours() },
-        heading(R.string.home_this_tv),
-        item { phoneCompanion() },
-    ) + thisTv().map { fact -> item { Option(fact.label, fact.value, fact.note) } }
+    fun rows(page: String): List<OptionList.RowSpec> = when (page) {
+        LOOK -> listOf(item { subtitleStyle() }, item { subtitleSize() }, item { subtitlePosition() })
+        MORE -> listOf(
+            item { audioSync() },
+            item { audioOutput() },
+            item { matchFrameRate() },
+            item { hdrToSdr() },
+            item { filmColours() },
+            item { phoneCompanion() },
+            item { aboutTv() },
+        )
+        TV -> thisTv().map { fact -> item { Option(fact.label, fact.value, fact.note) } }
+        else -> listOf(
+            item { subtitleMode() },
+            item { subtitleLanguage() },
+            item { subtitleLook() },
+            item { audioLanguage() },
+            item { enhance() },
+            item { pictureFit() },
+            item { more() },
+        )
+    }
 
-    private fun heading(text: Int) = OptionList.RowSpec.Heading(context.getString(text))
+    /** The page's name over its list. */
+    fun title(page: String): String = context.getString(
+        when (page) {
+            LOOK -> R.string.setting_look
+            MORE -> R.string.setting_more
+            TV -> R.string.setting_about_tv
+            else -> R.string.settings_title
+        },
+    )
+
+    /** The page Back returns to, or null on the first. */
+    fun parent(page: String): String? = when (page) {
+        LOOK, MORE -> OptionList.ROOT
+        TV -> MORE
+        else -> null
+    }
+
     private fun item(option: () -> Option) = OptionList.RowSpec.Item(option)
 
-    private fun audioLanguage() = languageOption(R.string.setting_language, R.string.audio_language_auto,
-        R.string.home_audio_language_hint, prefs.audioLanguage) { prefs.audioLanguage = it }
+    private fun subtitleLook() = Option(
+        context.getString(R.string.setting_look),
+        context.getString(R.string.setting_look_value, PlayerPrefs.SUBTITLE_STYLES[prefs.subtitleStyle].name,
+            PlayerPrefs.SUBTITLE_SIZES[prefs.subtitleSize].name),
+        context.getString(R.string.setting_look_hint),
+        opens = LOOK,
+        preview = Preview.SUBTITLES,
+    )
 
-    private fun subtitleLanguage() = languageOption(R.string.setting_language, R.string.subs_language_device,
-        R.string.settings_subs_language_note, prefs.subtitleLanguage) { prefs.subtitleLanguage = it }
+    private fun more() = Option(
+        context.getString(R.string.setting_more),
+        context.getString(R.string.setting_more_value),
+        context.getString(R.string.setting_more_hint),
+        opens = MORE,
+    )
+
+    private fun aboutTv() = Option(
+        context.getString(R.string.setting_about_tv),
+        thisTv().firstOrNull()?.value,
+        context.getString(R.string.setting_about_tv_hint),
+        opens = TV,
+    )
+
+    private fun audioLanguage() = languageOption(R.string.setting_spoken_language, R.string.audio_language_auto,
+        R.string.home_audio_language_hint, prefs.audioLanguage, Preview.SOUND) { prefs.audioLanguage = it }
+
+    private fun subtitleLanguage() = languageOption(R.string.setting_subtitle_language, R.string.subs_language_device,
+        R.string.settings_subs_language_note, prefs.subtitleLanguage, Preview.SUBTITLES) { prefs.subtitleLanguage = it }
 
     private fun audioSync(): Option {
         val delays = PlayerPrefs.AUDIO_DELAYS_MS
@@ -50,6 +92,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
             AudioSyncNames.short(context, prefs.audioDelayMs),
             context.getString(R.string.settings_sync_hint),
             steps = Steps(delays.indexOf(prefs.audioDelayMs).coerceAtLeast(0), delays.size) { prefs.audioDelayMs = delays[it] },
+            preview = Preview.SOUND,
         )
     }
 
@@ -66,16 +109,18 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
                 prefs.nightMode = it and 1 != 0
                 prefs.dialogueBoost = it and 2 != 0
             },
+            preview = Preview.SOUND,
         )
     }
 
     private fun subtitleMode(): Option {
         val modes = SubtitleMode.entries
         return Option(
-            context.getString(R.string.setting_show),
+            context.getString(R.string.setting_subtitles),
             context.getString(modeLabel(prefs.subtitleMode)),
             context.getString(modeDetail(prefs.subtitleMode)),
             steps = Steps(prefs.subtitleMode.ordinal, modes.size) { prefs.subtitleMode = modes[it] },
+            preview = Preview.SUBTITLES,
         )
     }
 
@@ -84,6 +129,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         return Option(
             context.getString(R.string.setting_style), style.name, style.detail,
             steps = Steps(prefs.subtitleStyle, PlayerPrefs.SUBTITLE_STYLES.size) { prefs.subtitleStyle = it },
+            preview = Preview.SUBTITLES,
         )
     }
 
@@ -92,6 +138,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         PlayerPrefs.SUBTITLE_SIZES[prefs.subtitleSize].name,
         context.getString(R.string.menu_size_hint),
         steps = Steps(prefs.subtitleSize, PlayerPrefs.SUBTITLE_SIZES.size) { prefs.subtitleSize = it },
+        preview = Preview.SUBTITLES,
     )
 
     private fun subtitlePosition(): Option {
@@ -99,6 +146,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         return Option(
             context.getString(R.string.setting_position), position.name, position.detail,
             steps = Steps(prefs.subtitlePosition, PlayerPrefs.SUBTITLE_POSITIONS.size) { prefs.subtitlePosition = it },
+            preview = Preview.SUBTITLES,
         )
     }
 
@@ -114,6 +162,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
             context.getString(fits[index].first),
             context.getString(fits[index].second),
             steps = Steps(index, fits.size) { prefs.resizeMode = fits[it].third },
+            preview = Preview.SHAPE,
         )
     }
 
@@ -154,9 +203,10 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         context.getString(if (prefs.decodeAudio) R.string.audio_output_decode else R.string.audio_output_passthrough),
         context.getString(if (prefs.decodeAudio) R.string.audio_output_decode_detail else R.string.audio_output_passthrough_detail),
         steps = Steps(if (prefs.decodeAudio) 1 else 0, 2) { prefs.decodeAudio = it == 1 },
+        preview = Preview.SOUND,
     )
 
-    private fun languageOption(title: Int, noPreference: Int, hint: Int, current: String, pick: (String) -> Unit): Option {
+    private fun languageOption(title: Int, noPreference: Int, hint: Int, current: String, preview: Preview, pick: (String) -> Unit): Option {
         val languages = PlayerPrefs.LANGUAGES
         val index = languages.indexOfFirst { it.code == current }.coerceAtLeast(0)
         return Option(
@@ -164,6 +214,7 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
             languages[index].name.ifEmpty { context.getString(noPreference) },
             context.getString(hint),
             steps = Steps(index, languages.size) { pick(languages[it].code) },
+            preview = preview,
         )
     }
 
@@ -179,5 +230,11 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         SubtitleMode.OFF -> R.string.subs_mode_off_detail
         SubtitleMode.FORCED_ONLY -> R.string.subs_mode_forced_detail
         SubtitleMode.ALWAYS -> R.string.subs_mode_always_detail
+    }
+
+    companion object {
+        private const val LOOK = "look"
+        private const val MORE = "more"
+        private const val TV = "tv"
     }
 }
