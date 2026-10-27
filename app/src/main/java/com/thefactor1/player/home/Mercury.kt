@@ -66,13 +66,32 @@ object Mercury {
         )
     }
 
-    /** "2023 · 1 H 55 MIN · MUSICAL · 4K · ATMOS", plus the next episode or "IN YOUR LIBRARY" where they apply. */
+    /** "2023 · 1 H 55 MIN · MUSICAL · 4K · ATMOS", plus "IN YOUR LIBRARY" where it applies. */
     fun credits(item: HubItem, showLibrary: Boolean): String {
         val runtime = item.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60} H ${it % 60} MIN" else "$it MIN" }
-        val next = item.nextEpisode?.let { listOfNotNull("S${it.season} E${it.episode}", it.title).joinToString(" ") }
         val library = if (showLibrary && item.inLibrary) "IN YOUR LIBRARY" else null
-        return listOfNotNull(next, item.year?.toString(), runtime, item.genres.firstOrNull(), *item.badges.all().toTypedArray(), library)
+        return listOfNotNull(item.year?.toString(), runtime, item.genres.firstOrNull(), *item.badges.all().toTypedArray(), library)
             .joinToString(" · ")
             .uppercase()
     }
+
+    /**
+     * Where you are in a title, the same words wherever it appears: "S02E03 · 42 MIN LEFT",
+     * "42 MIN LEFT", or "NEXT · S02E03" for a show not yet started on that episode.
+     */
+    fun status(item: HubItem): String? {
+        val resume = item.resume?.takeIf { it.durationMs > 0 && it.positionMs > 0 }
+        val left = resume?.let { ((it.durationMs - it.positionMs) / 60_000).coerceAtLeast(1) }
+        val episode = item.nextEpisode?.let { String.format(java.util.Locale.US, "S%02dE%02d", it.season, it.episode) }
+        return when {
+            episode != null && left != null -> "$episode · $left MIN LEFT"
+            episode != null -> "NEXT · $episode"
+            left != null -> "$left MIN LEFT"
+            else -> null
+        }
+    }
+
+    /** How far into [item] the shared resume point is, 0–1, or null when there isn't one. */
+    fun progress(item: HubItem): Float? =
+        item.resume?.takeIf { it.durationMs > 0 && it.positionMs > 0 }?.let { (it.positionMs.toFloat() / it.durationMs).coerceIn(0f, 1f) }
 }

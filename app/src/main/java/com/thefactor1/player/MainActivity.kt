@@ -16,9 +16,11 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.edit
 import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.home.HomeArt
 import com.thefactor1.player.home.HomePlay
 import com.thefactor1.player.home.Mercury
 import com.thefactor1.player.home.PairingSetup
+import com.thefactor1.player.home.PosterView
 import com.thefactor1.player.home.Refine
 import com.thefactor1.player.home.RefineSheet
 import com.thefactor1.player.home.SearchScreen
@@ -26,17 +28,14 @@ import com.thefactor1.player.home.TitlePage
 import com.thefactor1.player.hub.Catalog
 import com.thefactor1.player.hub.FoundHub
 import com.thefactor1.player.hub.HubClient
+import com.thefactor1.player.hub.HubImages
 import com.thefactor1.player.hub.HubItem
 import com.thefactor1.player.hub.HubStream
-import com.thefactor1.player.hub.HubUnauthorized
 import com.thefactor1.player.hub.HubVault
 import com.thefactor1.player.hub.NextEpisode
 import com.thefactor1.player.hub.PlayInfo
 import com.thefactor1.player.hub.Quality
 import com.thefactor1.player.launch.IntentContract
-import com.thefactor1.player.meta.ArtworkLoader
-import com.thefactor1.player.meta.MetaDetails
-import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.ui.DefaultSettings
@@ -66,8 +65,6 @@ class MainActivity : Activity() {
     private lateinit var vault: HubVault
     private val homePrefs by lazy { getSharedPreferences("home", MODE_PRIVATE) }
     private val facts by lazy { ThisTv.facts(this, prefs) }
-    private val heroArt by lazy { ArtworkLoader(this) }
-    private val cardArt by lazy { ArtworkLoader(this) }
     private val main = Handler(Looper.getMainLooper())
     private var client: HubClient? = null
 
@@ -106,9 +103,7 @@ class MainActivity : Activity() {
     /** Bumped on every new load, so an answer for a tab already left is dropped. */
     private var loadTicket = 0
     private var artId: String? = null
-    private var artFirst = true
     private var frontIsB = false
-    private var logo: Pair<String, Bitmap>? = null
     private var panelList: OptionList? = null
     private var panelOpen = false
     private var beforePanel: View? = null
@@ -139,7 +134,8 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.home_fade).background = Mercury.backdropFade(this)
         scroll.layoutParams.width = (resources.displayMetrics.widthPixels * LIST_WIDTH).toInt()
 
-        fonts.apply(fonts.ui, message, playPill, keepPill, findViewById(R.id.home_details))
+        fonts.apply(fonts.ui, message, playPill, keepPill, findViewById(R.id.home_details), findViewById(R.id.home_hero_overview))
+        fonts.apply(fonts.mercuryMono, findViewById(R.id.home_hero_credits))
         fonts.apply(fonts.bold, findViewById(R.id.settings_title))
         fonts.apply(fonts.semibold, findViewById(R.id.settings_kicker))
         fonts.apply(fonts.medium, findViewById(R.id.settings_hint))
@@ -158,7 +154,7 @@ class MainActivity : Activity() {
         }, ::openSettings)
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
         titlePage = TitlePage(findViewById(R.id.home_title_page), fonts, ::play, ::showVersions, ::keep)
-        search = SearchScreen(findViewById(R.id.home_search), fonts, cardArt,
+        search = SearchScreen(findViewById(R.id.home_search), fonts,
             { query, done -> client?.run({ this.search(query) }, done) },
             { showArt(it) },
             ::openTitle)
@@ -288,6 +284,8 @@ class MainActivity : Activity() {
                 // A library collection comes whole; a page that adds nothing new is the end of a catalog.
                 if (tab.collection != null || fresh.isEmpty()) exhausted = true
                 all = (if (reset) emptyList() else all) + fresh
+                // Continue is "what was I watching": the latest-watched first, whatever order the hub sent.
+                if (tab.collection == "continue") all = all.sortedByDescending { it.resume?.updatedAt ?: 0L }
                 render()
             }.onFailure { error ->
                 exhausted = true
@@ -445,21 +443,46 @@ class MainActivity : Activity() {
         sheet.update(all)
     }
 
+    /** A row: the poster (with progress), the name, and the status line under it. */
     private fun row(item: HubItem): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
+        gravity = android.view.Gravity.CENTER_VERTICAL
         isFocusable = true
         isClickable = true
-        addView(Mercury.text(this@MainActivity, fonts.display, ROW_SIZE, tracking = -0.03f).apply { text = item.title })
-        val credits = Mercury.text(this@MainActivity, fonts.mercuryMono, 11f, R.color.mercury_muted, 0.14f).apply {
-            text = Mercury.credits(item, showLibrary = TABS[tabIndex].collection == null)
-            visibility = View.GONE
-        }
-        addView(credits, wrap(top = 8f))
+        val posterGap = Mercury.dp(this, 16f)
+        addView(PosterView(this@MainActivity), LinearLayout.LayoutParams(Mercury.dp(this, POSTER_W_DP), Mercury.dp(this, POSTER_H_DP)).apply {
+            marginEnd = posterGap
+        })
+        val words = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+        words.addView(Mercury.text(this@MainActivity, fonts.display, ROW_SIZE, tracking = -0.03f))
+        words.addView(Mercury.text(this@MainActivity, fonts.mercuryMono, 11f, R.color.mercury_muted, 0.14f), wrap(top = 6f))
+        addView(words, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         alpha = Mercury.ROW_REST
-        val gap = Mercury.dp(this, 13f)
+        val gap = Mercury.dp(this, 12f)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = gap }
         setOnFocusChangeListener { v, has -> if (has) select(list.indexOfChild(v)) }
-        setOnClickListener { openTitle(item) }
+        setOnClickListener { selected()?.let(::openTitle) }
+        bindRow(this, item)
+        client?.let { hub -> HomeArt.complete(hub, item, ::replaceItem) }
+    }
+
+    private fun bindRow(row: View, item: HubItem) {
+        val group = row as LinearLayout
+        (group.getChildAt(0) as PosterView).bind(item, Mercury.dp(row, POSTER_W_DP * 2))
+        val words = group.getChildAt(1) as LinearLayout
+        (words.getChildAt(0) as TextView).text = item.title
+        val status = words.getChildAt(1) as TextView
+        val library = if (TABS[tabIndex].collection == null && item.inLibrary) getString(R.string.home_in_library) else null
+        status.text = Mercury.status(item) ?: library ?: item.year?.toString()
+    }
+
+    /** A fuller record arrived for a title on screen (art, year): it replaces the old one in place. */
+    private fun replaceItem(fresh: HubItem) {
+        all = all.map { if (it.id == fresh.id) fresh else it }
+        val index = shown.indexOfFirst { it.id == fresh.id }
+        if (index < 0) return
+        shown = shown.toMutableList().also { it[index] = fresh }
+        list.getChildAt(index)?.let { bindRow(it, fresh) }
+        if (fresh.id == selectedId) showHero(fresh)
     }
 
     private fun selected(): HubItem? = shown.firstOrNull { it.id == selectedId }
@@ -472,6 +495,7 @@ class MainActivity : Activity() {
             selectedId = item.id
             list.getChildAt(index)?.let { style(it, true) }
             showArt(item)
+            showHero(item)
         }
         keepPill.visibility = if (item.inLibrary) View.GONE else View.VISIBLE
         val row = list.getChildAt(index) ?: return
@@ -480,11 +504,9 @@ class MainActivity : Activity() {
     }
 
     private fun style(row: View, on: Boolean) {
-        val group = row as LinearLayout
-        val name = group.getChildAt(0) as TextView
+        val name = ((row as LinearLayout).getChildAt(1) as LinearLayout).getChildAt(0) as TextView
         name.textSize = if (on) ROW_SIZE_ON else ROW_SIZE
         name.maxLines = if (on) 2 else 1
-        group.getChildAt(1).visibility = if (on) View.VISIBLE else View.GONE
         row.animate().alpha(if (on) 1f else Mercury.ROW_REST).setDuration(Motion.FOCUS_MS).setInterpolator(Motion.enter).start()
     }
 
@@ -509,23 +531,21 @@ class MainActivity : Activity() {
         if (item.id != artId) main.postDelayed(loadArt, ART_DELAY_MS)
     }
 
-    // shortcut: art comes from Cinemeta/metahub by IMDb id (the existing loader and its disk cache), not the hub's own URLs; switch if the hub ever serves non-IMDb ids or its own art.
     private fun loadArtNow(item: HubItem) {
         artId = item.id
-        artFirst = true
-        heroArt.load(MetaQuery(item.title, item.year, null, null), imdbHint = item.id, listener = object : ArtworkLoader.Listener {
-            override fun onDetails(details: MetaDetails) = Unit
+        val url = HomeArt.backdrop(item) ?: return
+        HubImages.load(url, resources.displayMetrics.widthPixels) { bitmap ->
+            if (bitmap != null && artId == item.id) crossfade(bitmap)
+        }
+    }
 
-            override fun onBackdrop(bitmap: Bitmap) {
-                if (artFirst) crossfade(bitmap) else (if (frontIsB) artB else artA).setImageBitmap(bitmap)
-                artFirst = false
-            }
-
-            override fun onLogo(bitmap: Bitmap) {
-                logo = item.id to bitmap
-                if (titlePage.item?.id == item.id) titlePage.showLogo(bitmap)
-            }
-        })
+    /** The right-hand block over the backdrop: logo if there is one, the credits in mono, three lines of overview. */
+    private fun showHero(item: HubItem) {
+        val logo = findViewById<ImageView>(R.id.home_hero_logo)
+        logo.visibility = View.GONE
+        HomeArt.into(logo, HomeArt.logo(item), Mercury.dp(logo, 360f)) { logo.visibility = View.VISIBLE }
+        findViewById<TextView>(R.id.home_hero_credits).text = Mercury.credits(item, showLibrary = TABS[tabIndex].collection == null)
+        findViewById<TextView>(R.id.home_hero_overview).text = item.overview
     }
 
     /** The new art fades in over the old, or the old fades off the new, so there is never a gap to black. */
@@ -550,7 +570,9 @@ class MainActivity : Activity() {
         if (!titlePage.isOpen) beforeTitle = currentFocus
         showArt(item)
         titlePage.open(item)
-        logo?.takeIf { it.first == item.id }?.let { titlePage.showLogo(it.second) }
+        HomeArt.logo(item)?.let { url ->
+            HubImages.load(url, Mercury.dp(body, 400f)) { bitmap -> if (bitmap != null && titlePage.item?.id == item.id) titlePage.showLogo(bitmap) }
+        }
         hideChrome(true)
         // The list and search carry less than the full record; fill in the overview and badges.
         client?.run({ meta(item) }) done@{ result ->
@@ -841,8 +863,11 @@ class MainActivity : Activity() {
             Tab(R.string.home_tab_browse, null),
         )
         const val LIST_WIDTH = 0.46f
-        const val ROW_SIZE = 21f
-        const val ROW_SIZE_ON = 42f
+        const val ROW_SIZE = 19f
+        const val ROW_SIZE_ON = 30f
+        /** A row's poster, 2:3. */
+        const val POSTER_W_DP = 64f
+        const val POSTER_H_DP = 96f
         /** How close to the end of a paged list the next page is fetched. */
         const val PAGE_AHEAD = 6
         const val ART_DELAY_MS = 140L

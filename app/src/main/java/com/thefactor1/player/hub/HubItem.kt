@@ -36,6 +36,9 @@ data class HubItem(
     val keptAt: Long?,
     val resume: HubResume?,
     val nextEpisode: NextEpisode?,
+    /** Art as the hub serves it; null when it has none, and then the Cinemeta lookup stands in. */
+    val poster: String? = null,
+    val backdrop: String? = null,
 ) {
     val isSeries: Boolean get() = type == "series"
 }
@@ -95,6 +98,8 @@ object HubJson {
                 val episode = next.int("e") ?: return@let null
                 NextEpisode(season, episode, next.text("title"))
             },
+            poster = json.text("poster"),
+            backdrop = json.text("backdrop") ?: json.text("background"),
         )
     }
 

@@ -3,17 +3,14 @@ package com.thefactor1.player.home
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.thefactor1.player.R
 import com.thefactor1.player.hub.HubItem
-import com.thefactor1.player.meta.ArtworkLoader
 import com.thefactor1.player.ui.FocusGlide
 import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.Motion
@@ -25,7 +22,6 @@ import com.thefactor1.player.ui.Motion
 class SearchScreen(
     private val root: FrameLayout,
     private val fonts: Fonts,
-    private val art: ArtworkLoader,
     private val search: (String, (Result<List<HubItem>>) -> Unit) -> Unit,
     private val onFocusItem: (HubItem) -> Unit,
     private val onOpen: (HubItem) -> Unit,
@@ -187,22 +183,18 @@ class SearchScreen(
     private fun showResults(items: List<HubItem>) {
         // Rebuilt from scratch, so a key keeps focus while results change under it.
         results.removeAllViews()
-        val inflater = LayoutInflater.from(context)
         val cardWidth = (root.resources.displayMetrics.widthPixels * (1 - LEFT_WIDTH) - Mercury.dp(root, 24f + Mercury.SAFE_X + 12f + 18f)).toInt() / 2
         items.chunked(2).forEach { pair ->
             val line = LinearLayout(context)
             pair.forEachIndexed { index, item ->
                 val cell = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-                val card = inflater.inflate(R.layout.item_home_card, cell, false)
-                card.layoutParams = LinearLayout.LayoutParams(cardWidth, cardWidth * 9 / 16)
-                card.clipToOutline = true
-                card.findViewById<View>(R.id.card_progress).visibility = View.GONE
-                card.findViewById<TextView>(R.id.card_title).apply {
-                    typeface = fonts.ui
-                    text = item.title
+                val card = PosterView(context, backdrop = true).apply {
+                    foreground = context.getDrawable(R.drawable.home_card_focus)
+                    isFocusable = true
+                    isClickable = true
+                    bind(item, cardWidth)
                 }
-                val image = card.findViewById<ImageView>(R.id.card_art)
-                art.backdrop(item.id, cardWidth) { image.setImageBitmap(it) }
+                card.layoutParams = LinearLayout.LayoutParams(cardWidth, cardWidth * 9 / 16)
                 card.setOnClickListener { onOpen(item) }
                 card.setOnFocusChangeListener { v, has ->
                     if (has) onFocusItem(item)
@@ -210,9 +202,12 @@ class SearchScreen(
                     v.animate().scaleX(scale).scaleY(scale).setDuration(Motion.FOCUS_MS).setInterpolator(Motion.enter).start()
                 }
                 cell.addView(card)
-                if (item.inLibrary) {
-                    cell.addView(Mercury.text(context, fonts.mercuryMono, 9f, R.color.mercury_muted, 0.14f).apply { setText(R.string.home_in_library) },
-                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = Mercury.dp(root, 6f) })
+                cell.addView(Mercury.text(context, fonts.ui, 14f).apply { text = item.title },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = Mercury.dp(root, 8f) })
+                val status = Mercury.status(item) ?: if (item.inLibrary) context.getString(R.string.home_in_library) else item.year?.toString()
+                if (status != null) {
+                    cell.addView(Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted, 0.14f).apply { text = status },
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = Mercury.dp(root, 4f) })
                 }
                 line.addView(cell, LinearLayout.LayoutParams(cardWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     if (index == 0) marginEnd = Mercury.dp(root, 18f)
