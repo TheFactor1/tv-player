@@ -30,6 +30,7 @@ import android.os.SystemClock
 import android.util.Size
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -39,20 +40,26 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
 /**
  * Pairing by pointing the camera at the TV. Every TV Player on the Wi-Fi is asked to lay its
- * invisible code over the picture; the camera, with a short fixed shutter, reads whichever one it
- * is looking at, and answering with that code lets this phone in. The code starts faint and grows
- * a little at a time only while it isn't being read, so it stays as close to invisible as the room
- * allows.
+ * invisible code over the picture; the camera, with a short fixed shutter, finds the picture
+ * wherever it is in view and reads whichever code it is looking at, and answering with that code
+ * lets this phone in. The code starts faint and grows a little at a time only while it isn't being
+ * read, so it stays as close to invisible as the room allows.
  */
 class ScannerActivity : Activity() {
     private val store by lazy { TvStore(this) }
     private val main = Handler(Looper.getMainLooper())
     private lateinit var cameraThread: HandlerThread
     private lateinit var cameraHandler: Handler
+    /** Finding and reading the code, kept off the camera's thread so frames never wait on it. */
+    private lateinit var readingThread: HandlerThread
+    private lateinit var readingHandler: Handler
+    /** Frames waiting to be read; on a slow phone a few are let go rather than falling behind. */
+    private val waiting = AtomicInteger()
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var reader: ImageReader? = null
@@ -60,6 +67,10 @@ class ScannerActivity : Activity() {
     private var size = Size(1280, 720)
     private var flipped = false
     private var isoRange = 100 to 3200
+    @Volatile private var iso = 0
+    @Volatile private var frameNs = CameraTiming.frameNs(60f)
+    private var exposureChanges = 0
+    private var sinceExposure = 0
 
     private lateinit var preview: TextureView
     private lateinit var guide: GuideView
@@ -67,7 +78,7 @@ class ScannerActivity : Activity() {
     private lateinit var progress: View
     private lateinit var progressTrack: View
 
-    private val decoder = BeaconDecoder()
+    private var locator = BeaconLocator()
     private var finder: TvFinder? = null
     /** Every TV asked to show its code, by address. */
     private val tvs = ConcurrentHashMap<String, FoundTv>()
@@ -82,6 +93,7 @@ class ScannerActivity : Activity() {
     private var autoIso = 0
     private var autoFrames = 0
     private var tvAnswered = false
+    private var foundOnce = false
     private var statusKey = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,12 +125,17 @@ class ScannerActivity : Activity() {
         if (done || (::cameraThread.isInitialized && cameraThread.isAlive)) return
         cameraThread = HandlerThread("scanner").apply { start() }
         cameraHandler = Handler(cameraThread.looper)
+        readingThread = HandlerThread("scanner-reading").apply { start() }
+        readingHandler = Handler(readingThread.looper)
         startedAt = SystemClock.elapsedRealtime()
         strength = START_STRENGTH
         bestSure = 0f
         tvAnswered = false
+        foundOnce = false
         resetPending = true
+        exposureChanges = 0
         say(R.string.scan_aim)
+        guide.show(null, 0f)
         findTvs()
         if (preview.isAvailable) openCamera() else preview.surfaceTextureListener = textureListener
     }
@@ -135,6 +152,8 @@ class ScannerActivity : Activity() {
         reader?.close()
         reader = null
         cameraThread.quitSafely()
+        readingThread.quitSafely()
+        waiting.set(0)
         manual = false
         autoFrames = 0
         // Take the code off every TV straight away rather than letting it run out.
@@ -151,6 +170,7 @@ class ScannerActivity : Activity() {
         if (known != null) addTv(FoundTv(store.name ?: MainActivity.TV_NAME, known, store.port))
         finder = TvFinder(this) { tv -> addTv(tv) }.also { it.start() }
         main.postDelayed({ if (tvs.isEmpty() || !tvAnswered) say(R.string.scan_no_tv) }, NO_TV_MS)
+        main.postDelayed({ if (tvAnswered && !foundOnce && !done) say(R.string.scan_hint) }, HINT_MS)
         main.postDelayed(ramp, RAMP_MS)
     }
 
@@ -167,9 +187,12 @@ class ScannerActivity : Activity() {
             main.post {
                 if (done || isFinishing) return@post
                 when (answer?.first) {
-                    200 -> if (!tvAnswered) {
-                        tvAnswered = true
-                        say(R.string.scan_aim)
+                    200 -> {
+                        answer?.second?.optDouble("refresh", 0.0)?.takeIf { it > 0 }?.let { matchRefresh(it.toFloat()) }
+                        if (!tvAnswered) {
+                            tvAnswered = true
+                            say(R.string.scan_aim)
+                        }
                     }
                     409 -> if (!tvAnswered) status.text = getString(R.string.scan_refresh, answer?.second?.optDouble("refresh", 0.0) ?: 0.0)
                     503 -> if (!tvAnswered) say(R.string.scan_open_tv)
@@ -177,6 +200,15 @@ class ScannerActivity : Activity() {
                 }
             }
         }.start()
+    }
+
+    /** The camera's frame rate follows the TV's refresh, so its frames see both halves of the flicker. */
+    private fun matchRefresh(refreshHz: Float) {
+        val next = CameraTiming.frameNs(refreshHz)
+        if (next == frameNs || !::cameraHandler.isInitialized) return
+        frameNs = next
+        resetPending = true
+        cameraHandler.post { if (manual) repeatManual() }
     }
 
     /**
@@ -219,11 +251,12 @@ class ScannerActivity : Activity() {
 
     private fun paired(tv: FoundTv, token: String) {
         done = true
+        guide.performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY)
         store.host = tv.host
         store.port = tv.port
         store.name = tv.name
         store.token = token
-        guide.sure = 1f
+        guide.confirm()
         setProgress(1f)
         say(R.string.scan_connected)
         NowPlayingService.start(this)
@@ -259,6 +292,7 @@ class ScannerActivity : Activity() {
             .minByOrNull { abs(it.width - 1280) } ?: Size(1280, 720)
         // Most back cameras sit at 90 degrees, which is upright in landscape; the odd one at 270 is upside down.
         flipped = traits.get(CameraCharacteristics.SENSOR_ORIENTATION) == 270
+        locator = BeaconLocator(flipped)
         isoRange = traits.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)?.let { it.lower to it.upper } ?: (100 to 3200)
         fitPreview()
         manager.openCamera(id, object : CameraDevice.StateCallback() {
@@ -289,7 +323,17 @@ class ScannerActivity : Activity() {
         frames.setOnImageAvailableListener({ r ->
             val image = r.acquireNextImage() ?: return@setOnImageAvailableListener
             try {
-                if (manual && !done) analyse(image.planes[0].buffer, image.planes[0].rowStride, image.planes[0].pixelStride)
+                if (manual && !done) {
+                    if (waiting.get() < MAX_WAITING) {
+                        val plane = image.planes[0]
+                        val blocks = Blocks.of(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
+                        waiting.incrementAndGet()
+                        readingHandler.post {
+                            waiting.decrementAndGet()
+                            analyse(blocks)
+                        }
+                    }
+                }
             } finally {
                 image.close()
             }
@@ -320,6 +364,7 @@ class ScannerActivity : Activity() {
             result.get(CaptureResult.SENSOR_EXPOSURE_TIME)?.let { autoExposureNs = it }
             result.get(CaptureResult.SENSOR_SENSITIVITY)?.let { autoIso = it }
             if (++autoFrames >= AUTO_FRAMES && autoExposureNs > 0 && autoIso > 0) {
+                iso = (autoIso.toDouble() * autoExposureNs / SHUTTER_NS).toInt().coerceIn(isoRange.first, isoRange.second)
                 manual = true
                 resetPending = true
                 repeatManual()
@@ -329,22 +374,22 @@ class ScannerActivity : Activity() {
 
     /**
      * The fixed settings the code needs: a shutter short enough to catch single screen refreshes, the
-     * same brightness as automatic by raising the gain, and 25 frames a second, which doesn't divide
-     * evenly into the TV's 60, so the camera lands on both halves of the flicker.
+     * same brightness as automatic by raising the gain (then nudged so the picture is neither burnt
+     * out nor murky), and a frame rate that doesn't divide evenly into the TV's refresh, so the camera
+     * lands on both halves of the flicker.
      */
     private fun repeatManual() {
         val device = camera ?: return
         val current = session ?: return
         val shown = previewSurface ?: return
         val frames = reader ?: return
-        val iso = (autoIso.toDouble() * autoExposureNs / SHUTTER_NS).toInt().coerceIn(isoRange.first, isoRange.second)
         val request = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
             addTarget(shown)
             addTarget(frames.surface)
             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
             set(CaptureRequest.SENSOR_EXPOSURE_TIME, SHUTTER_NS)
             set(CaptureRequest.SENSOR_SENSITIVITY, iso)
-            set(CaptureRequest.SENSOR_FRAME_DURATION, FRAME_NS)
+            set(CaptureRequest.SENSOR_FRAME_DURATION, frameNs)
             set(CaptureRequest.CONTROL_AWB_LOCK, true)
             set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
         }
@@ -357,54 +402,57 @@ class ScannerActivity : Activity() {
 
     // ---- Reading ---------------------------------------------------------------------------------
 
-    /** The average brightness of the code's 36 cells inside the guide, keeping to each cell's middle. */
-    private fun analyse(luma: java.nio.ByteBuffer, rowStride: Int, pixelStride: Int) {
+    /** One frame's blocks: keep the exposure right, look for the picture, and read the code once found. */
+    private fun analyse(blocks: FloatArray) {
+        if (done) return
         if (resetPending) {
             resetPending = false
-            decoder.reset()
+            locator.reset()
+            sinceExposure = 0
         }
-        val left = (size.width * GUIDE_INSET).toInt()
-        val top = (size.height * GUIDE_INSET).toInt()
-        val cellW = (size.width - 2 * left) / BeaconCode.COLS
-        val cellH = (size.height - 2 * top) / BeaconCode.ROWS
-        val cells = FloatArray(BeaconCode.COLS * BeaconCode.ROWS)
-        for (cell in cells.indices) {
-            var col = cell % BeaconCode.COLS
-            var row = cell / BeaconCode.COLS
-            if (flipped) {
-                col = BeaconCode.COLS - 1 - col
-                row = BeaconCode.ROWS - 1 - row
-            }
-            val x0 = left + col * cellW + cellW / 5
-            val x1 = left + (col + 1) * cellW - cellW / 5
-            val y0 = top + row * cellH + cellH / 5
-            val y1 = top + (row + 1) * cellH - cellH / 5
-            var sum = 0L
-            var n = 0
-            var y = y0
-            while (y < y1) {
-                val offset = y * rowStride
-                var x = x0
-                while (x < x1) {
-                    sum += luma.get(offset + x * pixelStride).toInt() and 0xFF
-                    n++
-                    x += SAMPLE_STEP
-                }
-                y += SAMPLE_STEP
-            }
-            cells[cell] = if (n > 0) sum.toFloat() / n else 0f
-        }
-        decoder.add(cells)
-        val reading = decoder.read() ?: return
-        val sure = (reading.confidence / BeaconDecoder.ACCEPT).coerceIn(0f, 1f)
-        if (sure > bestSure) bestSure = sure
+        if (adjustExposure(blocks)) return
+        val result = locator.add(blocks) ?: return
+        val sure = (result.reading.confidence / BeaconDecoder.ACCEPT).coerceIn(0f, 1f)
+        val seen = if (result.found) sure else 0f
+        if (seen > bestSure) bestSure = seen
+        val quad = result.quad.takeIf { result.found }
         main.post {
             if (done) return@post
-            guide.sure = sure
-            setProgress(sure)
-            if (sure > SHOW_READING_AT && !answering) say(R.string.scan_reading)
+            guide.show(quad, seen, flipped)
+            setProgress(seen)
+            if (answering) return@post
+            when {
+                quad == null -> Unit
+                seen > SHOW_READING_AT -> say(R.string.scan_reading)
+                quad.width < SMALL_PICTURE -> say(R.string.scan_closer)
+                else -> say(R.string.scan_found)
+            }
+            if (quad != null) foundOnce = true
         }
-        if (reading.accepted) reading.code?.let { code -> main.post { answer(code) } }
+        if (result.ready) result.reading.code?.let { code -> main.post { answer(code) } }
+    }
+
+    /**
+     * A few small corrections in the first seconds: a picture burnt out to white, or lost in the
+     * dark, shows the flicker poorly. Each change starts the reading over, so they stop early.
+     */
+    private fun adjustExposure(blocks: FloatArray): Boolean {
+        if (exposureChanges >= MAX_EXPOSURE_CHANGES || ++sinceExposure < EXPOSURE_SETTLE) return false
+        val quad = locator.quad?.takeIf { locator.found }
+        val level = Blocks.level(blocks, quad, if (quad != null) 0.9f else 0.98f)
+        val factor = when {
+            level > TOO_BRIGHT -> 0.7
+            level < TOO_DARK -> 1.5
+            else -> return false
+        }
+        val next = (iso * factor).toInt().coerceIn(isoRange.first, isoRange.second)
+        if (next == iso) return false
+        iso = next
+        exposureChanges++
+        sinceExposure = 0
+        locator.reset()
+        cameraHandler.post { if (manual) repeatManual() }
+        return true
     }
 
     // ---- Screen ----------------------------------------------------------------------------------
@@ -510,17 +558,17 @@ class ScannerActivity : Activity() {
     private fun medium() = resources.getFont(R.font.manrope_medium)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-    /** Four corners to fit the TV picture into; they draw in, smoothly, as the reading firms up. */
+    /**
+     * Four corners over the preview. Until the TV is found they mark a loose frame to aim with; then
+     * they glide to the picture's own corners, wherever it sits, and firm up as the reading does.
+     */
     private class GuideView(context: Context) : View(context) {
-        var sure = 0f
-            set(value) {
-                val next = value.coerceIn(0f, 1f)
-                if (abs(next - target) < 0.01f) return
-                target = next
-                invalidate()
-            }
-        private var target = 0f
-        private var shown = 0f
+        private val target = AIM.copyOf()
+        private val shown = AIM.copyOf()
+        private var targetSure = 0f
+        private var shownSure = 0f
+        private var found = false
+        private var flipped = false
         private val corner = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 3 * context.resources.displayMetrics.density
@@ -528,26 +576,52 @@ class ScannerActivity : Activity() {
             color = context.getColor(R.color.ink)
         }
 
+        /** [quad] is in the camera's frame; null goes back to the aiming frame. */
+        fun show(quad: Quad?, sure: Float, flipped: Boolean = this.flipped) {
+            this.flipped = flipped
+            found = quad != null
+            if (quad == null) AIM.copyInto(target) else for (i in 0 until 8) {
+                target[i] = if (flipped) 1 - quad.corners[i] else quad.corners[i]
+            }
+            targetSure = sure.coerceIn(0f, 1f)
+            postInvalidateOnAnimation()
+        }
+
+        fun confirm() {
+            targetSure = 1f
+            postInvalidateOnAnimation()
+        }
+
         override fun onDraw(canvas: Canvas) {
             // Eases toward the latest reading a little each frame, so the corners glide rather than jump.
-            shown += (target - shown) * 0.18f
-            if (abs(target - shown) > 0.002f) postInvalidateOnAnimation() else shown = target
-            val l = width * GUIDE_INSET
-            val t = height * GUIDE_INSET
-            val r = width - l
-            val b = height - t
-            val arm = (r - l) * (0.035f + 0.075f * shown)
-            corner.alpha = (120 + 135 * shown).toInt()
-            for (c in CORNERS) {
-                val x = if (c[0] < 0) l else r
-                val y = if (c[1] < 0) t else b
-                canvas.drawLine(x, y, x - c[0] * arm, y, corner)
-                canvas.drawLine(x, y, x, y - c[1] * arm, corner)
+            var moving = false
+            for (i in 0 until 8) {
+                shown[i] += (target[i] - shown[i]) * EASE
+                if (abs(target[i] - shown[i]) > 0.0005f) moving = true else shown[i] = target[i]
+            }
+            shownSure += (targetSure - shownSure) * EASE
+            if (abs(targetSure - shownSure) > 0.002f) moving = true else shownSure = targetSure
+            if (moving) postInvalidateOnAnimation()
+            val firm = if (found) 0.35f + 0.65f * shownSure else 0f
+            corner.alpha = (110 + 145 * firm).toInt()
+            for (c in 0 until 4) {
+                val x = shown[c * 2] * width
+                val y = shown[c * 2 + 1] * height
+                for (n in NEIGHBOURS[c]) {
+                    val dx = shown[n * 2] * width - x
+                    val dy = shown[n * 2 + 1] * height - y
+                    val arm = 0.06f + 0.1f * firm
+                    canvas.drawLine(x, y, x + dx * arm, y + dy * arm, corner)
+                }
             }
         }
 
         private companion object {
-            val CORNERS = arrayOf(intArrayOf(-1, -1), intArrayOf(1, -1), intArrayOf(-1, 1), intArrayOf(1, 1))
+            const val EASE = 0.16f
+            /** The aiming frame: top left, top right, bottom left, bottom right. */
+            val AIM = floatArrayOf(0.1f, 0.1f, 0.9f, 0.1f, 0.1f, 0.9f, 0.9f, 0.9f)
+            /** Each corner's two neighbours along the picture's edges. */
+            val NEIGHBOURS = arrayOf(intArrayOf(1, 2), intArrayOf(0, 3), intArrayOf(3, 0), intArrayOf(2, 1))
         }
     }
 
@@ -558,15 +632,21 @@ class ScannerActivity : Activity() {
         const val RAMP_MS = 4_000L
         /** Below this much sureness in a ramp step, the code is made a shade stronger. */
         const val RAMP_UNTIL_SURE = 0.5f
-        const val SHOW_READING_AT = 0.15f
+        const val SHOW_READING_AT = 0.3f
         const val BEACON_SECONDS = 20
         const val NO_TV_MS = 8_000L
         const val CONNECTED_PAUSE_MS = 900L
         const val AUTO_FRAMES = 20
-        const val FRAME_NS = 40_000_000L
         const val SHUTTER_NS = 8_000_000L
-        const val GUIDE_INSET = 0.08f
-        const val SAMPLE_STEP = 3
+        /** A picture less than this share of the view's width reads better from closer. */
+        const val SMALL_PICTURE = 0.33f
+        const val HINT_MS = 12_000L
+        const val MAX_EXPOSURE_CHANGES = 4
+        const val MAX_WAITING = 12
+        /** Frames for a new exposure to come through the camera and settle. */
+        const val EXPOSURE_SETTLE = 8
+        const val TOO_BRIGHT = 240f
+        const val TOO_DARK = 45f
         const val SWAP_MS = 140L
         const val PROGRESS_MS = 260L
         val easeOut = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)

@@ -25,7 +25,10 @@
 
     <!-- Pairing by pointing the camera at the TV. -->
     <string name="scan_shortcut">Point at the TV</string>
-    <string name="scan_aim">Point the camera at the TV picture</string>
+    <string name="scan_aim">Point the camera at the TV. It doesn\'t need to fill the view</string>
+    <string name="scan_found">Found the TV. Hold steady</string>
+    <string name="scan_closer">Found the TV. A little closer will be quicker</string>
+    <string name="scan_hint">Keep the whole picture in view and hold still for a few seconds</string>
     <string name="scan_reading">Reading the TV</string>
     <string name="scan_steady">Almost. Hold steady</string>
     <string name="scan_connected">Connected</string>
