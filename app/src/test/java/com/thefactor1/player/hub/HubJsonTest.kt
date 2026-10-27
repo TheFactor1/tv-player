@@ -103,10 +103,15 @@ class HubJsonTest {
         val show = HubJson.items("""[{"id":"tt1","type":"series","name":"Kingfisher","poster":"https://p","background":"https://b",
             "videos":[{"season":1,"episode":2,"title":"Low Tide","released":"2021-03-08T00:00:00.000Z"},
                       {"season":1,"number":1,"name":"Pilot","overview":"Fog.","thumbnail":"https://t"},
+                      {"s":2,"e":1,"title":"Seven Thirty-Seven"},
                       {"title":"no season"}]}]""").single()
         assertEquals("https://b", show.backdrop)
         assertEquals("https://p", show.poster)
-        assertEquals(listOf(Video(1, 1, "Pilot", "Fog.", "https://t", null), Video(1, 2, "Low Tide", null, null, "2021-03-08")), show.videos)
+        assertEquals(
+            listOf(Video(1, 1, "Pilot", "Fog.", "https://t", null), Video(1, 2, "Low Tide", null, null, "2021-03-08"),
+                Video(2, 1, "Seven Thirty-Seven", null, null, null)),
+            show.videos,
+        )
     }
 
     @Test

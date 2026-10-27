@@ -134,8 +134,9 @@ object HubJson {
             videos = json.optJSONArray("videos")?.let { array ->
                 (0 until array.length()).mapNotNull { i ->
                     val video = array.optJSONObject(i) ?: return@mapNotNull null
-                    val season = video.int("season") ?: return@mapNotNull null
-                    val episode = video.int("episode") ?: video.int("number") ?: return@mapNotNull null
+                    // The hub's own shape is {s, e, title}; Stremio metas say season/episode (or number).
+                    val season = video.int("season") ?: video.int("s") ?: return@mapNotNull null
+                    val episode = video.int("episode") ?: video.int("e") ?: video.int("number") ?: return@mapNotNull null
                     Video(season, episode, video.text("title") ?: video.text("name"), video.text("overview") ?: video.text("description"),
                         video.text("thumbnail"), video.text("released")?.take(10))
                 }.sortedWith(compareBy({ it.season }, { it.episode }))

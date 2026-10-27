@@ -181,7 +181,7 @@ class PairingSetup(
         title.setText(R.string.setup_pairing)
         spinner.visibility = View.VISIBLE
         settings.requestFocus()
-        HubClient(target.address).run({ requestPairing("${Build.MODEL} TV") }) { result ->
+        HubClient(target.address).run({ requestPairing(Build.MODEL.let { if (it.endsWith("TV", ignoreCase = true)) it else "$it TV" }) }) { result ->
             if (mine != step) return@run
             result.onSuccess(::showCode).onFailure {
                 spinner.visibility = View.GONE
@@ -335,6 +335,7 @@ class PairingSetup(
         buttons.addView(searchAgain, wrap(end = 12f))
         settings = button(context.getString(R.string.home_settings)) { openSettings() }
         buttons.addView(settings)
+        Mercury.liftRoom(buttons, levels = 2)
 
         wordsLink = Mercury.text(context, fonts.mercuryMono, 11f, tracking = 0.2f).apply {
             setText(R.string.setup_words_link)

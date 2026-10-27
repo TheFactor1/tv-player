@@ -9,6 +9,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.PaintDrawable
 import android.graphics.drawable.ShapeDrawable
+import android.graphics.drawable.shapes.RectShape
 import android.os.Build
 import android.text.TextUtils
 import android.view.View
@@ -90,6 +91,9 @@ object Mercury {
         val context = root.context
         val screenWidth = root.resources.displayMetrics.widthPixels
         root.layoutParams.width = (screenWidth * SHEET_WIDTH).toInt()
+        // The blurred layer is screen-wide and slid left; the sheet must show only its own part of it.
+        root.outlineProvider = android.view.ViewOutlineProvider.BOUNDS
+        root.clipToOutline = true
         val glass = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
         root.addView(glass, FrameLayout.LayoutParams(screenWidth, ViewGroup.LayoutParams.MATCH_PARENT))
         glass.translationX = -(screenWidth - root.layoutParams.width).toFloat()
@@ -105,6 +109,37 @@ object Mercury {
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(root, 1f)))
         return glass
     }
+
+    /**
+     * A focused button grows 5 % (a card 3 %), which would be cut off at its row's edge. This gives
+     * [row] room inside its own bounds for that growth and, with [pullOut], pulls it out by the same
+     * amount so nothing moves; the [levels] containers above it then stop clipping at their own edge
+     * and padding, up to one that has room of its own. Call once the row is in place (it needs the margins).
+     */
+    fun liftRoom(row: ViewGroup, levels: Int = 0, pullOut: Boolean = true) {
+        val room = dp(row, LIFT_ROOM_DP)
+        row.setPadding(row.paddingLeft + room, row.paddingTop + room, row.paddingRight + room, row.paddingBottom + room)
+        // The room is padding, so the row must draw into its own padding as well as past its children's edges.
+        row.clipToPadding = false
+        row.clipChildren = false
+        if (pullOut) {
+            (row.layoutParams as? ViewGroup.MarginLayoutParams)?.let {
+                it.marginStart -= room
+                it.marginEnd -= room
+                it.topMargin -= room
+                it.bottomMargin -= room
+                row.layoutParams = it
+            }
+        }
+        var parent = row.parent as? ViewGroup
+        repeat(levels) {
+            parent?.clipChildren = false
+            parent?.clipToPadding = false
+            parent = parent?.parent as? ViewGroup
+        }
+    }
+
+    private const val LIFT_ROOM_DP = 8f
 
     /** A sheet arriving from the right: a short slide and a fade, no bounce. */
     fun slideIn(sheet: View) {
@@ -130,6 +165,8 @@ object Mercury {
     fun backdropFade(context: Context): Drawable {
         val ground = color(context, R.color.ground)
         fun fade(alongX: Boolean, reverse: Boolean, colors: IntArray, stops: FloatArray) = PaintDrawable().apply {
+            // ShapeDrawable only asks its shader factory when it has a shape; without one it paints solid black.
+            shape = RectShape()
             shaderFactory = object : ShapeDrawable.ShaderFactory() {
                 override fun resize(width: Int, height: Int): Shader {
                     val end = (if (alongX) width else height).toFloat()
@@ -144,7 +181,8 @@ object Mercury {
             arrayOf(
                 fade(true, false, intArrayOf(ground, ground, ground(0.75f), ground(0f)), floatArrayOf(0f, 0.28f, 0.46f, 0.74f)),
                 fade(false, false, intArrayOf(ground(0.8f), ground(0f)), floatArrayOf(0f, 0.26f)),
-                fade(false, true, intArrayOf(ground(0.55f), ground(0f)), floatArrayOf(0f, 0.34f)),
+                // Stronger at the bottom: the focused title's credits, overview and pills sit over the art there.
+                fade(false, true, intArrayOf(ground(0.92f), ground(0.62f), ground(0f)), floatArrayOf(0f, 0.3f, 0.6f)),
             ),
         )
     }

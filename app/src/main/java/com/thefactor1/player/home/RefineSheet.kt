@@ -153,6 +153,7 @@ class RefineSheet(
             setOnFocusChangeListener { _, has -> if (has) glide.release() }
         }
         footer.addView(done)
+        Mercury.liftRoom(footer, levels = 1)
         redraw()
     }
 

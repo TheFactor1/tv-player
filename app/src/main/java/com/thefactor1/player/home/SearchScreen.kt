@@ -133,8 +133,14 @@ class SearchScreen(
             setPadding(Mercury.dp(root, 6f), Mercury.dp(root, 8f), Mercury.dp(root, 6f), Mercury.dp(root, Mercury.SAFE_Y))
         }
         right.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        results = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        // A focused card grows 3 %; nothing between it and the scroller may clip that.
+        results = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+        }
         scroll.addView(results)
+        // Not pulled out: the scroller must keep clipping its content to the results area.
+        Mercury.liftRoom(results, pullOut = false)
         showQuery()
     }
 
@@ -152,6 +158,9 @@ class SearchScreen(
                 if (has) {
                     lastKey = v
                     glide.moveTo(v)
+                } else {
+                    // Off the keys altogether (to the results or the tabs): the highlight goes with focus.
+                    v.post { if ((v.parent?.parent as? View)?.findFocus() == null) glide.release() }
                 }
             }
         }
@@ -185,9 +194,12 @@ class SearchScreen(
         results.removeAllViews()
         val cardWidth = (root.resources.displayMetrics.widthPixels * (1 - LEFT_WIDTH) - Mercury.dp(root, 24f + Mercury.SAFE_X + 12f + 18f)).toInt() / 2
         items.chunked(2).forEach { pair ->
-            val line = LinearLayout(context)
+            val line = LinearLayout(context).apply { clipChildren = false }
             pair.forEachIndexed { index, item ->
-                val cell = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                val cell = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    clipChildren = false
+                }
                 val card = PosterView(context, backdrop = true).apply {
                     foreground = context.getDrawable(R.drawable.home_card_focus)
                     isFocusable = true

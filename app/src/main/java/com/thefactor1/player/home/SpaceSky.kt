@@ -16,18 +16,19 @@ import com.thefactor1.player.R
 import kotlin.random.Random
 
 /**
- * The Space theme's sky: a night gradient into deep blue, with a planet's limb glowing along the
- * bottom. Drawn once per size; nothing in it moves.
+ * The Space theme's sky: a night gradient into deep blue ([sky]), or a planet's limb glowing along
+ * the bottom ([sky] false; it goes above the art's fade so it isn't lost under it). Drawn once per
+ * size; nothing in it moves.
  */
-class SpaceSky(context: Context) : View(context) {
-    private val sky = Paint()
+class SpaceSky(context: Context, private val sky: Boolean) : View(context) {
+    private val gradient = Paint()
     private val planet = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
     private val accent = context.getColor(R.color.space_accent)
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        sky.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), context.getColor(R.color.space_ground), context.getColor(R.color.space_deep), Shader.TileMode.CLAMP)
+        gradient.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), context.getColor(R.color.space_ground), context.getColor(R.color.space_deep), Shader.TileMode.CLAMP)
         val radius = w * LIMB_RADIUS
         val cy = h + radius - h * LIMB_RISE
         // The atmosphere: a soft band of light just outside the planet's edge.
@@ -42,7 +43,10 @@ class SpaceSky(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        canvas.drawRect(0f, 0f, w, h, sky)
+        if (sky) {
+            canvas.drawRect(0f, 0f, w, h, gradient)
+            return
+        }
         val radius = w * LIMB_RADIUS
         val cy = h + radius - h * LIMB_RISE
         canvas.drawCircle(w / 2, cy, radius + h * 0.12f, glow)

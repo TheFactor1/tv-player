@@ -23,6 +23,10 @@ object HomeArt {
     fun backdrop(item: HubItem): String? = item.backdrop ?: fuller[item.id]?.backdrop ?: metahub("background", item.id)
     fun logo(item: HubItem): String? = item.logo ?: fuller[item.id]?.logo ?: metahub("logo", item.id)
 
+    /** An episode's still: the hub's if it sent one, else Cinemeta's episode image by IMDb id, else the show's backdrop. */
+    fun episode(item: HubItem, season: Int, episode: Int, thumbnail: String?): String? =
+        thumbnail ?: if (IMDB_ID.matches(item.id)) "https://episodes.metahub.space/${item.id}/$season/$episode/w780.jpg" else backdrop(item)
+
     /** [item] with whatever the fuller record adds (art, year, runtime, genres, overview). */
     fun merged(item: HubItem): HubItem {
         val more = fuller[item.id] ?: return item

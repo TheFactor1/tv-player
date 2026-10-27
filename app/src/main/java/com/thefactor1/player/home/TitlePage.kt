@@ -211,12 +211,15 @@ class TitlePage(
             }
         }
         val thumb = PosterView(context, backdrop = true)
-        thumb.bind(video.thumbnail ?: HomeArt.backdrop(item), fraction, Mercury.dp(root, THUMB_W_DP))
+        thumb.bind(HomeArt.episode(item, video.season, video.episode, video.thumbnail), fraction, Mercury.dp(root, THUMB_W_DP))
         row.addView(thumb, LinearLayout.LayoutParams(Mercury.dp(root, THUMB_W_DP), Mercury.dp(root, THUMB_W_DP * 9 / 16)).apply {
             marginEnd = Mercury.dp(root, 14f)
         })
         val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        val title = Mercury.text(context, fonts.ui, 15f).apply { text = listOfNotNull("${video.episode}", video.title).joinToString("  ·  ") }
+        val title = Mercury.text(context, fonts.ui, 15f).apply {
+            text = listOfNotNull("${video.episode}", video.title).joinToString("  ·  ")
+            maxLines = 2
+        }
         words.addView(title)
         val left = resume?.takeIf { fraction != null }?.let { ((it.durationMs - it.positionMs) / 60_000).coerceAtLeast(1) }
         val status = listOfNotNull(
@@ -262,6 +265,9 @@ class TitlePage(
             maxHeight = Mercury.dp(root, 100f)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
+        // "In your library" sits over the title, where it can't crowd the buttons off the line.
+        owned = Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted, 0.22f).apply { setText(R.string.home_in_library) }
+        column.addView(owned, wrap(bottom = 10f))
         column.addView(logo, wrap(bottom = 12f))
         name = Mercury.title(context, fonts, 40f).apply { maxLines = 2 }
         column.addView(name, wrap(bottom = 10f))
@@ -282,9 +288,7 @@ class TitlePage(
         buttons.addView(playButton, wrap(end = 10f))
         buttons.addView(button(R.string.home_versions) { item?.let(versions) }, wrap(end = 10f))
         keepButton = button(R.string.home_keep) { item?.let(keep) }
-        buttons.addView(keepButton, wrap(end = 14f))
-        owned = Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted, 0.14f).apply { setText(R.string.home_in_library) }
-        buttons.addView(owned)
+        buttons.addView(keepButton)
 
         // A show's episodes: a quiet panel on the right, seasons as text tabs over the list.
         episodesPanel = LinearLayout(context).apply {
@@ -309,6 +313,7 @@ class TitlePage(
         episodes = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(episodes)
         episodesPanel.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        Mercury.liftRoom(buttons, levels = 2)
     }
 
     private fun button(label: Int, click: () -> Unit) =
@@ -333,7 +338,7 @@ class TitlePage(
         const val SERIES_INFO_WIDTH = 0.6f
         const val EPISODES_WIDTH = 0.38f
         const val POSTER_W_DP = 132f
-        const val THUMB_W_DP = 120f
+        const val THUMB_W_DP = 104f
         const val OVERVIEW_ALPHA = 0.8f
         const val EPISODE_REST = 0.72f
     }

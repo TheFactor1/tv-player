@@ -181,6 +181,7 @@ class MainActivity : Activity() {
             beforeVersions?.takeIf { it.isAttachedToWindow }?.requestFocus()
         }
         dim = findViewById(R.id.home_dim)
+        Mercury.liftRoom(pills as ViewGroup)
         search = SearchScreen(findViewById(R.id.home_search), fonts,
             { query, done -> client?.run({ this.search(query) }, done) },
             { showArt(it) },
@@ -584,14 +585,21 @@ class MainActivity : Activity() {
     private fun addSky(fade: View) {
         val root = fade.parent as ViewGroup
         root.setBackgroundColor(Mercury.color(this, R.color.ground))
-        root.addView(SpaceSky(this), 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(SpaceSky(this, sky = true), 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val above = root.indexOfChild(fade) + 1
-        root.addView(StarLayer(this, 160, 0.8f, 1.6f, 30f, 120_000L, 7), above, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(StarLayer(this, 50, 1.6f, 2.6f, 60f, 90_000L, 11), above + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(SpaceSky(this, sky = false), above, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(StarLayer(this, 160, 0.8f, 1.6f, 30f, 120_000L, 7), above + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(StarLayer(this, 50, 1.6f, 2.6f, 60f, 90_000L, 11), above + 2, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     /** How strongly the film's art shows: full in Mercury, held back in Space so the sky reads. */
-    private val artAlpha get() = if (Mercury.space) SPACE_ART_ALPHA else 1f
+    private val artAlpha get() = (if (Mercury.space) SPACE_ART_ALPHA else 1f) * (if (search.isOpen) SEARCH_ART_ALPHA else 1f)
+
+    /** Search sets the art back so the results read; closing it brings the art forward again. */
+    private fun settleArt() {
+        (if (frontIsB) artB else artA).takeIf { it.drawable != null }?.animate()?.alpha(artAlpha)
+            ?.setDuration(Motion.ENTER_MS)?.setInterpolator(Motion.enter)?.start()
+    }
 
     /** The new art fades in over the old, or the old fades off the new, so there is never a gap to black. */
     private fun crossfade(bitmap: Bitmap) {
@@ -673,6 +681,7 @@ class MainActivity : Activity() {
     private fun openSearch() {
         if (client == null) return
         search.open()
+        settleArt()
         body.visibility = View.INVISIBLE
         catalogsScroll.visibility = View.GONE
         paintTabs()
@@ -680,6 +689,7 @@ class MainActivity : Activity() {
 
     private fun closeSearch(focusMagnifier: Boolean) {
         search.close()
+        settleArt()
         body.visibility = View.VISIBLE
         body.alpha = 0f
         body.animate().alpha(1f).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
@@ -692,7 +702,7 @@ class MainActivity : Activity() {
     private fun openRefine() {
         if (client == null || !TABS[tabIndex].refinable) return
         if (search.isOpen) closeSearch(focusMagnifier = false)
-        body.animate().translationX(-Mercury.dp(body, Motion.RISE_DP * 2.4f).toFloat()).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
+        body.animate().translationX(-Mercury.dp(body, Motion.RISE_DP).toFloat()).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
         sheet.open(refine, all, (if (frontIsB) artB else artA).drawable)
     }
 
@@ -812,6 +822,7 @@ class MainActivity : Activity() {
                 shown = shown.map { if (it.id == kept.id) it.copy(inLibrary = true) else it }
                 val index = shown.indexOfFirst { it.id == kept.id }
                 list.getChildAt(index)?.let { bindRow(it, shown[index]) }
+                if (selectedId == kept.id) showHero(shown[index])
                 if (selectedId == kept.id) {
                     val hadFocus = keepPill.isFocused
                     keepPill.visibility = View.GONE
@@ -981,6 +992,7 @@ class MainActivity : Activity() {
         const val PANEL_SLIDE = 0.08f
         const val STREAMS_TTL_MS = 10L * 60 * 1000
         const val SPACE_ART_ALPHA = 0.62f
+        const val SEARCH_ART_ALPHA = 0.4f
         const val REQUEST_PLAY = 1
         const val KEY_REFINE = "refine"
         const val KEY_TAB = "tab"
