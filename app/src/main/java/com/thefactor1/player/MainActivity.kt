@@ -610,7 +610,7 @@ class MainActivity : Activity() {
         paintTabs()
     }
 
-    // ---- Play, Other versions, Keep this --------------------------------------------------------
+    // ---- Play, Other versions, Add to library (a show is added whole) ---------------------------
 
     private fun play(item: HubItem) = startPlay(item, null)
 
@@ -694,6 +694,7 @@ class MainActivity : Activity() {
                     if (hadFocus) playPill.requestFocus()
                 }
                 titlePage.item?.takeIf { it.id == kept.id }?.let { titlePage.show(it.copy(inLibrary = true)) }
+                Toast.makeText(this, R.string.home_kept, Toast.LENGTH_SHORT).show()
             }.onFailure { error ->
                 Toast.makeText(this, getString(R.string.home_cant_keep, error.message ?: error.javaClass.simpleName), Toast.LENGTH_LONG).show()
             }

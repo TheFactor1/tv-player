@@ -194,7 +194,8 @@
     <string name="home_play">Play</string>
     <string name="home_play_episode">Play S%1$d E%2$d</string>
     <string name="home_details">Details</string>
-    <string name="home_keep">Keep this</string>
+    <string name="home_keep">Add to library</string>
+    <string name="home_kept">Added to your library</string>
     <string name="home_in_library">IN YOUR LIBRARY</string>
     <string name="home_versions">Other versions</string>
     <string name="home_versions_kicker">OTHER VERSIONS</string>
@@ -204,7 +205,7 @@
     <string name="home_empty">Nothing here yet.</string>
     <string name="home_nothing_matches">Nothing matches. Clear a filter.</string>
     <string name="home_cant_play">Can’t play this right now: %1$s</string>
-    <string name="home_cant_keep">Couldn’t keep this: %1$s</string>
+    <string name="home_cant_keep">Couldn’t add this to your library: %1$s</string>
     <string name="refine_title">Refine</string>
     <plurals name="refine_count">
         <item quantity="one">%1$d TITLE</item>

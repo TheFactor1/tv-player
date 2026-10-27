@@ -17,7 +17,7 @@ import com.thefactor1.player.ui.Motion
 
 /**
  * The title page (Details): over the title's backdrop, its logo or name, quality badges, the
- * overview, Play, Other versions, and Keep this or "In your library".
+ * overview, Play, Other versions, and Add to library or "In your library".
  */
 class TitlePage(
     private val root: FrameLayout,
