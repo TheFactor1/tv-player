@@ -157,7 +157,9 @@ object HubJson {
     }
 
     /** Streams, best first, as the hub ranked them; ones without a URL can't be played and are dropped. */
-    fun streams(text: String): List<HubStream> = list(text, "streams").mapNotNull(::stream)
+    fun streams(text: String): List<HubStream> =
+        // The hub sends them ranked: the first is its pick for this box.
+        list(text, "streams").mapNotNull(::stream).mapIndexed { index, stream -> stream.copy(best = index == 0) }
 
     fun stream(json: JSONObject): HubStream? {
         val url = json.text("url") ?: return null
@@ -170,13 +172,12 @@ object HubJson {
         val size = listOf(badgeJson?.opt("sizeGb"), badgeJson?.opt("size"), json.opt("sizeGb"), json.opt("size"))
             .firstNotNullOfOrNull { (it as? Number)?.toDouble() }
             ?.let { if (it > BYTES_NOT_GB) it / 1e9 else it }
-        val unverified = json.optBoolean("unverified") || (json.has("verified") && !json.optBoolean("verified", true)) ||
-            (json.has("matched") && !json.optBoolean("matched", true))
         return HubStream(
             url, name, badges, source, headers(json.optJSONObject("headers")), json.text("description"), size, badgeJson?.label("source"),
-            cached = badgeJson?.optBoolean("cached") == true || json.optBoolean("cached"),
-            best = json.optBoolean("best") || json.optBoolean("pick"),
-            verified = !unverified,
+            // true, false or null (not known); only a definite true earns the mark.
+            cached = badgeJson?.opt("cached") == true,
+            // "ok" when the hub matched the title (and episode); "unverified" when it couldn't.
+            verified = badgeJson?.text("match") != "unverified",
         )
     }
 

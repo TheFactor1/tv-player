@@ -116,9 +116,12 @@ class HubJsonTest {
 
     @Test
     fun versionsKnowTheirPickCacheAndMatch() {
-        val streams = HubJson.streams("""[{"url":"a","best":true,"badges":{"res":"2160p","hdr":"DV","audio":"DTS-HD","source":"remux","sizeGb":60.2,"mbps":52,"cached":true}},
-            {"url":"b","verified":false,"badges":{"res":"1080p"}}]""")
+        val streams = HubJson.streams("""[{"url":"a","badges":{"res":"2160p","hdr":"DV","audio":"DTS-HD","source":"remux","sizeGb":60.2,"mbps":52,"cached":true,"match":"ok"}},
+            {"url":"b","badges":{"res":"1080p","match":"unverified","cached":null}}]""")
+        // Ranked by the hub: the first is its pick.
         assertTrue(streams[0].best)
+        assertFalse(streams[1].best)
+        assertFalse(streams[1].cached)
         assertEquals("2160p · DV · DTS-HD", streams[0].quality())
         assertEquals("remux · 60.2 GB · 52 Mbps · ⚡ cached", streams[0].delivery())
         assertFalse(streams[1].verified)

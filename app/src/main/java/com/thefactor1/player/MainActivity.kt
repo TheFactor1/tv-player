@@ -647,7 +647,7 @@ class MainActivity : Activity() {
         val hub = client ?: return
         val key = streamKey(item)
         cachedStreams(item)?.let { list ->
-            titlePage.showStream(list.firstOrNull { it.best } ?: list.firstOrNull())
+            titlePage.showStream(list.firstOrNull())
             return
         }
         if (!streamsAsked.add(key)) return
@@ -655,7 +655,7 @@ class MainActivity : Activity() {
             streamsAsked.remove(key)
             val list = result.getOrNull()
             if (list != null) streamCache[key] = System.currentTimeMillis() to list
-            if (titlePage.item?.id == item.id) titlePage.showStream(list?.let { it.firstOrNull { s -> s.best } ?: it.firstOrNull() })
+            if (titlePage.item?.id == item.id) titlePage.showStream(list?.firstOrNull())
             if (versions.isOpen && titlePage.item?.id == item.id) versions.show(list.orEmpty(), result.exceptionOrNull()?.message)
         }
     }
