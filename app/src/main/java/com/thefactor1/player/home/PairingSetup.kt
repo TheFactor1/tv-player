@@ -303,7 +303,7 @@ class PairingSetup(
         kicker = Mercury.text(context, fonts.mercuryMono, 11f, R.color.mercury_muted, 0.22f)
         column.addView(kicker)
         val titleRow = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-        title = Mercury.text(context, fonts.display, 36f, tracking = -0.03f)
+        title = Mercury.title(context, fonts, 36f)
         titleRow.addView(title)
         // A quiet spinner: small, the muted colour, beside the words rather than in the middle of the screen.
         spinner = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
@@ -311,7 +311,7 @@ class PairingSetup(
         }
         titleRow.addView(spinner, LinearLayout.LayoutParams(Mercury.dp(root, 20f), Mercury.dp(root, 20f)).apply { marginStart = Mercury.dp(root, 16f) })
         column.addView(titleRow, margins(top = 8f))
-        code = Mercury.text(context, fonts.display, 72f, tracking = 0.04f)
+        code = Mercury.title(context, fonts, 72f, mercuryTracking = 0.04f)
         column.addView(code, margins(top = 6f))
         body = Mercury.text(context, fonts.ui, 15f, R.color.mercury_muted).apply {
             maxLines = 4

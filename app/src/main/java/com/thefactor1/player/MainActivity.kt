@@ -24,6 +24,8 @@ import com.thefactor1.player.home.PosterView
 import com.thefactor1.player.home.Refine
 import com.thefactor1.player.home.RefineSheet
 import com.thefactor1.player.home.SearchScreen
+import com.thefactor1.player.home.SpaceSky
+import com.thefactor1.player.home.StarLayer
 import com.thefactor1.player.home.SpinnerDrawable
 import com.thefactor1.player.home.TitlePage
 import com.thefactor1.player.home.VersionsSheet
@@ -124,9 +126,10 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        prefs = PlayerPrefs(this)
+        Mercury.space = prefs.homeTheme == PlayerPrefs.THEME_SPACE
         setContentView(R.layout.activity_main)
         fonts = Fonts(this)
-        prefs = PlayerPrefs(this)
         vault = HubVault(this)
         artA = findViewById(R.id.home_art_a)
         artB = findViewById(R.id.home_art_b)
@@ -142,7 +145,9 @@ class MainActivity : Activity() {
         catalogsRow = findViewById(R.id.home_catalogs)
         setup = findViewById(R.id.home_setup)
         panel = findViewById(R.id.settings_panel)
-        findViewById<View>(R.id.home_fade).background = Mercury.backdropFade(this)
+        val fade = findViewById<View>(R.id.home_fade)
+        fade.background = Mercury.backdropFade(this)
+        if (Mercury.space) addSky(fade)
         scroll.layoutParams.width = (resources.displayMetrics.widthPixels * LIST_WIDTH).toInt()
 
         fonts.apply(fonts.ui, message, playPill, keepPill, findViewById(R.id.home_details), findViewById(R.id.home_hero_overview))
@@ -387,7 +392,7 @@ class MainActivity : Activity() {
                 else -> i - 1 == tabIndex && !search.isOpen
             }
             view.alpha = if (active || view.isFocused) 1f else Mercury.TAB_REST
-            if (view !== magnifier) view.background = if (active) getDrawable(R.drawable.mercury_meniscus) else null
+            if (view !== magnifier) view.background = if (active) Mercury.meniscus(this) else null
         }
         filterTab.text = if (refine.count > 0) getString(R.string.home_filter_on, refine.count) else getString(R.string.home_filter)
         filterTab.visibility = if (TABS[tabIndex].refinable && !search.isOpen) View.VISIBLE else View.GONE
@@ -395,7 +400,7 @@ class MainActivity : Activity() {
             val view = catalogsRow.getChildAt(i)
             val active = i == catalogIndex
             view.alpha = if (active || view.isFocused) 1f else Mercury.TAB_REST
-            view.background = if (active) getDrawable(R.drawable.mercury_meniscus) else null
+            view.background = if (active) Mercury.meniscus(this) else null
         }
     }
 
@@ -477,7 +482,7 @@ class MainActivity : Activity() {
             marginEnd = posterGap
         })
         val words = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
-        words.addView(Mercury.text(this@MainActivity, fonts.display, ROW_SIZE, tracking = -0.03f))
+        words.addView(Mercury.title(this@MainActivity, fonts, ROW_SIZE))
         words.addView(Mercury.text(this@MainActivity, fonts.mercuryMono, 11f, R.color.mercury_muted, 0.14f), wrap(top = 6f))
         addView(words, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         alpha = Mercury.ROW_REST
@@ -529,7 +534,7 @@ class MainActivity : Activity() {
 
     private fun style(row: View, on: Boolean) {
         val name = ((row as LinearLayout).getChildAt(1) as LinearLayout).getChildAt(0) as TextView
-        name.textSize = if (on) ROW_SIZE_ON else ROW_SIZE
+        name.textSize = Mercury.displaySize(if (on) ROW_SIZE_ON else ROW_SIZE)
         name.maxLines = if (on) 2 else 1
         row.animate().alpha(if (on) 1f else Mercury.ROW_REST).setDuration(Motion.FOCUS_MS).setInterpolator(Motion.enter).start()
     }
@@ -572,18 +577,34 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.home_hero_overview).text = item.overview
     }
 
+    /**
+     * Space: the sky goes under the film's art (which then sits a little back, so the planet's glow
+     * shows through) and two layers of stars drift over the fade, where the list is.
+     */
+    private fun addSky(fade: View) {
+        val root = fade.parent as ViewGroup
+        root.setBackgroundColor(Mercury.color(this, R.color.ground))
+        root.addView(SpaceSky(this), 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val above = root.indexOfChild(fade) + 1
+        root.addView(StarLayer(this, 160, 0.8f, 1.6f, 30f, 120_000L, 7), above, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(StarLayer(this, 50, 1.6f, 2.6f, 60f, 90_000L, 11), above + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    /** How strongly the film's art shows: full in Mercury, held back in Space so the sky reads. */
+    private val artAlpha get() = if (Mercury.space) SPACE_ART_ALPHA else 1f
+
     /** The new art fades in over the old, or the old fades off the new, so there is never a gap to black. */
     private fun crossfade(bitmap: Bitmap) {
         artA.animate().cancel()
         artB.animate().cancel()
         if (frontIsB) {
             artA.setImageBitmap(bitmap)
-            artA.alpha = 1f
+            artA.alpha = artAlpha
             artB.animate().alpha(0f).setDuration(Mercury.ART_FADE_MS).setInterpolator(Motion.enter).start()
         } else {
             artB.setImageBitmap(bitmap)
             artB.alpha = 0f
-            artB.animate().alpha(1f).setDuration(Mercury.ART_FADE_MS).setInterpolator(Motion.enter).start()
+            artB.animate().alpha(artAlpha).setDuration(Mercury.ART_FADE_MS).setInterpolator(Motion.enter).start()
         }
         frontIsB = !frontIsB
     }
@@ -834,6 +855,8 @@ class MainActivity : Activity() {
         panel.animate().translationX(panel.width * PANEL_SLIDE).alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)
             .withEndAction { panel.visibility = View.INVISIBLE }.start()
         beforePanel?.takeIf { it.isShown }?.requestFocus()
+        // The theme is chosen in Settings; it takes hold as the panel closes.
+        if (Mercury.space != (prefs.homeTheme == PlayerPrefs.THEME_SPACE)) recreate()
     }
 
     // ---- Remote ---------------------------------------------------------------------------------
@@ -957,6 +980,7 @@ class MainActivity : Activity() {
         const val ART_DELAY_MS = 140L
         const val PANEL_SLIDE = 0.08f
         const val STREAMS_TTL_MS = 10L * 60 * 1000
+        const val SPACE_ART_ALPHA = 0.62f
         const val REQUEST_PLAY = 1
         const val KEY_REFINE = "refine"
         const val KEY_TAB = "tab"

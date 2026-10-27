@@ -265,6 +265,11 @@
     <string name="settings_hub">Hub</string>
     <string name="hub_address">Hub address</string>
     <string name="hub_address_none">Not set</string>
+    <string name="theme">Theme</string>
+    <string name="theme_mercury">Mercury</string>
+    <string name="theme_space">Space</string>
+    <string name="theme_mercury_hint">Graphite and colourless glass. Applies when this panel closes</string>
+    <string name="theme_space_hint">Night sky, drifting stars, a planet’s glow. Applies when this panel closes</string>
     <string name="quality">Quality</string>
     <string name="quality_measuring">Checking your connection…</string>
     <string name="quality_hint">The most the hub picks for this box</string>

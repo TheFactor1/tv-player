@@ -32,4 +32,10 @@
     <!-- The one chrome line along the top of glass. -->
     <color name="mercury_chrome">#8CECEEF1</color>
     <color name="mercury_hover">#0FECEEF1</color>
+    <!-- Space: deep-blue night, star-white text, ice-blue accent; amber still only for attention. -->
+    <color name="space_ground">#05070F</color>
+    <color name="space_deep">#0B1834</color>
+    <color name="space_fg">#EEF3FF</color>
+    <color name="space_muted">#9AA6BF</color>
+    <color name="space_accent">#9FD8FF</color>
 </resources>

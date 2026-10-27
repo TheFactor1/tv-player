@@ -184,7 +184,7 @@ class TitlePage(
             val tab = seasonTabs.getChildAt(i)
             val active = tab.tag == season
             tab.alpha = if (active || tab.isFocused) 1f else Mercury.TAB_REST
-            tab.background = if (active) context.getDrawable(R.drawable.mercury_meniscus) else null
+            tab.background = if (active) Mercury.meniscus(context) else null
         }
     }
 
@@ -263,7 +263,7 @@ class TitlePage(
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         column.addView(logo, wrap(bottom = 12f))
-        name = Mercury.text(context, fonts.display, 40f, tracking = -0.03f).apply { maxLines = 2 }
+        name = Mercury.title(context, fonts, 40f).apply { maxLines = 2 }
         column.addView(name, wrap(bottom = 10f))
         credits = Mercury.text(context, fonts.mercuryMono, 11f, R.color.mercury_muted, 0.14f)
         column.addView(credits, wrap(bottom = 10f))

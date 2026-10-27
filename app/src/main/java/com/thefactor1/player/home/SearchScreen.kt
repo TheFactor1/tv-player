@@ -91,7 +91,7 @@ class SearchScreen(
         row.addView(left, LinearLayout.LayoutParams((width * LEFT_WIDTH).toInt(), ViewGroup.LayoutParams.MATCH_PARENT))
 
         val fieldRow = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-        field = Mercury.text(context, fonts.display, 29f, tracking = -0.03f)
+        field = Mercury.title(context, fonts, 29f)
         fieldRow.addView(field)
         fieldRow.addView(View(context).apply { setBackgroundColor(context.getColor(R.color.mercury_fg)) },
             LinearLayout.LayoutParams(Mercury.dp(root, 2f), Mercury.dp(root, 26f)).apply { marginStart = Mercury.dp(root, 2f) })

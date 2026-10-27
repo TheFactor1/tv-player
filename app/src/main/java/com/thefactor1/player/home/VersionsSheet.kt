@@ -91,7 +91,7 @@ class VersionsSheet(
             row.addView(Mercury.text(context, fonts.mercuryMono, 9f, if (stream.best) R.color.mercury_blue else R.color.mercury_muted, 0.22f)
                 .apply { text = marks.joinToString(" · ") }, wrap(bottom = 3f))
         }
-        val quality = Mercury.text(context, fonts.display, 18f, tracking = -0.02f).apply { text = stream.quality() }
+        val quality = Mercury.title(context, fonts, 18f, mercuryTracking = -0.02f).apply { text = stream.quality() }
         row.addView(quality)
         stream.delivery().takeIf { it.isNotEmpty() }?.let {
             row.addView(Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted, 0.12f).apply { text = it.uppercase() }, wrap(top = 4f))
@@ -145,7 +145,7 @@ class VersionsSheet(
         }
         root.addView(column)
         column.addView(Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted, 0.22f).apply { setText(R.string.home_versions_kicker) })
-        title = Mercury.text(context, fonts.display, 26f, tracking = -0.03f)
+        title = Mercury.title(context, fonts, 26f)
         column.addView(title, wrap(top = 6f, bottom = 12f))
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false

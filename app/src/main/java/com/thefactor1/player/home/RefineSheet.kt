@@ -92,7 +92,7 @@ class RefineSheet(
             setPadding(Mercury.dp(root, 31f), Mercury.dp(root, Mercury.SAFE_Y), Mercury.dp(root, Mercury.SAFE_X), 0)
         }
         root.addView(column)
-        column.addView(Mercury.text(context, fonts.display, 28f, tracking = -0.03f).apply { setText(R.string.refine_title) })
+        column.addView(Mercury.title(context, fonts, 28f).apply { setText(R.string.refine_title) })
         count = Mercury.text(context, fonts.mercuryMono, 12f, R.color.mercury_muted, 0.2f)
         column.addView(count, margins(top = 6f))
         column.addView(hairline(), margins(top = 10f, height = 1f))
@@ -161,7 +161,7 @@ class RefineSheet(
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, Mercury.dp(root, 4f), Mercury.dp(root, 8f), Mercury.dp(root, 4f))
         }
-        val bar = View(context).apply { setBackgroundColor(context.getColor(R.color.mercury_blue)) }
+        val bar = View(context).apply { setBackgroundColor(Mercury.color(context, R.color.mercury_blue)) }
         row.addView(bar, LinearLayout.LayoutParams(Mercury.dp(root, 3f), Mercury.dp(root, 13f)).apply { marginEnd = Mercury.dp(root, 7f) })
         row.addView(Mercury.text(context, fonts.ui, 14f).apply { text = genre }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val number = Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted)
@@ -192,7 +192,7 @@ class RefineSheet(
                 setPadding(0, Mercury.dp(root, 5f), 0, Mercury.dp(root, 5f))
             }
             control(segment, { on(index) }) { toggle(index) }
-            redraws += { segment.background = if (on(index)) context.getDrawable(R.drawable.mercury_meniscus) else null }
+            redraws += { segment.background = if (on(index)) Mercury.meniscus(context) else null }
             line.addView(segment, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
         return line
@@ -211,7 +211,7 @@ class RefineSheet(
         redraws += {
             dot.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                if (on()) setColor(context.getColor(R.color.mercury_blue)) else setStroke(Mercury.dp(root, 1f), context.getColor(R.color.mercury_muted))
+                if (on()) setColor(Mercury.color(context, R.color.mercury_blue)) else setStroke(Mercury.dp(root, 1f), context.getColor(R.color.mercury_muted))
             }
         }
         return row

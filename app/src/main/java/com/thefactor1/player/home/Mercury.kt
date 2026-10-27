@@ -19,10 +19,42 @@ import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import com.thefactor1.player.R
 import com.thefactor1.player.hub.HubItem
+import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.Motion
 
-/** The Home's Mercury look in code: its text styles, the backdrop's fade, and a title's credits line. */
+/**
+ * The Home's look in code: its text styles, the backdrop's fade, and a title's credits line. Mercury
+ * by default; [space] swaps in the Space theme's palette and display face (same layout).
+ */
 object Mercury {
+    /** The Space theme is on; set by Home before it builds anything. */
+    var space = false
+
+    /** A colour resource as the current theme draws it: Space is colder (star-white text, ice-blue accent). */
+    fun color(context: Context, id: Int): Int = context.getColor(
+        if (!space) id else when (id) {
+            R.color.mercury_fg -> R.color.space_fg
+            R.color.mercury_muted -> R.color.space_muted
+            R.color.mercury_blue -> R.color.space_accent
+            R.color.ground -> R.color.space_ground
+            else -> id
+        },
+    )
+
+    /** The meniscus under an active tab or choice, in the theme's accent. */
+    fun meniscus(context: Context): Drawable? =
+        context.getDrawable(R.drawable.mercury_meniscus)?.mutate()?.apply { if (space) setTint(color(context, R.color.mercury_blue)) }
+
+    /** Text in the display face: Bricolage Grotesque drawn tight, or Space's Orbitron, wider, set a size down and tracked open. */
+    fun title(context: Context, fonts: Fonts, sizeSp: Float, mercuryTracking: Float = -0.03f): TextView =
+        text(context, if (space) fonts.spaceDisplay else fonts.display, displaySize(sizeSp), tracking = if (space) SPACE_TRACKING else mercuryTracking)
+
+    fun displaySize(sizeSp: Float) = if (space) sizeSp * SPACE_SCALE else sizeSp
+
+    private const val SPACE_TRACKING = 0.05f
+    /** Orbitron runs wide; this keeps titles at the same visual weight as Mercury's. */
+    private const val SPACE_SCALE = 0.8f
+
     /** Unfocused rows and tabs; the prototype's 55 % and 38 %. */
     const val TAB_REST = 0.55f
     const val ROW_REST = 0.38f
@@ -42,7 +74,7 @@ object Mercury {
             textSize = sizeSp
             letterSpacing = tracking
             includeFontPadding = false
-            setTextColor(context.getColor(color))
+            setTextColor(color(context, color))
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }
@@ -96,7 +128,7 @@ object Mercury {
      * quarters across, plus a light fade from the top and bottom edges.
      */
     fun backdropFade(context: Context): Drawable {
-        val ground = context.getColor(R.color.ground)
+        val ground = color(context, R.color.ground)
         fun fade(alongX: Boolean, reverse: Boolean, colors: IntArray, stops: FloatArray) = PaintDrawable().apply {
             shaderFactory = object : ShapeDrawable.ShaderFactory() {
                 override fun resize(width: Int, height: Int): Shader {

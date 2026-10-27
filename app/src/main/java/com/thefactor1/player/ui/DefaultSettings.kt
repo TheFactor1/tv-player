@@ -37,6 +37,7 @@ class DefaultSettings(
         heading(R.string.settings_hub),
         item { hubAddress() },
         item { quality() },
+        item { theme() },
         heading(R.string.settings_phone),
         item { phoneCompanion() },
         heading(R.string.settings_advanced),
@@ -163,6 +164,17 @@ class DefaultSettings(
             Quality.label(prefs.quality),
             context.getString(if (prefs.quality == Quality.AUTO) R.string.quality_auto_hint else R.string.quality_hint),
             steps = Steps(choices.indexOf(prefs.quality), choices.size) { prefs.quality = choices[it] },
+        )
+    }
+
+    private fun theme(): Option {
+        val themes = PlayerPrefs.THEMES
+        val index = themes.indexOf(prefs.homeTheme)
+        return Option(
+            context.getString(R.string.theme),
+            context.getString(if (prefs.homeTheme == PlayerPrefs.THEME_SPACE) R.string.theme_space else R.string.theme_mercury),
+            context.getString(if (prefs.homeTheme == PlayerPrefs.THEME_SPACE) R.string.theme_space_hint else R.string.theme_mercury_hint),
+            steps = Steps(index, themes.size) { prefs.homeTheme = themes[it] },
         )
     }
 

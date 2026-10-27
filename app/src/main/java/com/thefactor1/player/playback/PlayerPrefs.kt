@@ -80,6 +80,11 @@ class PlayerPrefs(context: Context) {
         get() = prefs.getString(KEY_QUALITY, null)?.takeIf { it in Quality.CHOICES } ?: Quality.AUTO
         set(value) = prefs.edit { putString(KEY_QUALITY, value) }
 
+    /** Home's look: [THEME_MERCURY] or [THEME_SPACE]; the layout is the same in both. */
+    var homeTheme: String
+        get() = prefs.getString(KEY_THEME, null)?.takeIf { it in THEMES } ?: THEME_MERCURY
+        set(value) = prefs.edit { putString(KEY_THEME, value) }
+
     data class SubtitleSize(val name: String, val fraction: Float)
 
     data class SubtitleStyle(val name: String, val detail: String, val text: Int, val background: Int, val edgeType: Int)
@@ -153,5 +158,9 @@ class PlayerPrefs(context: Context) {
         private const val KEY_SUB_SIZE = "subtitle_size"
         private const val KEY_RESIZE = "resize_mode"
         private const val KEY_QUALITY = "quality"
+        private const val KEY_THEME = "home_theme"
+        const val THEME_MERCURY = "mercury"
+        const val THEME_SPACE = "space"
+        val THEMES = listOf(THEME_MERCURY, THEME_SPACE)
     }
 }

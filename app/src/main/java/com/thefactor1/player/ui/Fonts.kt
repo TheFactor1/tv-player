@@ -18,6 +18,7 @@ class Fonts(context: Context) {
     val display: Typeface by lazy { ResourcesCompat.getFont(context, R.font.mercury_display) ?: bold }
     val ui: Typeface by lazy { ResourcesCompat.getFont(context, R.font.mercury_ui) ?: medium }
     val uiBold: Typeface by lazy { ResourcesCompat.getFont(context, R.font.mercury_ui_bold) ?: semibold }
+    val spaceDisplay: Typeface by lazy { ResourcesCompat.getFont(context, R.font.space_display) ?: display }
     val mercuryMono: Typeface by lazy { ResourcesCompat.getFont(context, R.font.mercury_mono) ?: mono }
 
     fun apply(typeface: Typeface, vararg views: TextView) = views.forEach { it.typeface = typeface }
