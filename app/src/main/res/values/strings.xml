@@ -222,6 +222,11 @@
     <string name="tone_map_note_dolby_vision">TV box (Dolby Vision)</string>
     <!-- Chapters -->
     <string name="menu_chapters">Chapters</string>
+    <!-- Next episode and soundtrack, at the credits -->
+    <string name="next_episode">Next episode</string>
+    <string name="next_episode_number">S%1$d E%2$d</string>
+    <string name="soundtrack_kicker">Soundtrack</string>
+    <string name="soundtrack_on_phone">Soundtrack · on your phone</string>
     <string name="chapters_count">%1$d chapters</string>
     <string name="chapters_value">%1$d of %2$d</string>
     <string name="chapter_number">Chapter %1$d</string>

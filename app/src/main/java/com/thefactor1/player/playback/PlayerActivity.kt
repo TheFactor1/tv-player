@@ -141,7 +141,11 @@ class PlayerActivity : Activity() {
         controller = CinemaController(this, playerView, prefs, stats, enhancement, subtitleDelay, onExit = ::finish)
         if (controller.touch) resumeChip.useTouch(::startOver)
         controller.onRetry = ::retryFromScratch
-        controller.onDetails = { metaDetails = it }
+        controller.onDetails = { details ->
+            metaDetails = details
+            controller.offerNextEpisode(details.nextEpisode.takeIf { nextEpisodeIntent(details) != null })
+        }
+        controller.onNextEpisode = ::openNextEpisode
         controller.onOpenElsewhere = ::openInAnotherPlayer
         controller.onAudioDelayChanged = { ms ->
             audioDelay.offsetUs = ms * 1_000L
@@ -747,6 +751,31 @@ class PlayerActivity : Activity() {
                     .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
                     .build()
             }
+        }
+    }
+
+    /**
+     * Stremio's link to the next episode's streams, the same kind the home screen's Continue uses.
+     * Stremio hands over one episode at a time, so this is as close to autoplay as it gets. Other
+     * apps have no such link, so they get no offer.
+     */
+    private fun nextEpisodeIntent(details: MetaDetails): Intent? {
+        val pkg = sourcePackage?.takeIf { it.contains("stremio") } ?: return null
+        val id = details.imdbId ?: return null
+        val next = details.nextEpisode ?: return null
+        return Intent(Intent.ACTION_VIEW, Uri.parse("stremio:///detail/series/$id/$id:${next.season}:${next.episode}")).setPackage(pkg)
+    }
+
+    /** This episode counts as watched, Stremio opens the next one, and the player steps aside. */
+    private fun openNextEpisode() {
+        val next = metaDetails?.let(::nextEpisodeIntent) ?: return
+        completed = true
+        // The result goes back first, so Stremio marks this episode watched before the next one opens.
+        finish()
+        try {
+            startActivity(next)
+        } catch (e: ActivityNotFoundException) {
+            Log.i(RESUME_TAG, "no app for the next episode link")
         }
     }
 

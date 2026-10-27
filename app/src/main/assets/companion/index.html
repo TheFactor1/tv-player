@@ -67,6 +67,17 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
 .rb.play { width: 62px; height: 62px; background: var(--ink); color: var(--ground); }
 .rb:active { transform: scale(.94); }
 .rb svg { width: 22px; height: 22px; fill: currentColor; }
+.album { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; padding: 8px 6px 14px; }
+.cover { width: 96px; height: 96px; border-radius: 10px; background: var(--card-2) center/cover no-repeat; }
+.album b { display: block; font-size: 18px; line-height: 1.25; }
+.album span { display: block; font-size: 13.5px; color: var(--dim); margin-top: 4px; }
+.open { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 6px 14px; }
+.open a { text-decoration: none; font-size: 13.5px; font-weight: 700; padding: 9px 14px; border-radius: 99px; background: var(--card); color: var(--ink); }
+.open a:first-child { background: var(--ink); color: var(--ground); }
+.trk { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 10px; border-radius: 12px; text-decoration: none; color: var(--ink-2); font-size: 15px; }
+.trk:active { background: var(--card); }
+.trk .n, .trk .d { font-family: var(--mono); font-size: 12px; color: var(--faint); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.tab .new { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--live); margin-left: 6px; vertical-align: 1px; }
 .toast { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); background: var(--ink); color: var(--ground); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 99px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.on { opacity: 1; }
 </style>
@@ -88,10 +99,12 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     <button class="tab" role="tab" data-tab="transcript" aria-selected="true">Transcript</button>
     <button class="tab" role="tab" data-tab="search" aria-selected="false">Search</button>
     <button class="tab" role="tab" data-tab="cast" aria-selected="false">Cast</button>
+    <button class="tab" role="tab" data-tab="music" aria-selected="false" id="musicTab" hidden>Music</button>
   </div>
   <div class="pane" id="transcript"></div>
   <div class="pane" id="search" hidden><div class="search"><input id="q" type="search" placeholder="Search what's said, e.g. why so serious" aria-label="Search the transcript"></div><div id="results"></div></div>
   <div class="pane" id="cast" hidden></div>
+  <div class="pane" id="music" hidden></div>
   <div class="remote">
     <button class="rb" data-skip="-30000" aria-label="Back 30 seconds">−30</button>
     <button class="rb" data-skip="-10000" aria-label="Back 10 seconds">−10</button>
@@ -110,6 +123,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   let token = null;
   try { token = localStorage.getItem('token'); } catch (e) {}
   let state = {}, cues = [], transcriptVersion = -1, shownStatus = null, castCount = -1, nowIndex = -1, lastScroll = 0, tab = 'transcript';
+  let musicId = null, musicSeen = false;
 
   const fmt = ms => {
     const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
@@ -146,13 +160,15 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   };
   $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('connect').click(); });
 
-  document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
-    tab = b.dataset.tab;
-    document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === b)));
-    ['transcript', 'search', 'cast'].forEach(id => $(id).hidden = id !== tab);
+  function showTab(name) {
+    tab = name;
+    document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x.dataset.tab === tab)));
+    ['transcript', 'search', 'cast', 'music'].forEach(id => $(id).hidden = id !== tab);
     if (tab === 'transcript') scrollToNow(true);
     if (tab === 'search') $('q').focus();
-  });
+    if (tab === 'music') { musicSeen = true; renderMusicTab(); }
+  }
+  document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
   const control = async (action, ms) => { try { state = stamp(await api('/api/control', { action, ms: ms || 0 })); render(); } catch (e) {} };
   document.querySelectorAll('[data-skip]').forEach(b => b.onclick = () => control('skip', Number(b.dataset.skip)));
@@ -220,6 +236,31 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     }).join('');
   }
 
+  // The film's soundtrack: the album, links to open it in a music app, and its tracks.
+  const searchLinks = q => [
+    ['Spotify', 'https://open.spotify.com/search/' + encodeURIComponent(q)],
+    ['Apple Music', 'https://music.apple.com/search?term=' + encodeURIComponent(q)],
+    ['YouTube Music', 'https://music.youtube.com/search?q=' + encodeURIComponent(q)],
+  ];
+  async function loadMusic() {
+    const data = await api('/api/soundtrack');
+    const pane = $('music');
+    if (!data.album) { pane.innerHTML = '<div class="empty">The film’s soundtrack shows here when one is found.</div>'; return; }
+    const who = [data.artist, data.year || null].filter(Boolean).join(' · ');
+    const query = data.album + (data.artist ? ' ' + data.artist : '');
+    pane.innerHTML =
+      '<div class="album"><span class="cover" style="background-image:url(\'' + encodeURI(data.cover) + '\')"></span><div><b>' + esc(data.album) + '</b><span>' + esc(who) + '</span></div></div>' +
+      '<div class="open">' + searchLinks(query).map(([n, u]) => '<a href="' + u + '" target="_blank" rel="noopener">' + n + '</a>').join('') + '</div>' +
+      data.tracks.map((t, i) => '<a class="trk" target="_blank" rel="noopener" href="' + searchLinks(t.title + ' ' + (data.artist || data.name))[2][1] + '"><span class="n">' + (i + 1) + '</span><span>' + esc(t.title) + '</span><span class="d">' + (t.ms ? fmt(t.ms) : '') + '</span></a>').join('');
+  }
+  function renderMusicTab() {
+    const album = state.soundtrack;
+    $('musicTab').hidden = !album;
+    // A dot on the tab once the credits send it, until it's opened.
+    $('musicTab').innerHTML = 'Music' + (album && album.sent && !musicSeen ? '<span class="new"></span>' : '');
+    if (!album && tab === 'music') showTab('transcript');
+  }
+
   function render() {
     $('title').textContent = state.idle ? 'Nothing playing' : (state.title || 'Playing');
     $('clock').textContent = state.idle ? '' : fmt(nowMs()) + (state.durationMs ? ' / ' + fmt(state.durationMs) : '');
@@ -250,6 +291,10 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
       }
       if (!cues.length && state.transcriptStatus !== shownStatus) { shownStatus = state.transcriptStatus; renderTranscript(); }
       if (state.castCount !== castCount) { castCount = state.castCount; loadCast(); }
+      const album = state.soundtrack ? state.soundtrack.id : null;
+      if (album !== musicId) { musicId = album; musicSeen = false; if (album) loadMusic(); }
+      renderMusicTab();
+      if (wantMusic && album) { wantMusic = false; showTab('music'); }
       render();
     } catch (e) {
       if (e.message === 'pair') return;
@@ -258,6 +303,8 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     timer = setTimeout(poll, document.hidden ? 4000 : 1000);
   }
 
+  // The phone app's soundtrack notification opens the page on the Music tab (#music).
+  let wantMusic = /music/.test(location.hash);
   // The TV's QR code carries the pairing code (#pair=1234): pair straight away, even over an old token.
   const scanned = (location.hash.match(/pair=(\d{4})/) || [])[1];
   // The phone app opens this page with its own token, so it never needs the code.
@@ -274,6 +321,11 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     $('connect').click();
   } else if (token) { showMain(); poll(); } else showPair();
   document.addEventListener('visibilitychange', () => { if (!document.hidden && token) poll(); });
+  // The notification can reopen the page that's already showing, which only changes the hash.
+  window.addEventListener('hashchange', () => {
+    if (!/music/.test(location.hash)) return;
+    if (state.soundtrack) showTab('music'); else wantMusic = true;
+  });
 })();
 </script>
 </body>

@@ -12,6 +12,10 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.text.ParseException
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -26,7 +30,11 @@ data class MetaDetails(
     val description: String?,
     /** The IMDb id ("tt0903747"), which skip times and subtitle search are keyed by. */
     val imdbId: String? = null,
+    /** For an episode, the one after it that is already out; null for a film or a season finale with nothing after. */
+    val nextEpisode: NextEpisode? = null,
 )
+
+data class NextEpisode(val season: Int, val episode: Int, val name: String?)
 
 /**
  * Looks up the film being played and fetches its backdrop and title logo, on low-priority threads
@@ -245,7 +253,33 @@ class ArtworkLoader(context: Context) {
             episodeLine = listOfNotNull(label, episodeName).joinToString("  ·  ")
             video?.optString("overview")?.ifEmpty { null }?.let { description = it }
         }
-        return MetaDetails(meta.optString("name").ifEmpty { query.name }, kicker, episodeLine, description)
+        return MetaDetails(meta.optString("name").ifEmpty { query.name }, kicker, episodeLine, description, nextEpisode = nextEpisode(meta, query))
+    }
+
+    /** The episode after [query]'s in season order, if it has aired. Specials (season 0) don't count. */
+    private fun nextEpisode(meta: JSONObject, query: MetaQuery): NextEpisode? {
+        val season = query.season ?: return null
+        val episode = query.episode ?: return null
+        val videos = meta.optJSONArray("videos") ?: return null
+        val now = System.currentTimeMillis()
+        return (0 until videos.length()).asSequence()
+            .mapNotNull { videos.optJSONObject(it) }
+            .map { Triple(it.optInt("season", -1), it.optInt("episode", it.optInt("number", -1)), it) }
+            .filter { (s, e, _) -> s > 0 && e > 0 && (s > season || (s == season && e > episode)) }
+            .filter { (_, _, video) -> (released(video) ?: 0L) <= now }
+            .minWithOrNull(compareBy({ it.first }, { it.second }))
+            ?.let { (s, e, video) -> NextEpisode(s, e, video.optString("name").ifEmpty { video.optString("title") }.ifEmpty { null }) }
+    }
+
+    /** "2019-03-28T00:00:00.000Z" as a time, or null when the date is missing or unreadable. */
+    private fun released(video: JSONObject): Long? {
+        val date = video.optString("released").take(10).ifEmpty { video.optString("firstAired").take(10) }
+        if (date.length != 10) return null
+        return try {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(date)?.time
+        } catch (e: ParseException) {
+            null
+        }
     }
 
     /** Samples a small copy of the backdrop, so this stays cheap on the onn. */

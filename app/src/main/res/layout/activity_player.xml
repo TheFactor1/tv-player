@@ -447,6 +447,26 @@
         android:textSize="20sp"
         android:visibility="invisible" />
 
+    <!-- The film's soundtrack as the credits start: a small card in the corner, the credits stay clear. -->
+    <TextView
+        android:id="@+id/soundtrack_note"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="64dp"
+        android:layout_marginBottom="64dp"
+        android:alpha="0"
+        android:background="@drawable/toast_bg"
+        android:lineSpacingMultiplier="1.15"
+        android:maxWidth="420dp"
+        android:paddingStart="20dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="12dp"
+        android:textColor="@color/ink"
+        android:textSize="17sp"
+        android:visibility="invisible" />
+
     <!-- Skip intro / recap / credits: bottom right, like a streaming app; OK presses it while it shows. -->
     <TextView
         android:id="@+id/skip_prompt"

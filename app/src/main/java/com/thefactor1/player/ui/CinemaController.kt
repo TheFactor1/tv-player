@@ -10,9 +10,11 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.format.DateFormat
 import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.Display
 import android.view.KeyEvent
@@ -50,8 +52,12 @@ import com.thefactor1.player.meta.CastLoader
 import com.thefactor1.player.meta.CastMember
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
+import com.thefactor1.player.meta.NextEpisode
 import com.thefactor1.player.meta.OnlineExtras
 import com.thefactor1.player.meta.OnlineSubtitle
+import com.thefactor1.player.meta.SkipSegment
+import com.thefactor1.player.meta.SkipSegments
+import com.thefactor1.player.meta.SoundtrackLoader
 import com.thefactor1.player.meta.SubtitleLanguages
 import com.thefactor1.player.playback.AudioEnhancement
 import com.thefactor1.player.playback.Chapter
@@ -156,6 +162,7 @@ class CinemaController(
     private val moreButton: ImageView = activity.findViewById(R.id.btn_more)
     private val focusLabel: TextView = activity.findViewById(R.id.focus_label)
     private val toast: TextView = activity.findViewById(R.id.center_toast)
+    private val soundtrackNote: TextView = activity.findViewById(R.id.soundtrack_note)
     private val exitHint: TextView = activity.findViewById(R.id.exit_hint)
     private val centerGlyph: ImageView = activity.findViewById(R.id.center_glyph)
     private val skipBack: View = activity.findViewById(R.id.skip_back)
@@ -231,6 +238,8 @@ class CinemaController(
     var onDetails: ((MetaDetails) -> Unit)? = null
     /** "Skip credits" at the end of the video: finish as if it had played out. */
     var onSkipCredits: (() -> Unit)? = null
+    /** "Next episode" at the credits: open it in the source app, as offered by [offerNextEpisode]. */
+    var onNextEpisode: (() -> Unit)? = null
     /** Add a subtitle file from the web as a track and switch to it. */
     var onAddSubtitle: ((url: String, language: String?, label: String) -> Unit)? = null
 
@@ -262,10 +271,15 @@ class CinemaController(
     private var pauseScreenShown = false
     private val extras = OnlineExtras()
     private val cast = CastLoader(activity, BuildConfig.TMDB_API_KEY)
+    private val soundtracks = SoundtrackLoader("Player/${BuildConfig.VERSION_NAME}")
+    /** This film's skip times, kept to know when its credits start. */
+    private var skipSegments: List<SkipSegment> = emptyList()
+    /** The soundtrack note has been shown for this film. */
+    private var soundtrackAnnounced = false
     private val metaCast = CastRow(activity.findViewById(R.id.meta_cast), fonts, faceDp = 48, nameSp = 15f, maxPeople = 5)
     private val metaCastView: View = activity.findViewById(R.id.meta_cast)
     private var castShown: List<CastMember> = emptyList()
-    private val skipPrompt = SkipPrompt(activity.findViewById(R.id.skip_prompt)) { onSkipCredits?.invoke() }
+    private val skipPrompt = SkipPrompt(activity.findViewById(R.id.skip_prompt), { onSkipCredits?.invoke() }, { onNextEpisode?.invoke() })
     private var onlineSearch = OnlineSearch.UNMATCHED
     private var onlineSubtitles: List<OnlineSubtitle> = emptyList()
 
@@ -447,7 +461,7 @@ class CinemaController(
         barOnly = false
         panel = null
         page = null
-        for (view in listOf(infoBar, controlBar, sidePanel, toast, exitHint, centerGlyph, skipBack, skipForward, miniBar)) {
+        for (view in listOf(infoBar, controlBar, sidePanel, toast, exitHint, centerGlyph, skipBack, skipForward, miniBar, soundtrackNote)) {
             view.animate().cancel()
             view.alpha = 0f
             view.visibility = View.INVISIBLE
@@ -477,7 +491,11 @@ class CinemaController(
         logoShownAt = 0L
         extras.cancel()
         cast.cancel()
+        soundtracks.cancel()
         castShown = emptyList()
+        skipSegments = emptyList()
+        soundtrackAnnounced = false
+        skipPrompt.nextEpisode = null
         PhoneCompanion.reset()
         PhoneCompanion.loadTranscript(PhoneCompanion.launchSubtitles)
         metaCast.clear()
@@ -502,6 +520,7 @@ class CinemaController(
                 onDetails?.invoke(details)
                 showDetails()
                 details.imdbId?.let { loadExtras(it, query) }
+                if (!query.isSeries) loadSoundtrack(details, query)
             }
 
             override fun onBackdrop(bitmap: Bitmap) {
@@ -595,7 +614,10 @@ class CinemaController(
                 metaCast.setPhoto(member, bitmap)
             }
         })
-        extras.skipSegments(imdbId, query.season, query.episode) { skipPrompt.setSegments(it) }
+        extras.skipSegments(imdbId, query.season, query.episode) {
+            skipSegments = it
+            skipPrompt.setSegments(it)
+        }
         onlineSearch = OnlineSearch.SEARCHING
         refreshSubtitlePanel()
         extras.subtitles(imdbId, query.season, query.episode) { found ->
@@ -606,6 +628,73 @@ class CinemaController(
             onlineSearch = OnlineSearch.DONE
             refreshSubtitlePanel()
         }
+    }
+
+    /** The film's soundtrack, looked up once it's recognised; the phone gets it at the credits. */
+    private fun loadSoundtrack(details: MetaDetails, query: MetaQuery) {
+        val year = query.year ?: details.kicker?.let { YEAR_FIRST.find(it)?.value?.toIntOrNull() }
+        soundtracks.load(details.name, year) { album ->
+            PhoneCompanion.soundtrack = album
+            watchCredits()
+        }
+    }
+
+    /**
+     * Once the credits start (the skip time for them, or the last few minutes of a feature without
+     * one), the phone is told to show the soundtrack and a quiet note says so. Checks every couple
+     * of seconds while playing, and only while there is a soundtrack still to announce.
+     */
+    private fun watchCredits() {
+        handler.removeCallbacks(creditsCheck)
+        if (PhoneCompanion.soundtrack != null && !soundtrackAnnounced) creditsCheck.run()
+    }
+
+    private val creditsCheck = object : Runnable {
+        override fun run() {
+            val exo = player ?: return
+            val album = PhoneCompanion.soundtrack ?: return
+            if (soundtrackAnnounced || !exo.isPlaying) return
+            val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+            val start = SkipSegments.usable(skipSegments, duration).lastOrNull { it.kind == SkipSegment.Kind.CREDITS }?.startMs
+                ?: (duration - FILM_CREDITS_MS).takeIf { duration >= FEATURE_MS }
+            val position = exo.currentPosition
+            if (start != null && position >= start && position < duration - CREDITS_END_MARGIN_MS) {
+                soundtrackAnnounced = true
+                PhoneCompanion.soundtrackSent = true
+                showSoundtrackNote(album.shortName, album.artist)
+                return
+            }
+            handler.postDelayed(this, CREDITS_CHECK_MS)
+        }
+    }
+
+    /** "Soundtrack · on your phone" over the album's name and composer, rising softly in the corner. */
+    private fun showSoundtrackNote(name: String, artist: String?) {
+        val kicker = activity.getString(if (PhoneCompanion.phoneListening) R.string.soundtrack_on_phone else R.string.soundtrack_kicker)
+        val text = SpannableStringBuilder(kicker)
+        text.setSpan(ForegroundColorSpan(inkDim), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        text.setSpan(RelativeSizeSpan(SOUNDTRACK_KICKER_SIZE), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        text.append("\n").append(listOfNotNull(name, artist).joinToString("  ·  "))
+        soundtrackNote.typeface = fonts.semibold
+        soundtrackNote.text = text
+        soundtrackNote.animate().cancel()
+        soundtrackNote.alpha = 0f
+        soundtrackNote.translationY = Motion.RISE_DP * activity.resources.displayMetrics.density
+        soundtrackNote.visibility = View.VISIBLE
+        soundtrackNote.animate().alpha(1f).translationY(0f).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
+        handler.removeCallbacks(hideSoundtrackNote)
+        handler.postDelayed(hideSoundtrackNote, SOUNDTRACK_NOTE_MS)
+    }
+
+    private val hideSoundtrackNote = Runnable {
+        soundtrackNote.animate().cancel()
+        soundtrackNote.animate().alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)
+            .withEndAction { soundtrackNote.visibility = View.INVISIBLE }.start()
+    }
+
+    /** Offers [next] on the credits button, or takes the offer back with null. */
+    fun offerNextEpisode(next: NextEpisode?) {
+        skipPrompt.nextEpisode = next?.let { activity.getString(R.string.next_episode_number, it.season, it.episode) }
     }
 
     private fun refreshSubtitlePanel() {
@@ -2281,6 +2370,7 @@ class CinemaController(
             if (isPlaying && (firstFrameRendered || audioOnly)) hideLoading()
             if (controlsVisible) scheduleHide()
             if (isPlaying) hidePauseScreen() else schedulePauseScreen()
+            if (isPlaying) watchCredits()
             updatePlayButton()
         }
 
@@ -2399,6 +2489,14 @@ class CinemaController(
         const val CYCLE_MAX = 6
         const val END_ARROW_ALPHA = 0.3f
         const val CHAPTER_RESTART_MS = 3_000L
+        /** A feature without a credits time is taken to be in its credits for its last few minutes. */
+        const val FILM_CREDITS_MS = 4 * 60_000L
+        const val FEATURE_MS = 60 * 60_000L
+        const val CREDITS_END_MARGIN_MS = 5_000L
+        const val CREDITS_CHECK_MS = 2_000L
+        const val SOUNDTRACK_NOTE_MS = 8_000L
+        const val SOUNDTRACK_KICKER_SIZE = 0.78f
+        val YEAR_FIRST = Regex("""^(19|20)\d{2}""")
 
         fun formatTime(ms: Long): String {
             val total = (ms.coerceAtLeast(0) / 1000)
