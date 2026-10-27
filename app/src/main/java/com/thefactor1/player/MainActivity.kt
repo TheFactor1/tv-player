@@ -402,8 +402,10 @@ class MainActivity : Activity() {
     private fun buildCatalogTabs() {
         catalogsRow.removeAllViews()
         catalogs.forEachIndexed { index, catalog ->
+            // Cinemeta names its film and show lists alike ("Popular"); the type tells them apart.
+            val twin = catalogs.count { it.name == catalog.name } > 1
             val view = Mercury.text(this, fonts.ui, 14f).apply {
-                text = catalog.name
+                text = if (twin) getString(if (catalog.type == "series") R.string.home_catalog_shows else R.string.home_catalog_movies, catalog.name) else catalog.name
                 setPadding(0, Mercury.dp(this, 3f), 0, Mercury.dp(this, 5f))
             }
             catalogsRow.addView(tabControl(view) {

@@ -104,14 +104,16 @@ data class HubStream(
 object HubJson {
     /** Above this a size is bytes; below, it's already GB. */
     private const val BYTES_NOT_GB = 10_000.0
-    fun items(text: String): List<HubItem> = list(text, "items", "metas", "results").mapNotNull(::item)
+    /** [defaultType] stands in when an item leaves its type out, as catalog metas often do (the catalog's type is theirs). */
+    fun items(text: String, defaultType: String = "movie"): List<HubItem> =
+        list(text, "items", "metas", "results").mapNotNull { item(it, defaultType) }
 
-    fun item(json: JSONObject): HubItem? {
+    fun item(json: JSONObject, defaultType: String = "movie"): HubItem? {
         val id = json.text("id") ?: return null
         val title = json.text("title") ?: json.text("name") ?: return null
         return HubItem(
             id = id,
-            type = json.text("type") ?: "movie",
+            type = json.text("type") ?: defaultType,
             title = title,
             year = json.int("year") ?: json.text("year")?.take(4)?.toIntOrNull(),
             runtimeMin = json.int("runtimeMin"),

@@ -46,6 +46,12 @@ class HubJsonTest {
     }
 
     @Test
+    fun catalogMetasTakeTheCatalogsType() {
+        assertTrue(HubJson.items("""{"metas":[{"id":"tt1","name":"Kingfisher"}]}""", defaultType = "series").single().isSeries)
+        assertFalse(HubJson.items("""[{"id":"tt1","name":"Atlas","type":"movie"}]""", defaultType = "series").single().isSeries)
+    }
+
+    @Test
     fun dropsItemsWithoutIdOrTitle() {
         assertEquals(1, HubJson.items("""[{"id":"tt1"},{"title":"No id"},{"id":"tt2","title":"Ok"}]""").size)
         assertTrue(HubJson.items("""{"items":[]}""").isEmpty())

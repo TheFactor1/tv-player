@@ -99,7 +99,8 @@ class HubClient(baseUrl: String, private val token: String = "") {
     fun library(collection: String) = HubJson.items(get("/library?collection=$collection"))
     fun newReleases(skip: Int) = HubJson.items(get("/new?skip=$skip"))
     fun catalogs() = HubJson.catalogs(get("/browse/catalogs"))
-    fun catalog(catalog: Catalog, skip: Int) = HubJson.items(get("/browse/catalog/${catalog.type}/${encode(catalog.id)}?skip=$skip"))
+    fun catalog(catalog: Catalog, skip: Int) =
+        HubJson.items(get("/browse/catalog/${catalog.type}/${encode(catalog.id)}?skip=$skip"), defaultType = catalog.type)
     fun meta(item: HubItem): HubItem? = JSONObject(get("/browse/meta/${item.type}/${item.id}")).let { HubJson.item(it.optJSONObject("meta") ?: it) }
     fun streams(item: HubItem, episode: NextEpisode?) = HubJson.streams(get("/browse/streams/${item.type}/${item.id}${path(episode)}", cached = false))
     fun search(query: String) = HubJson.items(get("/search?q=${encode(query)}"))
