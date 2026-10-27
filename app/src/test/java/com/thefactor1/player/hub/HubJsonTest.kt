@@ -98,6 +98,9 @@ class HubJsonTest {
         assertEquals(FoundHub("10.0.0.2", "http://10.0.0.2:8097"), HubDiscovery.parse("MEDIABOX 1 8097\n", "10.0.0.2"))
         assertNull(HubDiscovery.parse("MEDIABOX 2 8097 Future", "10.0.0.2"))
         assertNull(HubDiscovery.parse("MEDIABOX?", "10.0.0.2"))
+        val request = HubDiscovery.request()
+        assertEquals(64, request.size)
+        assertEquals("MEDIABOX?", String(request, Charsets.US_ASCII).trim())
         assertNull(HubDiscovery.parse("MEDIABOX 1 99999 Bad port", "10.0.0.2"))
         assertEquals("482 913", com.thefactor1.player.home.PairingSetup.spaced("482913"))
     }

@@ -44,7 +44,7 @@ class HubDiscovery(context: Context) {
             DatagramSocket().use { socket ->
                 socket.broadcast = true
                 socket.soTimeout = RECEIVE_MS
-                val ask = BEACON.toByteArray(Charsets.US_ASCII)
+                val ask = request()
                 val started = System.currentTimeMillis()
                 var lastSent = 0L
                 val buffer = ByteArray(512)
@@ -85,6 +85,11 @@ class HubDiscovery(context: Context) {
     companion object {
         const val PORT = 8098
         private const val BEACON = "MEDIABOX?"
+        /** The hub only answers a request at least as long as its reply, so it can't be used to amplify traffic. */
+        const val REQUEST_BYTES = 64
+
+        /** "MEDIABOX?" padded with spaces to [REQUEST_BYTES]; the hub matches the trimmed text. */
+        fun request(): ByteArray = BEACON.padEnd(REQUEST_BYTES, ' ').toByteArray(Charsets.US_ASCII)
         private const val INTERVAL_MS = 2_000L
         private const val SEARCH_MS = 20_000L
         private const val RECEIVE_MS = 500
