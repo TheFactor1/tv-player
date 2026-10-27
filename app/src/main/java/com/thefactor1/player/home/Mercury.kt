@@ -21,6 +21,9 @@ object Mercury {
     const val TAB_REST = 0.55f
     const val ROW_REST = 0.38f
     const val CONTROL_REST = 0.7f
+    /** The TV safe area (res/values/dimens.xml): edges a projector or older TV may crop. */
+    const val SAFE_X = 48f
+    const val SAFE_Y = 27f
     /** The backdrop's crossfade between titles. */
     const val ART_FADE_MS = 600L
 

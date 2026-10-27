@@ -5,4 +5,7 @@
     <dimen name="skip_amount_width">44dp</dimen>
     <!-- Home: a Search result card is sized in code; this is the card's default. -->
     <dimen name="home_card_width">168dp</dimen>
+    <!-- The TV safe area: projectors and older TVs crop the edges, so nothing that matters sits outside it. -->
+    <dimen name="tv_safe_x">48dp</dimen>
+    <dimen name="tv_safe_y">27dp</dimen>
 </resources>

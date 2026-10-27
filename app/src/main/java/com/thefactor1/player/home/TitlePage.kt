@@ -104,7 +104,7 @@ class TitlePage(
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.BOTTOM
-            setPadding(Mercury.dp(root, 34f), 0, 0, Mercury.dp(root, 48f))
+            setPadding(Mercury.dp(root, Mercury.SAFE_X), 0, 0, Mercury.dp(root, 48f))
         }
         root.addView(column, FrameLayout.LayoutParams((root.resources.displayMetrics.widthPixels * WIDTH).toInt(), ViewGroup.LayoutParams.MATCH_PARENT))
         logo = ImageView(context).apply {

@@ -116,7 +116,7 @@ class RefineSheet(
 
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(Mercury.dp(root, 31f), Mercury.dp(root, 24f), Mercury.dp(root, 31f), 0)
+            setPadding(Mercury.dp(root, 31f), Mercury.dp(root, Mercury.SAFE_Y), Mercury.dp(root, Mercury.SAFE_X), 0)
         }
         root.addView(column)
         column.addView(Mercury.text(context, fonts.display, 28f, tracking = -0.03f).apply { setText(R.string.refine_title) })
@@ -157,7 +157,7 @@ class RefineSheet(
 
         val footer = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, Mercury.dp(root, 10f), 0, Mercury.dp(root, 18f))
+            setPadding(0, Mercury.dp(root, 10f), 0, Mercury.dp(root, Mercury.SAFE_Y))
         }
         column.addView(footer)
         clear = Mercury.text(context, fonts.mercuryMono, 10f, tracking = 0.22f).apply {

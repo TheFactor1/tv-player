@@ -90,7 +90,7 @@ class SearchScreen(
 
         val left = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(Mercury.dp(root, 34f), 0, 0, 0)
+            setPadding(Mercury.dp(root, Mercury.SAFE_X), 0, 0, 0)
         }
         row.addView(left, LinearLayout.LayoutParams((width * LEFT_WIDTH).toInt(), ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -126,7 +126,7 @@ class SearchScreen(
 
         val right = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(Mercury.dp(root, 24f), Mercury.dp(root, 6f), Mercury.dp(root, 34f), 0)
+            setPadding(Mercury.dp(root, 24f), Mercury.dp(root, 6f), Mercury.dp(root, Mercury.SAFE_X), 0)
         }
         row.addView(right, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         hint = Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted, 0.18f)
@@ -134,7 +134,7 @@ class SearchScreen(
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             clipToPadding = false
-            setPadding(Mercury.dp(root, 6f), Mercury.dp(root, 8f), Mercury.dp(root, 6f), Mercury.dp(root, 24f))
+            setPadding(Mercury.dp(root, 6f), Mercury.dp(root, 8f), Mercury.dp(root, 6f), Mercury.dp(root, Mercury.SAFE_Y))
         }
         right.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         results = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -188,7 +188,7 @@ class SearchScreen(
         // Rebuilt from scratch, so a key keeps focus while results change under it.
         results.removeAllViews()
         val inflater = LayoutInflater.from(context)
-        val cardWidth = (root.resources.displayMetrics.widthPixels * (1 - LEFT_WIDTH) - Mercury.dp(root, 24f + 34f + 12f + 18f)).toInt() / 2
+        val cardWidth = (root.resources.displayMetrics.widthPixels * (1 - LEFT_WIDTH) - Mercury.dp(root, 24f + Mercury.SAFE_X + 12f + 18f)).toInt() / 2
         items.chunked(2).forEach { pair ->
             val line = LinearLayout(context)
             pair.forEachIndexed { index, item ->

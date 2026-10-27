@@ -294,7 +294,7 @@ class PairingSetup(
     private fun build() {
         val row = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(Mercury.dp(root, 56f), 0, Mercury.dp(root, 56f), 0)
+            setPadding(Mercury.dp(root, 56f), Mercury.dp(root, Mercury.SAFE_Y), Mercury.dp(root, 56f), Mercury.dp(root, Mercury.SAFE_Y))
         }
         root.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
