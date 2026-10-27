@@ -57,6 +57,8 @@ class MainActivity : Activity() {
     /** A tab: a library collection read whole, New (paged), or Browse (a paged catalog of the user's choosing). */
     private class Tab(val label: Int, val collection: String?, val isNew: Boolean = false) {
         val isBrowse: Boolean get() = collection == null && !isNew
+        /** Continue and Next Up are where you left things; filtering them would hide what you're in the middle of. */
+        val refinable: Boolean get() = collection != "continue" && collection != "next"
     }
 
     private lateinit var fonts: Fonts
@@ -368,6 +370,7 @@ class MainActivity : Activity() {
             if (view !== magnifier) view.background = if (active) getDrawable(R.drawable.mercury_meniscus) else null
         }
         filterTab.text = if (refine.count > 0) getString(R.string.home_filter_on, refine.count) else getString(R.string.home_filter)
+        filterTab.visibility = if (TABS[tabIndex].refinable && !search.isOpen) View.VISIBLE else View.GONE
         for (i in 0 until catalogsRow.childCount) {
             val view = catalogsRow.getChildAt(i)
             val active = i == catalogIndex
@@ -412,7 +415,7 @@ class MainActivity : Activity() {
     // ---- The list -------------------------------------------------------------------------------
 
     private fun render() {
-        val filtered = refine.apply(all)
+        val filtered = if (TABS[tabIndex].refinable) refine.apply(all) else all
         val ids = filtered.map { it.id }
         val showing = shown.map { it.id }
         // A new page under the same filters only adds rows at the end; anything else rebuilds.
@@ -594,7 +597,7 @@ class MainActivity : Activity() {
     }
 
     private fun openRefine() {
-        if (client == null) return
+        if (client == null || !TABS[tabIndex].refinable) return
         if (search.isOpen) closeSearch(focusMagnifier = false)
         body.animate().translationX(-Mercury.dp(body, Motion.RISE_DP * 2.4f).toFloat()).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
         sheet.open(refine, all, (if (frontIsB) artB else artA).drawable)
