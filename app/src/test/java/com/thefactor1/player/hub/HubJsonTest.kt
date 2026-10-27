@@ -93,6 +93,28 @@ class HubJsonTest {
     }
 
     @Test
+    fun aShowsFullRecordCarriesItsEpisodesInOrder() {
+        val show = HubJson.items("""[{"id":"tt1","type":"series","name":"Kingfisher","poster":"https://p","background":"https://b",
+            "videos":[{"season":1,"episode":2,"title":"Low Tide","released":"2021-03-08T00:00:00.000Z"},
+                      {"season":1,"number":1,"name":"Pilot","overview":"Fog.","thumbnail":"https://t"},
+                      {"title":"no season"}]}]""").single()
+        assertEquals("https://b", show.backdrop)
+        assertEquals("https://p", show.poster)
+        assertEquals(listOf(Video(1, 1, "Pilot", "Fog.", "https://t", null), Video(1, 2, "Low Tide", null, null, "2021-03-08")), show.videos)
+    }
+
+    @Test
+    fun versionsKnowTheirPickCacheAndMatch() {
+        val streams = HubJson.streams("""[{"url":"a","best":true,"badges":{"res":"2160p","hdr":"DV","audio":"DTS-HD","source":"remux","sizeGb":60.2,"mbps":52,"cached":true}},
+            {"url":"b","verified":false,"badges":{"res":"1080p"}}]""")
+        assertTrue(streams[0].best)
+        assertEquals("2160p · DV · DTS-HD", streams[0].quality())
+        assertEquals("remux · 60.2 GB · 52 Mbps · ⚡ cached", streams[0].delivery())
+        assertFalse(streams[1].verified)
+        assertTrue(streams[0].verified)
+    }
+
+    @Test
     fun hubBeaconRepliesBecomeAddresses() {
         assertEquals(FoundHub("Living room", "http://192.168.50.10:8097"), HubDiscovery.parse("MEDIABOX 1 8097 Living room", "192.168.50.10"))
         assertEquals(FoundHub("10.0.0.2", "http://10.0.0.2:8097"), HubDiscovery.parse("MEDIABOX 1 8097\n", "10.0.0.2"))

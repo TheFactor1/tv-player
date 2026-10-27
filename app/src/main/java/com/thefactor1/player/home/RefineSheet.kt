@@ -2,11 +2,8 @@ package com.thefactor1.player.home
 
 import android.animation.AnimatorInflater
 import android.graphics.Paint
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -19,7 +16,6 @@ import com.thefactor1.player.R
 import com.thefactor1.player.hub.HubItem
 import com.thefactor1.player.ui.FocusGlide
 import com.thefactor1.player.ui.Fonts
-import com.thefactor1.player.ui.Motion
 
 /**
  * The Refine sheet: one glass layer over the right of the screen, text first. Genre, Length, Format
@@ -54,21 +50,14 @@ class RefineSheet(
         isOpen = true
         build()
         glass.setImageDrawable(art)
-        root.animate().cancel()
-        root.visibility = View.VISIBLE
-        root.alpha = 0f
-        root.translationX = Mercury.dp(root, Motion.RISE_DP * 3).toFloat()
-        root.animate().alpha(1f).translationX(0f).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).setListener(null).start()
+        Mercury.slideIn(root)
         root.post { (first?.takeIf { it.isFocusable } ?: done).requestFocus() }
     }
 
     fun close() {
         if (!isOpen) return
         isOpen = false
-        root.animate().cancel()
-        root.animate().alpha(0f).translationX(Mercury.dp(root, Motion.RISE_DP * 3).toFloat())
-            .setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)
-            .withEndAction { root.visibility = View.INVISIBLE }.start()
+        Mercury.slideOut(root)
         onClose()
     }
 
@@ -96,23 +85,7 @@ class RefineSheet(
         root.removeAllViews()
         redraws.clear()
         first = null
-        root.layoutParams.width = (root.resources.displayMetrics.widthPixels * SHEET_WIDTH).toInt()
-
-        // The blur is of the backdrop alone, lined up with the full-screen one so the sheet reads as glass over it.
-        glass = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
-        val screenWidth = root.resources.displayMetrics.widthPixels
-        root.addView(glass, FrameLayout.LayoutParams(screenWidth, ViewGroup.LayoutParams.MATCH_PARENT))
-        glass.translationX = -(screenWidth - root.layoutParams.width).toFloat()
-        val blur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-        if (blur) {
-            val radius = Mercury.dp(root, BLUR_DP).toFloat()
-            glass.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP))
-        } else {
-            glass.visibility = View.GONE
-        }
-        root.addView(View(context).apply { setBackgroundColor(context.getColor(if (blur) R.color.mercury_glass else R.color.mercury_glass_plain)) })
-        root.addView(View(context).apply { setBackgroundColor(context.getColor(R.color.mercury_chrome)) },
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Mercury.dp(root, 1f)))
+        glass = Mercury.glass(root)
 
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -277,8 +250,6 @@ class RefineSheet(
         }
 
     private companion object {
-        const val SHEET_WIDTH = 0.38f
-        const val BLUR_DP = 22f
         const val SKIP_ALPHA = 0.35f
     }
 }

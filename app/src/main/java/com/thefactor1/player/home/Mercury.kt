@@ -2,18 +2,24 @@ package com.thefactor1.player.home
 
 import android.content.Context
 import android.graphics.LinearGradient
+import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.PaintDrawable
 import android.graphics.drawable.ShapeDrawable
+import android.os.Build
 import android.text.TextUtils
 import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import com.thefactor1.player.R
 import com.thefactor1.player.hub.HubItem
+import com.thefactor1.player.ui.Motion
 
 /** The Home's Mercury look in code: its text styles, the backdrop's fade, and a title's credits line. */
 object Mercury {
@@ -24,6 +30,9 @@ object Mercury {
     /** The TV safe area (res/values/dimens.xml): edges a projector or older TV may crop. */
     const val SAFE_X = 48f
     const val SAFE_Y = 27f
+    /** A glass sheet's share of the screen width, from the right edge. */
+    const val SHEET_WIDTH = 0.38f
+    private const val BLUR_DP = 22f
     /** The backdrop's crossfade between titles. */
     const val ART_FADE_MS = 600L
 
@@ -39,6 +48,48 @@ object Mercury {
         }
 
     fun dp(view: View, value: Float): Int = (value * view.resources.displayMetrics.density).toInt()
+
+    /**
+     * Makes [root] a glass sheet: the backdrop blurred behind it (lined up with the full-screen one,
+     * so it reads as glass over it; Android 12 and up), a tint, and the one chrome line along the
+     * top. Returns the blurred layer, for the caller to give the backdrop on screen.
+     */
+    fun glass(root: FrameLayout): ImageView {
+        val context = root.context
+        val screenWidth = root.resources.displayMetrics.widthPixels
+        root.layoutParams.width = (screenWidth * SHEET_WIDTH).toInt()
+        val glass = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        root.addView(glass, FrameLayout.LayoutParams(screenWidth, ViewGroup.LayoutParams.MATCH_PARENT))
+        glass.translationX = -(screenWidth - root.layoutParams.width).toFloat()
+        val blur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        if (blur) {
+            val radius = dp(root, BLUR_DP).toFloat()
+            glass.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP))
+        } else {
+            glass.visibility = View.GONE
+        }
+        root.addView(View(context).apply { setBackgroundColor(context.getColor(if (blur) R.color.mercury_glass else R.color.mercury_glass_plain)) })
+        root.addView(View(context).apply { setBackgroundColor(context.getColor(R.color.mercury_chrome)) },
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(root, 1f)))
+        return glass
+    }
+
+    /** A sheet arriving from the right: a short slide and a fade, no bounce. */
+    fun slideIn(sheet: View) {
+        sheet.animate().cancel()
+        sheet.visibility = View.VISIBLE
+        sheet.alpha = 0f
+        sheet.translationX = dp(sheet, Motion.RISE_DP * 3).toFloat()
+        sheet.animate().alpha(1f).translationX(0f).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).setListener(null).start()
+    }
+
+    /** The way it came, a third quicker. */
+    fun slideOut(sheet: View) {
+        sheet.animate().cancel()
+        sheet.animate().alpha(0f).translationX(dp(sheet, Motion.RISE_DP * 3).toFloat())
+            .setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)
+            .withEndAction { sheet.visibility = View.INVISIBLE }.start()
+    }
 
     /**
      * The long fade that keeps the list on darkness: solid ground for the left quarter, clear by three

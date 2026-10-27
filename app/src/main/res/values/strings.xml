@@ -194,6 +194,15 @@
     <string name="home_play">Play</string>
     <string name="home_play_episode">Play S%1$d E%2$d</string>
     <string name="home_details">Details</string>
+    <string name="home_resume">Resume</string>
+    <string name="home_starting">Starting…</string>
+    <string name="home_resume_episode">Resume S%1$d E%2$d</string>
+    <string name="home_next_up">NEXT UP</string>
+    <string name="home_season">Season %1$d</string>
+    <string name="home_specials">Specials</string>
+    <string name="home_episodes">EPISODES</string>
+    <string name="versions_best">BEST FOR YOU</string>
+    <string name="versions_unverified">UNVERIFIED</string>
     <string name="home_keep">Add to library</string>
     <string name="home_kept">Added to your library</string>
     <string name="home_in_library">IN YOUR LIBRARY</string>

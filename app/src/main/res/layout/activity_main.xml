@@ -212,6 +212,15 @@
         android:layout_gravity="end"
         android:visibility="invisible" />
 
+    <!-- Other versions: the same glass sheet as Refine; its width is set in code. -->
+    <FrameLayout
+        android:id="@+id/home_versions"
+        android:layout_width="360dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:focusable="true"
+        android:visibility="invisible" />
+
     <View
         android:id="@+id/panel_scrim"
         android:layout_width="match_parent"
@@ -291,4 +300,14 @@
             android:textColor="@color/ink_secondary"
             android:textSize="13sp" />
     </LinearLayout>
+
+    <!-- While a play is on its way to the hub: the screen dims and holds still. -->
+    <View
+        android:id="@+id/home_dim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="#4D000000"
+        android:clickable="true"
+        android:visibility="gone" />
 </FrameLayout>

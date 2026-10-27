@@ -29,10 +29,13 @@ class PosterView(context: Context, private val backdrop: Boolean = false) : Fram
         addView(track, LayoutParams(LayoutParams.MATCH_PARENT, Mercury.dp(this, 3f), Gravity.BOTTOM).apply { setMargins(inset, 0, inset, inset) })
     }
 
-    fun bind(item: HubItem, widthPx: Int) {
-        val fraction = Mercury.progress(item)
+    fun bind(item: HubItem, widthPx: Int) =
+        bind(if (backdrop) HomeArt.backdrop(item) else HomeArt.poster(item), Mercury.progress(item), widthPx)
+
+    /** [url]'s picture with [fraction] (0–1) watched along the bottom, or no bar when null. */
+    fun bind(url: String?, fraction: Float?, widthPx: Int) {
         track.visibility = if (fraction == null) View.GONE else View.VISIBLE
         if (fraction != null) track.post { fill.layoutParams = fill.layoutParams.apply { width = (track.width * fraction).toInt() } }
-        HomeArt.into(image, if (backdrop) HomeArt.backdrop(item) else HomeArt.poster(item), widthPx)
+        HomeArt.into(image, url, widthPx)
     }
 }

@@ -19,6 +19,16 @@ data class HubResume(val positionMs: Long, val durationMs: Long, val updatedAt: 
 
 data class NextEpisode(val season: Int, val episode: Int, val title: String?)
 
+/** One episode of a show, from `/browse/meta`'s videos. [released] is "2024-03-01" or null. */
+data class Video(
+    val season: Int,
+    val episode: Int,
+    val title: String?,
+    val overview: String?,
+    val thumbnail: String?,
+    val released: String?,
+)
+
 /** A film or show as the hub describes it, the same shape from every call. */
 data class HubItem(
     /** The IMDb id, "tt1234567". */
@@ -39,6 +49,8 @@ data class HubItem(
     /** Art as the hub serves it; null when it has none, and then the Cinemeta lookup stands in. */
     val poster: String? = null,
     val backdrop: String? = null,
+    /** A show's episodes; only the full record (`/browse/meta`) carries them. */
+    val videos: List<Video> = emptyList(),
 ) {
     val isSeries: Boolean get() = type == "series"
 }
@@ -56,11 +68,28 @@ data class HubStream(
     val sizeGb: Double? = null,
     /** What the copy was made from: "remux", "web", "bluray". */
     val origin: String? = null,
+    /** Already on the debrid service, so it starts at once. */
+    val cached: Boolean = false,
+    /** The hub's own pick for this box's quality setting. */
+    val best: Boolean = false,
+    /** False when the hub couldn't confirm this copy is the right title or episode. */
+    val verified: Boolean = true,
 ) {
     /**
      * "2160p · DV · Atmos · remux · 58.2 GB · 62 Mbps": the hub often sends no name, and copies told
      * apart only by a name would all look the same.
      */
+    /** "2160p · DV · DTS-HD": what it looks and sounds like, for a version's first line. */
+    fun quality(): String = listOfNotNull(badges.res, badges.hdr, badges.audio).joinToString(" · ").ifEmpty { name }
+
+    /** "remux · 60.2 GB · 52 Mbps · ⚡ cached": how it's made and delivered, for its second line. */
+    fun delivery(): String = listOfNotNull(
+        origin,
+        sizeGb?.let { String.format(Locale.US, "%.1f GB", it) },
+        badges.mbps?.let { "${it.roundToInt()} Mbps" },
+        if (cached) "\u26A1 cached" else null,
+    ).joinToString(" · ")
+
     fun label(): String {
         val size = sizeGb?.let { String.format(Locale.US, "%.1f GB", it) }
         val rate = badges.mbps?.let { "${it.roundToInt()} Mbps" }
@@ -100,6 +129,15 @@ object HubJson {
             },
             poster = json.text("poster"),
             backdrop = json.text("backdrop") ?: json.text("background"),
+            videos = json.optJSONArray("videos")?.let { array ->
+                (0 until array.length()).mapNotNull { i ->
+                    val video = array.optJSONObject(i) ?: return@mapNotNull null
+                    val season = video.int("season") ?: return@mapNotNull null
+                    val episode = video.int("episode") ?: video.int("number") ?: return@mapNotNull null
+                    Video(season, episode, video.text("title") ?: video.text("name"), video.text("overview") ?: video.text("description"),
+                        video.text("thumbnail"), video.text("released")?.take(10))
+                }.sortedWith(compareBy({ it.season }, { it.episode }))
+            }.orEmpty(),
         )
     }
 
@@ -129,7 +167,14 @@ object HubJson {
         val size = listOf(badgeJson?.opt("sizeGb"), badgeJson?.opt("size"), json.opt("sizeGb"), json.opt("size"))
             .firstNotNullOfOrNull { (it as? Number)?.toDouble() }
             ?.let { if (it > BYTES_NOT_GB) it / 1e9 else it }
-        return HubStream(url, name, badges, source, headers(json.optJSONObject("headers")), json.text("description"), size, badgeJson?.label("source"))
+        val unverified = json.optBoolean("unverified") || (json.has("verified") && !json.optBoolean("verified", true)) ||
+            (json.has("matched") && !json.optBoolean("matched", true))
+        return HubStream(
+            url, name, badges, source, headers(json.optJSONObject("headers")), json.text("description"), size, badgeJson?.label("source"),
+            cached = badgeJson?.optBoolean("cached") == true || json.optBoolean("cached"),
+            best = json.optBoolean("best") || json.optBoolean("pick"),
+            verified = !unverified,
+        )
     }
 
     private fun badges(json: JSONObject?) = Badges(

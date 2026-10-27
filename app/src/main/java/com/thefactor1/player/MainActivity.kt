@@ -24,12 +24,15 @@ import com.thefactor1.player.home.PosterView
 import com.thefactor1.player.home.Refine
 import com.thefactor1.player.home.RefineSheet
 import com.thefactor1.player.home.SearchScreen
+import com.thefactor1.player.home.SpinnerDrawable
 import com.thefactor1.player.home.TitlePage
+import com.thefactor1.player.home.VersionsSheet
 import com.thefactor1.player.hub.Catalog
 import com.thefactor1.player.hub.FoundHub
 import com.thefactor1.player.hub.HubClient
 import com.thefactor1.player.hub.HubImages
 import com.thefactor1.player.hub.HubItem
+import com.thefactor1.player.hub.HubResume
 import com.thefactor1.player.hub.HubStream
 import com.thefactor1.player.hub.HubVault
 import com.thefactor1.player.hub.NextEpisode
@@ -41,7 +44,6 @@ import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.Motion
-import com.thefactor1.player.ui.Option
 import com.thefactor1.player.ui.OptionList
 import com.thefactor1.player.ui.PairingCard
 import com.thefactor1.player.ui.ThisTv
@@ -89,6 +91,8 @@ class MainActivity : Activity() {
     private lateinit var titlePage: TitlePage
     private lateinit var search: SearchScreen
     private lateinit var sheet: RefineSheet
+    private lateinit var versions: VersionsSheet
+    private lateinit var dim: View
 
     private var tabIndex = 0
     private var catalogs: List<Catalog> = emptyList()
@@ -108,6 +112,13 @@ class MainActivity : Activity() {
     private var panelOpen = false
     private var beforePanel: View? = null
     private var beforeTitle: View? = null
+    /** Each title's ranked copies, fetched when its page opens and kept ten minutes, so Other versions opens at once. */
+    private val streamCache = HashMap<String, Pair<Long, List<HubStream>>>()
+    private val streamsAsked = HashSet<String>()
+    /** A play is on its way to the hub: input is held until the player starts or it fails. */
+    private var pending = false
+    private var pendingButton: TextView? = null
+    private var pendingLabel: CharSequence? = null
     /** What the player is playing for us, so its position goes back to the hub. */
     private var playing: Pair<String, NextEpisode?>? = null
 
@@ -153,7 +164,18 @@ class MainActivity : Activity() {
             start()
         }, ::openSettings)
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
-        titlePage = TitlePage(findViewById(R.id.home_title_page), fonts, ::play, ::showVersions, ::keep)
+        titlePage = TitlePage(findViewById(R.id.home_title_page), fonts, { item, episode, pressed -> startPlay(item, null, episode, pressed) },
+            ::showVersions, ::keep) { item, episode ->
+            ResumeStore(this).find(listOf(HomePlay.localKey(item, episode, null)))?.let { HubResume(it.positionMs, it.durationMs, it.savedAt) }
+        }
+        versions = VersionsSheet(findViewById(R.id.home_versions), fonts, { stream, pressed ->
+            val item = titlePage.item ?: return@VersionsSheet
+            startPlay(item, stream, null, pressed)
+        }) {
+            findViewById<ViewGroup>(R.id.home_title_page).descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            beforeVersions?.takeIf { it.isAttachedToWindow }?.requestFocus()
+        }
+        dim = findViewById(R.id.home_dim)
         search = SearchScreen(findViewById(R.id.home_search), fonts,
             { query, done -> client?.run({ this.search(query) }, done) },
             { showArt(it) },
@@ -163,7 +185,7 @@ class MainActivity : Activity() {
             filterTab.requestFocus()
         }
 
-        playPill.setOnClickListener { selected()?.let(::play) }
+        playPill.setOnClickListener { selected()?.let { startPlay(it, null, null, playPill) } }
         findViewById<View>(R.id.home_details).setOnClickListener { selected()?.let(::openTitle) }
         keepPill.setOnClickListener { selected()?.let(::keep) }
 
@@ -574,15 +596,41 @@ class MainActivity : Activity() {
             HubImages.load(url, Mercury.dp(body, 400f)) { bitmap -> if (bitmap != null && titlePage.item?.id == item.id) titlePage.showLogo(bitmap) }
         }
         hideChrome(true)
-        // The list and search carry less than the full record; fill in the overview and badges.
+        // The full record (overview, episodes) and the ranked copies are fetched side by side.
+        fetchStreams(item)
         client?.run({ meta(item) }) done@{ result ->
             val fresh = result.getOrNull() ?: return@done
             if (titlePage.item?.id != item.id) return@done
-            titlePage.show(fresh.copy(inLibrary = fresh.inLibrary || item.inLibrary, resume = fresh.resume ?: item.resume, nextEpisode = fresh.nextEpisode ?: item.nextEpisode))
+            titlePage.show(HomeArt.merged(fresh.copy(inLibrary = fresh.inLibrary || item.inLibrary, resume = fresh.resume ?: item.resume,
+                nextEpisode = fresh.nextEpisode ?: item.nextEpisode, poster = fresh.poster ?: item.poster, backdrop = fresh.backdrop ?: item.backdrop)))
+        }
+    }
+
+    private fun streamKey(item: HubItem) = item.id + (HomePlay.episodeFor(item)?.let { ":${it.season}:${it.episode}" } ?: "")
+
+    private fun cachedStreams(item: HubItem): List<HubStream>? =
+        streamCache[streamKey(item)]?.takeIf { System.currentTimeMillis() - it.first < STREAMS_TTL_MS }?.second
+
+    /** The hub's ranked copies for [item]: the best one's badges go on the title page, the rest wait for Other versions. */
+    private fun fetchStreams(item: HubItem) {
+        val hub = client ?: return
+        val key = streamKey(item)
+        cachedStreams(item)?.let { list ->
+            titlePage.showStream(list.firstOrNull { it.best } ?: list.firstOrNull())
+            return
+        }
+        if (!streamsAsked.add(key)) return
+        hub.run({ streams(item, HomePlay.episodeFor(item)) }) { result ->
+            streamsAsked.remove(key)
+            val list = result.getOrNull()
+            if (list != null) streamCache[key] = System.currentTimeMillis() to list
+            if (titlePage.item?.id == item.id) titlePage.showStream(list?.let { it.firstOrNull { s -> s.best } ?: it.firstOrNull() })
+            if (versions.isOpen && titlePage.item?.id == item.id) versions.show(list.orEmpty(), result.exceptionOrNull()?.message)
         }
     }
 
     private fun closeTitle() {
+        if (versions.isOpen) versions.close()
         titlePage.close()
         hideChrome(false)
         if (!search.isOpen) selected()?.let(::showArt)
@@ -634,12 +682,17 @@ class MainActivity : Activity() {
 
     // ---- Play, Other versions, Add to library (a show is added whole) ---------------------------
 
-    private fun play(item: HubItem) = startPlay(item, null)
-
-    /** Asks the hub for the best stream now (or plays [stream]) and hands it to the player the way any app would. */
-    private fun startPlay(item: HubItem, stream: HubStream?) {
+    /**
+     * Asks the hub for the best stream now (or plays [stream]) and hands it to the player the way any
+     * app would. [episode] picks one of a show's episodes; null means the next one. The press is
+     * felt at once: [pressed] turns to "Starting…", the screen dims and input is held until the
+     * player opens or the hub says no.
+     */
+    private fun startPlay(item: HubItem, stream: HubStream?, episode: NextEpisode? = null, pressed: TextView? = null) {
         val hub = client ?: return
-        val episode = HomePlay.episodeFor(item)
+        if (pending) return
+        beginPending(pressed)
+        val episode = episode ?: HomePlay.episodeFor(item)
         val choice = prefs.quality
         // The link test takes a few seconds the first time; say so rather than sit silent.
         if (stream == null && choice == Quality.AUTO && Quality.measuredMbps() == null) Toast.makeText(this, R.string.quality_measuring, Toast.LENGTH_SHORT).show()
@@ -660,9 +713,45 @@ class MainActivity : Activity() {
                 playing = item.id to episode
                 startActivityForResult(HomePlay.intent(this, item, episode, info, HomePlay.startFrom(shared, local?.savedAt)), REQUEST_PLAY)
             }.onFailure { error ->
+                endPending()
                 Toast.makeText(this, getString(R.string.home_cant_play, error.message ?: error.javaClass.simpleName), Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    private fun beginPending(pressed: TextView?) {
+        pending = true
+        dim.animate().cancel()
+        dim.visibility = View.VISIBLE
+        dim.animate().alpha(1f).setDuration(Motion.FOCUS_MS).setInterpolator(Motion.enter).start()
+        pressed ?: return
+        pendingButton = pressed
+        pendingLabel = pressed.text
+        pressed.setText(R.string.home_starting)
+        val spinner = SpinnerDrawable(pressed.currentTextColor, Mercury.dp(pressed, 14f), Mercury.dp(pressed, 2f).toFloat())
+        pressed.setCompoundDrawablesRelativeWithIntrinsicBounds(spinner, null, null, null)
+        pressed.compoundDrawablePadding = Mercury.dp(pressed, 8f)
+        spinner.start()
+    }
+
+    private fun endPending() {
+        if (!pending) return
+        pending = false
+        dim.animate().cancel()
+        dim.animate().alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit).withEndAction { dim.visibility = View.GONE }.start()
+        pendingButton?.let { button ->
+            (button.compoundDrawablesRelative[0] as? SpinnerDrawable)?.stop()
+            button.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
+            button.text = pendingLabel
+        }
+        pendingButton = null
+        pendingLabel = null
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // The player has taken over: what's left behind is the screen as it was.
+        endPending()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -675,29 +764,21 @@ class MainActivity : Activity() {
         val duration = data?.getLongExtra(IntentContract.EXTRA_VLC_DURATION, 0L) ?: 0L
         if (resultCode != RESULT_OK || position < 0) return
         // Whether or not the hub took it, Continue is reloaded so it shows where things stand.
-        hub.run({ saveResume(id, episode, position, duration) }) { load(reset = true) }
+        hub.run({ saveResume(id, episode, position, duration) }) {
+            load(reset = true)
+            // The episode list's progress marks come from the resume memory just written.
+            titlePage.item?.let { titlePage.show(it) }
+        }
     }
 
+    private var beforeVersions: View? = null
+
+    /** Opens at once: the copies fetched when the page opened, or skeleton rows until they come. */
     private fun showVersions(item: HubItem) {
-        val hub = client ?: return
-        hub.run({ streams(item, HomePlay.episodeFor(item)) }) done@{ result ->
-            val streams = result.getOrNull().orEmpty()
-            if (streams.isEmpty()) {
-                Toast.makeText(this, result.exceptionOrNull()?.message ?: getString(R.string.home_versions_none), Toast.LENGTH_SHORT).show()
-                return@done
-            }
-            val versions = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts) {
-                streams.map { stream ->
-                    OptionList.RowSpec.Item {
-                        Option(stream.label(), stream.badges.cut, stream.description ?: stream.source) {
-                            closePanel()
-                            startPlay(item, stream)
-                        }
-                    }
-                }
-            }
-            openPanel(versions, getString(R.string.home_versions_kicker), item.title)
-        }
+        beforeVersions = currentFocus
+        findViewById<ViewGroup>(R.id.home_title_page).descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        versions.open(item.title, cachedStreams(item), (if (frontIsB) artB else artA).drawable)
+        if (cachedStreams(item) == null) fetchStreams(item)
     }
 
     private fun keep(item: HubItem) {
@@ -707,9 +788,7 @@ class MainActivity : Activity() {
                 all = all.map { if (it.id == kept.id) it.copy(inLibrary = true) else it }
                 shown = shown.map { if (it.id == kept.id) it.copy(inLibrary = true) else it }
                 val index = shown.indexOfFirst { it.id == kept.id }
-                (list.getChildAt(index) as? LinearLayout)?.let { row ->
-                    (row.getChildAt(1) as TextView).text = Mercury.credits(shown[index], showLibrary = true)
-                }
+                list.getChildAt(index)?.let { bindRow(it, shown[index]) }
                 if (selectedId == kept.id) {
                     val hadFocus = keepPill.isFocused
                     keepPill.visibility = View.GONE
@@ -758,6 +837,8 @@ class MainActivity : Activity() {
     // ---- Remote ---------------------------------------------------------------------------------
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // A play on its way: nothing moves until the player opens or the hub answers no.
+        if (pending) return true
         if (event.action == KeyEvent.ACTION_DOWN && !panelOpen && !sheet.isOpen && !titlePage.isOpen && setup.visibility != View.VISIBLE) {
             if (search.isOpen && typeIntoSearch(event)) return true
             if (moveFocus(event.keyCode)) return true
@@ -829,6 +910,7 @@ class MainActivity : Activity() {
         val focused = currentFocus
         when {
             panelOpen -> closePanel()
+            versions.isOpen -> versions.close()
             sheet.isOpen -> sheet.close()
             titlePage.isOpen -> closeTitle()
             search.isOpen -> if (!search.back()) closeSearch(focusMagnifier = true)
@@ -872,6 +954,7 @@ class MainActivity : Activity() {
         const val PAGE_AHEAD = 6
         const val ART_DELAY_MS = 140L
         const val PANEL_SLIDE = 0.08f
+        const val STREAMS_TTL_MS = 10L * 60 * 1000
         const val REQUEST_PLAY = 1
         const val KEY_REFINE = "refine"
         const val KEY_TAB = "tab"
