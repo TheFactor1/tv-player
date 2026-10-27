@@ -9,8 +9,6 @@ import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
-import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -20,11 +18,13 @@ import androidx.core.content.edit
 import com.thefactor1.player.companion.PhoneCompanion
 import com.thefactor1.player.home.HomePlay
 import com.thefactor1.player.home.Mercury
+import com.thefactor1.player.home.PairingSetup
 import com.thefactor1.player.home.Refine
 import com.thefactor1.player.home.RefineSheet
 import com.thefactor1.player.home.SearchScreen
 import com.thefactor1.player.home.TitlePage
 import com.thefactor1.player.hub.Catalog
+import com.thefactor1.player.hub.FoundHub
 import com.thefactor1.player.hub.HubClient
 import com.thefactor1.player.hub.HubItem
 import com.thefactor1.player.hub.HubStream
@@ -84,6 +84,7 @@ class MainActivity : Activity() {
     private lateinit var magnifier: ImageView
     private lateinit var filterTab: TextView
     private lateinit var setup: View
+    private lateinit var pairing: PairingSetup
     private lateinit var panel: View
     private lateinit var settings: OptionList
     private lateinit var titlePage: TitlePage
@@ -136,19 +137,23 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.home_fade).background = Mercury.backdropFade(this)
         scroll.layoutParams.width = (resources.displayMetrics.widthPixels * LIST_WIDTH).toInt()
 
-        fonts.apply(fonts.ui, message, playPill, keepPill, findViewById(R.id.home_details), findViewById(R.id.setup_body),
-            findViewById(R.id.setup_status), findViewById(R.id.setup_address), findViewById(R.id.setup_code), findViewById(R.id.setup_connect),
-            findViewById(R.id.setup_settings))
-        fonts.apply(fonts.display, findViewById(R.id.setup_title))
-        fonts.apply(fonts.mercuryMono, findViewById(R.id.setup_kicker), findViewById(R.id.setup_qr))
+        fonts.apply(fonts.ui, message, playPill, keepPill, findViewById(R.id.home_details))
         fonts.apply(fonts.bold, findViewById(R.id.settings_title))
         fonts.apply(fonts.semibold, findViewById(R.id.settings_kicker))
         fonts.apply(fonts.medium, findViewById(R.id.settings_hint))
 
         val defaults = DefaultSettings(this, prefs, { facts }) {
             closePanel()
-            showSetup()
+            showSetup(rediscover = true)
         }
+        pairing = PairingSetup(findViewById(R.id.home_setup), fonts, { address, token ->
+            vault.address = address
+            vault.token = token
+            HubClient.clearCache()
+            catalogs = emptyList()
+            catalogsRow.removeAllViews()
+            start()
+        }, ::openSettings)
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
         titlePage = TitlePage(findViewById(R.id.home_title_page), fonts, ::play, ::showVersions, ::keep)
         search = SearchScreen(findViewById(R.id.home_search), fonts, cardArt,
@@ -163,12 +168,6 @@ class MainActivity : Activity() {
         playPill.setOnClickListener { selected()?.let(::play) }
         findViewById<View>(R.id.home_details).setOnClickListener { selected()?.let(::openTitle) }
         keepPill.setOnClickListener { selected()?.let(::keep) }
-        findViewById<View>(R.id.setup_connect).setOnClickListener { connect() }
-        findViewById<View>(R.id.setup_settings).setOnClickListener { openSettings() }
-        findViewById<EditText>(R.id.setup_code).setOnEditorActionListener { _, action, _ ->
-            if (action == EditorInfo.IME_ACTION_DONE) connect()
-            false
-        }
 
         refine = Refine.decode(homePrefs.getString(KEY_REFINE, null))
         tabIndex = homePrefs.getInt(KEY_TAB, 0).coerceIn(TABS.indices)
@@ -201,6 +200,7 @@ class MainActivity : Activity() {
         PhoneCompanion.approver = askToConnect
         // The phone code may have changed since the list was built: a phone paired, or the network came up.
         if (panelOpen && panelList === settings) settings.show(settings.focusedIndex())
+        if (setup.visibility == View.VISIBLE) pairing.resume()
     }
 
     override fun onRestart() {
@@ -216,6 +216,7 @@ class MainActivity : Activity() {
         super.onStop()
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
         PhoneCompanion.stop()
+        pairing.pause()
     }
 
     // ---- The hub --------------------------------------------------------------------------------
@@ -229,23 +230,22 @@ class MainActivity : Activity() {
         client?.run({ presets() }) { result -> result.getOrNull()?.let { Quality.caps = it } }
     }
 
-    /** The setup card covers Home; what's under it is taken out of focus so the d-pad can't wander there. */
-    private fun showSetup(show: Boolean = true) {
+    /**
+     * The first-run screen covers Home; what's under it is taken out of focus so the d-pad can't wander
+     * there. It goes straight to a code for the hub already known, unless [rediscover] asks to look again.
+     */
+    private fun showSetup(show: Boolean = true, rediscover: Boolean = false, note: Int? = null) {
         if (show) {
             if (panelOpen) closePanel()
             if (sheet.isOpen) sheet.close()
             if (titlePage.isOpen) closeTitle()
             if (search.isOpen) closeSearch(focusMagnifier = false)
         }
-        setup.visibility = if (show) View.VISIBLE else View.GONE
         listOf(body, tabsRow, catalogsScroll).forEach { (it as ViewGroup).descendantFocusability =
             if (show) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS }
-        if (!show) return
-        val field = findViewById<EditText>(R.id.setup_address)
-        field.setText(vault.address.substringAfter("://"))
-        findViewById<EditText>(R.id.setup_code).text = null
-        findViewById<TextView>(R.id.setup_status).text = null
-        (if (field.text.isEmpty()) field else findViewById<View>(R.id.setup_code)).requestFocus()
+        if (!show) return pairing.hide()
+        val known = vault.address.takeIf { it.isNotEmpty() && !rediscover }?.let { FoundHub(it.substringAfter("://"), it) }
+        pairing.show(known, note)
     }
 
     /** The hub refused the token: forget it and ask for the code again. Nothing retries on its own, so this can't loop. */
@@ -253,40 +253,7 @@ class MainActivity : Activity() {
         if (setup.visibility == View.VISIBLE) return
         vault.token = ""
         client = null
-        showSetup()
-        findViewById<TextView>(R.id.setup_status).setText(R.string.setup_repair)
-    }
-
-    private fun connect() {
-        val field = findViewById<EditText>(R.id.setup_address)
-        val status = findViewById<TextView>(R.id.setup_status)
-        val address = HubClient.normalize(field.text.toString())
-        if (address == null) {
-            status.setText(R.string.setup_bad)
-            return
-        }
-        val code = findViewById<EditText>(R.id.setup_code).text.toString()
-        if (code.isBlank()) {
-            status.setText(R.string.setup_need_code)
-            findViewById<View>(R.id.setup_code).requestFocus()
-            return
-        }
-        status.setText(R.string.setup_checking)
-        HubClient(address).run({
-            health()
-            pair(code)
-        }) { result ->
-            result.onSuccess { token ->
-                vault.address = address
-                vault.token = token
-                HubClient.clearCache()
-                catalogs = emptyList()
-                catalogsRow.removeAllViews()
-                start()
-            }.onFailure { error ->
-                status.text = if (error is HubUnauthorized) getString(R.string.setup_unpaired) else getString(R.string.setup_failed, address.substringAfter("://"))
-            }
-        }
+        showSetup(note = R.string.setup_repair)
     }
 
     /** Loads the current tab: from the start, or its next page. */
@@ -697,7 +664,7 @@ class MainActivity : Activity() {
             val versions = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts) {
                 streams.map { stream ->
                     OptionList.RowSpec.Item {
-                        Option(stream.name, stream.badges.all().joinToString(" · ").ifEmpty { null }, stream.source) {
+                        Option(stream.label(), stream.badges.cut, stream.description ?: stream.source) {
                             closePanel()
                             startPlay(item, stream)
                         }
@@ -839,6 +806,7 @@ class MainActivity : Activity() {
             sheet.isOpen -> sheet.close()
             titlePage.isOpen -> closeTitle()
             search.isOpen -> if (!search.back()) closeSearch(focusMagnifier = true)
+            setup.visibility == View.VISIBLE && pairing.back() -> Unit
             setup.visibility == View.VISIBLE && client != null -> {
                 showSetup(false)
                 focusList()

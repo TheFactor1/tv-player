@@ -18,6 +18,15 @@ open class HubException(message: String) : IOException(message)
 /** The hub answered 401: this box's token is missing, wrong or rotated, and it has to pair again. */
 class HubUnauthorized : HubException("Not paired")
 
+/** A pairing the hub is holding for this TV: the code to show, and the phone's setup page if it has one. */
+data class PairRequest(val id: String, val code: String, val setupUrl: String?)
+
+sealed class PairStatus {
+    object Waiting : PairStatus()
+    object Expired : PairStatus()
+    class Paired(val token: String) : PairStatus()
+}
+
 /**
  * Talks to the hub (DATAFLOW.md, "Hub API"). Every call but `/health` carries the pairing token.
  * Every call runs on a background thread and answers on the main thread; GETs are kept for a minute
@@ -55,6 +64,32 @@ class HubClient(baseUrl: String, private val token: String = "") {
         if (token.isEmpty()) throw HubUnauthorized()
         HubClient(base, token).presets()
         return token
+    }
+
+    /** Asks the hub to pair this TV: it answers with a code to show and, often, a page for the phone. */
+    fun requestPairing(name: String): PairRequest {
+        val json = JSONObject(send("POST", "/pair/request", JSONObject().put("name", name), auth = false))
+        val id = json.optString("requestId").ifEmpty { json.optString("id") }
+        val code = json.optString("code")
+        if (id.isEmpty() || code.isEmpty()) throw HubException("No pairing code")
+        return PairRequest(id, code, json.optString("setupUrl").ifEmpty { null })
+    }
+
+    /** Where [request] stands: still waiting for approval, approved with a token, or gone. */
+    fun pairingStatus(request: PairRequest): PairStatus {
+        val connection = open("$base/pair/request/${encode(request.id)}", auth = false)
+        try {
+            return when (val code = connection.responseCode) {
+                HttpURLConnection.HTTP_ACCEPTED -> PairStatus.Waiting
+                // A hub restarted since the code was shown has forgotten it: the same as expired.
+                HttpURLConnection.HTTP_GONE, HttpURLConnection.HTTP_NOT_FOUND -> PairStatus.Expired
+                HttpURLConnection.HTTP_OK -> connection.inputStream.bufferedReader().use { it.readText() }
+                    .let { JSONObject(it).optString("token") }.ifEmpty { null }?.let { PairStatus.Paired(it) } ?: PairStatus.Waiting
+                else -> throw HubException("HTTP $code")
+            }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     /** Throws unless a hub answers at this address; a hub whose addons are down still counts. */
@@ -113,7 +148,9 @@ class HubClient(baseUrl: String, private val token: String = "") {
 
     /** The shared position, or null when no front end has saved one. */
     fun resume(item: HubItem, episode: NextEpisode?): HubResume? = try {
-        HubJson.resume(JSONObject(get("/resume/${item.id}${path(episode)}", cached = false)))
+        // Nothing stored comes back as {} (or null from older hubs).
+        val text = get("/resume/${item.id}${path(episode)}", cached = false).trim()
+        if (text.isEmpty() || text == "null") null else HubJson.resume(JSONObject(text))
     } catch (e: HubException) {
         if (e is HubUnauthorized) throw e
         null

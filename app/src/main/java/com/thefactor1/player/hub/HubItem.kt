@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.roundToInt
 
 /**
  * Quality of the best stream the hub found: "4K", "DV", "Atmos", which cut it is ("Director's Cut")
@@ -42,13 +43,35 @@ data class HubItem(
 data class Catalog(val type: String, val id: String, val name: String)
 
 /** One copy of a title: where to fetch it and what it is. */
-data class HubStream(val url: String, val name: String, val badges: Badges, val source: String?, val headers: Map<String, String>)
+data class HubStream(
+    val url: String,
+    val name: String,
+    val badges: Badges,
+    val source: String?,
+    val headers: Map<String, String>,
+    val description: String? = null,
+    val sizeGb: Double? = null,
+    /** What the copy was made from: "remux", "web", "bluray". */
+    val origin: String? = null,
+) {
+    /**
+     * "2160p · DV · Atmos · remux · 58.2 GB · 62 Mbps": the hub often sends no name, and copies told
+     * apart only by a name would all look the same.
+     */
+    fun label(): String {
+        val size = sizeGb?.let { String.format(Locale.US, "%.1f GB", it) }
+        val rate = badges.mbps?.let { "${it.roundToInt()} Mbps" }
+        return listOfNotNull(badges.res, badges.hdr, badges.audio, origin, size, rate).joinToString(" · ").ifEmpty { name }
+    }
+}
 
 /**
  * Reads the hub's JSON. Lenient on the envelope (a bare array or one wrapped in an object), strict
  * on what an item can't do without: an id and a title. Anything else missing is just left out.
  */
 object HubJson {
+    /** Above this a size is bytes; below, it's already GB. */
+    private const val BYTES_NOT_GB = 10_000.0
     fun items(text: String): List<HubItem> = list(text, "items", "metas", "results").mapNotNull(::item)
 
     fun item(json: JSONObject): HubItem? {
@@ -96,7 +119,12 @@ object HubJson {
         // The live hub sends source as {addon, name}; the addon's host is the readable part.
         val source = json.optJSONObject("source")?.text("addon") ?: json.text("source")
         val name = json.text("name") ?: json.text("title") ?: badges.all().joinToString(" · ").ifEmpty { source ?: url }
-        return HubStream(url, name, badges, source, headers(json.optJSONObject("headers")))
+        // Size arrives as bytes or as GB, at the top level or among the badges.
+        val badgeJson = json.optJSONObject("badges")
+        val size = listOf(badgeJson?.opt("sizeGb"), badgeJson?.opt("size"), json.opt("sizeGb"), json.opt("size"))
+            .firstNotNullOfOrNull { (it as? Number)?.toDouble() }
+            ?.let { if (it > BYTES_NOT_GB) it / 1e9 else it }
+        return HubStream(url, name, badges, source, headers(json.optJSONObject("headers")), json.text("description"), size, badgeJson?.label("source"))
     }
 
     private fun badges(json: JSONObject?) = Badges(

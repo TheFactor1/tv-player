@@ -80,6 +80,29 @@ class HubJsonTest {
     }
 
     @Test
+    fun nameslessStreamsAreLabelledFromTheirBadges() {
+        val stream = HubJson.stream(org.json.JSONObject("""{"url":"https://a/1.mkv","description":"Dune.Part.Two.2160p.REMUX",
+            "badges":{"res":"2160p","hdr":["DV"],"audio":"Atmos","source":"remux","sizeGb":58.24,"mbps":61.6},
+            "source":{"addon":"aiostreams.example"}}"""))!!
+        assertEquals("2160p · DV · Atmos · remux · 58.2 GB · 62 Mbps", stream.label())
+        assertEquals("Dune.Part.Two.2160p.REMUX", stream.description)
+        val bytes = HubJson.stream(org.json.JSONObject("""{"url":"u","size":4500000000,"badges":{"res":"1080p"}}"""))!!
+        assertEquals("1080p · 4.5 GB", bytes.label())
+        // Nothing to go on: the name or the source stands in.
+        assertEquals("Remux", HubJson.stream(org.json.JSONObject("""{"url":"u","name":"Remux"}"""))!!.label())
+    }
+
+    @Test
+    fun hubBeaconRepliesBecomeAddresses() {
+        assertEquals(FoundHub("Living room", "http://192.168.50.10:8097"), HubDiscovery.parse("MEDIABOX 1 8097 Living room", "192.168.50.10"))
+        assertEquals(FoundHub("10.0.0.2", "http://10.0.0.2:8097"), HubDiscovery.parse("MEDIABOX 1 8097\n", "10.0.0.2"))
+        assertNull(HubDiscovery.parse("MEDIABOX 2 8097 Future", "10.0.0.2"))
+        assertNull(HubDiscovery.parse("MEDIABOX?", "10.0.0.2"))
+        assertNull(HubDiscovery.parse("MEDIABOX 1 99999 Bad port", "10.0.0.2"))
+        assertEquals("482 913", com.thefactor1.player.home.PairingSetup.spaced("482913"))
+    }
+
+    @Test
     fun readsPresetsEitherWayAndCutAndBitrate() {
         val keyed = HubJson.presets("""{"slow":{"max_mbps":8,"max_res":"1080p"},"max":{"max_mbps":null,"max_res":null}}""")
         assertEquals(8.0, keyed.getValue("slow").maxMbps!!, 0.0)
