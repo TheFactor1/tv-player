@@ -19,5 +19,8 @@
     <color name="hairline">#1FF3F1EC</color>
     <color name="control_rest_fill">#1FFFFFFF</color>
     <color name="card_ground">#15171A</color>
-    <color name="panel_scrim">#59000000</color>
+    <!-- Over the home screen's art while the settings are up. -->
+    <color name="settings_veil">#E0080810</color>
+    <!-- Behind the sound bars in the settings preview. -->
+    <color name="sound_ground">#111216</color>
 </resources>

@@ -21,13 +21,16 @@ import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.resume.WatchHistory
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
+import com.thefactor1.player.ui.Motion
 import com.thefactor1.player.ui.OptionList
 import com.thefactor1.player.ui.PairingCard
+import com.thefactor1.player.ui.SettingsPreview
 import com.thefactor1.player.ui.ThisTv
 
 /**
  * The home screen: the last film played, full screen with its art and a way back into it, the
- * other titles played lately along the bottom, and the settings for every video in a side panel.
+ * other titles played lately along the bottom, and the settings for every video over it, each
+ * shown working in a small preview.
  * Before anything has been played it says how to open a film in Player instead.
  */
 class MainActivity : Activity() {
@@ -36,6 +39,7 @@ class MainActivity : Activity() {
     private lateinit var history: WatchHistory
     private lateinit var defaults: DefaultSettings
     private lateinit var settings: OptionList
+    private lateinit var preview: SettingsPreview
     private val heroArt by lazy { ArtworkLoader(this) }
     private val cardArt by lazy { ArtworkLoader(this) }
     private val facts by lazy { ThisTv.facts(this, PlayerPrefs(this)) }
@@ -72,13 +76,23 @@ class MainActivity : Activity() {
         fonts.apply(fonts.bold, title, findViewById(R.id.home_empty_title), findViewById(R.id.settings_title))
         fonts.apply(fonts.semibold, findViewById(R.id.home_kicker), findViewById(R.id.home_meta), findViewById(R.id.home_position),
             continueButton, settingsButton, findViewById(R.id.home_recent), findViewById(R.id.home_empty_kicker),
-            findViewById(R.id.home_empty_steps), findViewById(R.id.home_empty_settings), findViewById(R.id.settings_kicker))
-        fonts.apply(fonts.medium, findViewById(R.id.home_plot), findViewById(R.id.home_empty_body), findViewById(R.id.settings_hint))
+            findViewById(R.id.home_empty_steps), findViewById(R.id.home_empty_settings), findViewById(R.id.settings_crumb))
+        fonts.apply(fonts.medium, findViewById(R.id.home_plot), findViewById(R.id.home_empty_body))
         findViewById<TextView>(R.id.home_empty_steps).text =
             "1    ${getString(R.string.home_step_open)}\n2    ${getString(R.string.home_step_choose)}"
 
-        defaults = DefaultSettings(this, PlayerPrefs(this)) { facts }
-        settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
+        val prefs = PlayerPrefs(this)
+        defaults = DefaultSettings(this, prefs) { facts }
+        preview = SettingsPreview(panel, prefs, fonts)
+        if (resources.configuration.screenWidthDp < PREVIEW_MIN_WIDTH_DP) findViewById<View>(R.id.settings_preview_column).visibility = View.GONE
+        val crumb = findViewById<TextView>(R.id.settings_crumb)
+        val pageTitle = findViewById<TextView>(R.id.settings_title)
+        // On a phone the way back can be tapped as well.
+        crumb.setOnClickListener { settings.back() }
+        settings = OptionList(this, findViewById(R.id.settings_items), fonts, defaults::rows, preview::show) { page ->
+            pageTitle.text = defaults.title(page)
+            crumb.text = defaults.parent(page)?.let { getString(R.string.settings_back, defaults.title(it)) }
+        }
         continueButton.setOnClickListener { hero?.let(::openInSource) }
         settingsButton.setOnClickListener { openPanel() }
         findViewById<View>(R.id.home_empty_settings).setOnClickListener { openPanel() }
@@ -112,8 +126,12 @@ class MainActivity : Activity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (panelOpen) {
             when (keyCode) {
-                // Left and Right step the focused setting; they never leave the panel.
-                KeyEvent.KEYCODE_DPAD_LEFT -> { settings.step(-1); return true }
+                // Left and Right step the focused setting; they never leave the list. Left on a row
+                // with nothing to step goes back a page, as on Apple TV.
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    if (!settings.step(-1)) settings.back()
+                    return true
+                }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> { settings.step(1); return true }
                 KeyEvent.KEYCODE_MENU -> { closePanel(); return true }
             }
@@ -127,7 +145,7 @@ class MainActivity : Activity() {
     @Deprecated("Still delivered on every Android version this app supports without opting in to predictive back.")
     override fun onBackPressed() {
         if (panelOpen) {
-            closePanel()
+            if (!settings.back()) closePanel()
             return
         }
         @Suppress("DEPRECATION")
@@ -302,35 +320,39 @@ class MainActivity : Activity() {
         return if (minutes >= 60) getString(R.string.home_left_hm, minutes / 60, minutes % 60) else getString(R.string.home_left_m, minutes)
     }
 
-    // ---- Settings panel -------------------------------------------------------------------------
+    // ---- Settings ---------------------------------------------------------------------------------
 
-    private fun openPanel(focusIndex: Int = -1) {
+    /** Opens on the first page each time, with the film's art in the preview. */
+    private fun openPanel() {
         panelOpen = true
-        findViewById<View>(R.id.panel_scrim).visibility = View.VISIBLE
         panel.animate().cancel()
         panel.visibility = View.VISIBLE
-        panel.translationX = panel.width * PANEL_SLIDE
+        panel.translationY = PANEL_RISE_DP * resources.displayMetrics.density
         panel.alpha = 0f
-        panel.animate().translationX(0f).alpha(1f).setDuration(PANEL_MS).start()
-        settings.show(focusIndex)
+        panel.animate().translationY(0f).alpha(1f).setDuration(PANEL_MS).setInterpolator(Motion.enter).start()
+        preview.reset()
+        preview.setArt(backdrop.drawable.takeIf { hero != null })
+        settings.reset()
+        settings.show()
     }
 
     private fun closePanel() {
         panelOpen = false
-        findViewById<View>(R.id.panel_scrim).visibility = View.GONE
         // Out the way it came in, a touch quicker, rather than vanishing.
         panel.animate().cancel()
-        panel.animate().translationX(panel.width * PANEL_SLIDE).alpha(0f).setDuration(PANEL_OUT_MS)
-            .withEndAction { panel.visibility = View.INVISIBLE }.start()
+        panel.animate().translationY(PANEL_RISE_DP * resources.displayMetrics.density).alpha(0f).setDuration(PANEL_OUT_MS)
+            .setInterpolator(Motion.exit).withEndAction { panel.visibility = View.INVISIBLE }.start()
         (if (hero == null) findViewById<View>(R.id.home_empty_settings) else settingsButton).requestFocus()
     }
 
     private companion object {
         const val MAX_CARDS = 8
         const val ART_FADE_MS = 320L
-        const val PANEL_MS = 180L
-        const val PANEL_OUT_MS = 140L
-        const val PANEL_SLIDE = 0.08f
+        const val PANEL_MS = 240L
+        const val PANEL_OUT_MS = 160L
+        const val PANEL_RISE_DP = 8f
+        /** Narrower than this (a phone held upright), the settings list goes without its preview. */
+        const val PREVIEW_MIN_WIDTH_DP = 600
         const val CARD_LIFT = 1.06f
         const val CARD_LIFT_MS = 140L
     }

@@ -21,5 +21,10 @@
     <string name="note_reconnect">Open TV Companion to connect again</string>
     <string name="action_play">Play</string>
     <string name="action_pause">Pause</string>
+    <string name="note_soundtrack">Soundtrack · %1$s</string>
+    <string name="note_soundtrack_detail">The film\'s music, ready to play</string>
+    <string name="music_spotify">Spotify</string>
+    <string name="music_apple">Apple Music</string>
+    <string name="music_youtube">YouTube Music</string>
     <string name="forget">Forget this TV</string>
 </resources>

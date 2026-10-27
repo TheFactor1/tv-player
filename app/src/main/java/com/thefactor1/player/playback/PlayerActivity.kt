@@ -48,7 +48,9 @@ import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.resume.ResumePolicy
 import com.thefactor1.player.resume.ResumeStore
+import com.thefactor1.player.resume.TitleChoices
 import com.thefactor1.player.resume.TitleKeys
+import com.thefactor1.player.resume.TitleMemory
 import com.thefactor1.player.resume.WatchHistory
 import com.thefactor1.player.ui.CinemaController
 import com.thefactor1.player.ui.FormatNames
@@ -70,6 +72,7 @@ class PlayerActivity : Activity() {
     private lateinit var controller: CinemaController
     private lateinit var resumeStore: ResumeStore
     private lateinit var history: WatchHistory
+    private lateinit var titleMemory: TitleMemory
     private lateinit var resumeChip: ResumeChip
     private var player: ExoPlayer? = null
     private var request: LaunchRequest? = null
@@ -78,6 +81,10 @@ class PlayerActivity : Activity() {
     private var titleKeys: List<String> = emptyList()
     private var start = ResumePolicy.Start(0L, ResumePolicy.Source.NONE)
     private var savedEntry: ResumeStore.Entry? = null
+    // What the viewer picked for this film or show before, and whether this player has applied it yet.
+    private var choiceKeys: List<String> = emptyList()
+    private var choices: TitleChoices? = null
+    private var choicesApplied = false
     // What the home screen shows for this title: the parsed name and, once recognised, its details.
     private var metaQuery: MetaQuery? = null
     private var metaDetails: MetaDetails? = null
@@ -107,10 +114,16 @@ class PlayerActivity : Activity() {
     // Subtitles found online for this video, kept across player rebuilds; the newest is switched to once loaded.
     private val addedSubtitles = mutableListOf<MediaItem.SubtitleConfiguration>()
     private var pendingSubtitleId: String? = null
+    // Read from the file beside the player, once per stream.
+    private val chapterLoader = ChapterLoader(USER_AGENT)
+    private var chapters: List<Chapter> = emptyList()
     private var longPressConsumed = false
 
     // What the fallback chain has already tried for the current stream.
     private var tried = FallbackPolicy.Tried()
+    // HDR on an SDR screen: this player tone maps it in OpenGL, or did and the GPU couldn't.
+    private var toneMapping = false
+    private var toneMapFailed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,14 +135,28 @@ class PlayerActivity : Activity() {
         prefs = PlayerPrefs(this)
         resumeStore = ResumeStore(this)
         history = WatchHistory(this)
+        titleMemory = TitleMemory(this)
         // The chip first, so the phone layout finds it in place.
         resumeChip = ResumeChip(this, Fonts(this))
         controller = CinemaController(this, playerView, prefs, stats, enhancement, subtitleDelay, onExit = ::finish)
         if (controller.touch) resumeChip.useTouch(::startOver)
         controller.onRetry = ::retryFromScratch
-        controller.onDetails = { metaDetails = it }
+        controller.onDetails = { details ->
+            metaDetails = details
+            controller.offerNextEpisode(details.nextEpisode.takeIf { nextEpisodeIntent(details) != null })
+        }
+        controller.onNextEpisode = ::openNextEpisode
         controller.onOpenElsewhere = ::openInAnotherPlayer
-        controller.onAudioDelayChanged = { ms -> audioDelay.offsetUs = ms * 1_000L }
+        controller.onAudioDelayChanged = { ms ->
+            audioDelay.offsetUs = ms * 1_000L
+            // Kept for this film or show; a stream nothing names sets the default, as before.
+            if (choiceKeys.isEmpty()) prefs.audioDelayMs = ms else rememberChoice { it.copy(audioDelayMs = ms) }
+        }
+        controller.onSubtitleDelayChanged = { ms ->
+            titleMemory.update(TitleChoices.timingKeys(titleKeys)) { it.copy(subtitleDelayMs = ms) }
+        }
+        controller.onTrackPicked = ::rememberTrack
+        controller.onToneMapChanged = { rebuildPlayer(getString(R.string.loading_picture)) }
         controller.onNeedsDecodedAudio = { switchToDecodedAudio() }
         controller.onSpeedNeedsDecodedAudio = { speed ->
             // Once per stream: decoded audio that still can't change speed isn't switched again.
@@ -167,9 +194,9 @@ class PlayerActivity : Activity() {
         chipOkAt = 0L
         completed = false
         tried = FallbackPolicy.Tried()
+        toneMapFailed = false
         addedSubtitles.clear()
         pendingSubtitleId = null
-        subtitleDelay.offsetUs = 0
         controller.showLoading()
         if (loadRequest(intent)) initializePlayer()
     }
@@ -216,6 +243,11 @@ class PlayerActivity : Activity() {
         return super.dispatchKeyEvent(event)
     }
 
+    override fun onDestroy() {
+        chapterLoader.cancel()
+        super.onDestroy()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putLong(STATE_POSITION, player?.let { playbackPosition(it) } ?: resumePositionMs)
@@ -245,6 +277,9 @@ class PlayerActivity : Activity() {
         val title = req.title?.takeIf { it != req.uri.lastPathSegment }
         titleKeys = TitleKeys.from(title, req.fileName, req.uri.toString(), req.textExtras)
         savedEntry = resumeStore.find(titleKeys)
+        choiceKeys = TitleChoices.choiceKeys(titleKeys)
+        choices = titleMemory.find(choiceKeys)
+        subtitleDelay.offsetUs = (titleMemory.find(TitleChoices.timingKeys(titleKeys))?.subtitleDelayMs ?: 0) * 1_000L
         val name = ReleaseName.parse(req.title)
         metaQuery = MetaQuery.from(name?.title, name?.detail)
         metaDetails = null
@@ -258,6 +293,11 @@ class PlayerActivity : Activity() {
         )
         startChecked = false
         chipShown = false
+        chapters = emptyList()
+        chapterLoader.load(req.uri, req.headers) {
+            chapters = it
+            controller.chapters = it
+        }
         return true
     }
 
@@ -435,13 +475,16 @@ class PlayerActivity : Activity() {
         if (player != null) return
 
         val http = DefaultHttpDataSource.Factory()
-            .setUserAgent("Player/${BuildConfig.VERSION_NAME} (Android TV)")
+            .setUserAgent(USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
             .setDefaultRequestProperties(req.headers)
 
-        audioDelay.offsetUs = prefs.audioDelayMs * 1_000L
+        val delayMs = choices?.audioDelayMs ?: prefs.audioDelayMs
+        audioDelay.offsetUs = delayMs * 1_000L
+        controller.audioDelayMs = delayMs
+        choicesApplied = false
         enhancement.nightMode = prefs.nightMode
         enhancement.dialogueBoost = prefs.dialogueBoost
         val renderers = PlayerRenderersFactory(
@@ -451,7 +494,11 @@ class PlayerActivity : Activity() {
         stats.fallbackNote = listOfNotNull(
             getString(R.string.fallback_note_dolby_vision).takeIf { tried.dolbyVisionAsHdr10 },
             getString(R.string.fallback_note_pcm).takeIf { tried.pcmAudio },
+            getString(R.string.fallback_note_tone_map).takeIf { toneMapFailed },
         ).joinToString(", ").ifEmpty { null }
+        toneMapping = false
+        stats.toneMapNote = null
+        controller.hdrOnSdrScreen = false
 
         val exo = ExoPlayer.Builder(this, renderers)
             .setLoadControl(StreamBuffer.loadControl())
@@ -475,6 +522,7 @@ class PlayerActivity : Activity() {
         PhoneCompanion.launchSubtitles = req.subtitles.sortedByDescending { it.selected }
             .map { it.uri.toString() }.filter { it.startsWith("http://") || it.startsWith("https://") }
         controller.attach(exo, name?.title, name?.detail, sourceAppName(), TitleKeys.imdbId(titleKeys))
+        controller.chapters = chapters
         playerView.player = exo
         player = exo
 
@@ -565,6 +613,76 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** Keeps what the viewer just picked from a menu for this film or show. */
+    private fun rememberTrack(type: Int, format: Format?) {
+        if (choiceKeys.isEmpty()) return
+        when (type) {
+            C.TRACK_TYPE_AUDIO -> format?.let { f -> rememberChoice { it.copy(audio = choiceTrack(f)) } }
+            C.TRACK_TYPE_TEXT -> rememberChoice {
+                if (format == null) it.copy(subtitle = null, subtitlesOff = true) else it.copy(subtitle = choiceTrack(format), subtitlesOff = false)
+            }
+        }
+    }
+
+    private fun rememberChoice(change: (TitleChoices) -> TitleChoices) {
+        titleMemory.update(choiceKeys, change)
+        choices = titleMemory.find(choiceKeys)
+    }
+
+    private fun choiceTrack(format: Format) = TitleChoices.Track(
+        language = format.language,
+        label = format.label,
+        mimeType = if (format.sampleMimeType == MimeTypes.APPLICATION_MEDIA3_CUES) format.codecs else format.sampleMimeType,
+        channels = format.channelCount,
+        forced = !MimeTypes.isAudio(format.sampleMimeType) && FormatNames.isForced(format),
+    )
+
+    /**
+     * Once the tracks are known, picks the audio and subtitles chosen for this film or show before,
+     * in this release's own tracks. Nothing that matches leaves the defaults as they are.
+     */
+    private fun applyChoices(exo: ExoPlayer, tracks: Tracks) {
+        if (choicesApplied || tracks.isEmpty) return
+        choicesApplied = true
+        val remembered = choices ?: return
+        val params = exo.trackSelectionParameters.buildUpon()
+        var changed = false
+        remembered.audio?.let { wanted ->
+            matchTrack(tracks, C.TRACK_TYPE_AUDIO, wanted)?.let { (group, index) ->
+                params.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+                changed = true
+            }
+        }
+        if (remembered.subtitlesOff) {
+            params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            changed = true
+        } else {
+            remembered.subtitle?.let { wanted ->
+                matchTrack(tracks, C.TRACK_TYPE_TEXT, wanted)?.let { (group, index) ->
+                    params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+                    changed = true
+                }
+            }
+        }
+        Log.i(RESUME_TAG, "choices $remembered applied=$changed")
+        if (changed) exo.trackSelectionParameters = params.build()
+    }
+
+    private fun matchTrack(tracks: Tracks, type: Int, wanted: TitleChoices.Track): Pair<Tracks.Group, Int>? {
+        val slots = mutableListOf<Pair<Tracks.Group, Int>>()
+        val candidates = mutableListOf<TitleChoices.Track>()
+        for (group in tracks.groups) {
+            if (group.type != type) continue
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i, /* allowExceedsCapabilities = */ true)) continue
+                slots += group to i
+                candidates += choiceTrack(group.getTrackFormat(i))
+            }
+        }
+        return TitleChoices.bestMatch(candidates, wanted)?.let { slots[it] }
+    }
+
     /**
      * With subtitles always on, swaps a forced track the selector landed on for the full one in
      * the same language. A pick from the panel is an override and is left alone.
@@ -599,6 +717,74 @@ class PlayerActivity : Activity() {
             .build()
     }
 
+    /**
+     * HDR on a screen without it: unless the viewer leaves it to the TV box, the player tone maps
+     * it to SDR in OpenGL. Effects only take hold when the video renderer starts afresh, so video
+     * is switched off and on again; playback hasn't started yet, so nobody sees it. Dolby Vision
+     * goes through its own decoder, which converts it for the screen itself.
+     */
+    private fun maybeToneMap(exo: ExoPlayer, tracks: Tracks) {
+        if (toneMapping) return
+        val group = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected } ?: return
+        val format = (0 until group.length).firstOrNull { group.isTrackSelected(it) }?.let { group.getTrackFormat(it) } ?: return
+        val transfer = format.colorInfo?.colorTransfer
+        if (transfer != C.COLOR_TRANSFER_ST2084 && transfer != C.COLOR_TRANSFER_HLG) return
+        if (screenShowsHdr()) return
+        val dolbyVision = format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION && !tried.dolbyVisionAsHdr10
+        val canToneMap = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !dolbyVision && !toneMapFailed
+        // The switch in the Picture menu only shows where it can do something.
+        controller.hdrOnSdrScreen = canToneMap
+        if (!prefs.hdrToSdr || !canToneMap) {
+            stats.toneMapNote = getString(if (dolbyVision) R.string.tone_map_note_dolby_vision else R.string.tone_map_note_box)
+            return
+        }
+        toneMapping = true
+        stats.toneMapNote = getString(R.string.tone_map_note_player)
+        Log.i(PICTURE_TAG, "tone mapping ${FormatNames.codec(format.sampleMimeType)} transfer=$transfer to SDR")
+        exo.setVideoEffects(emptyList())
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+            .build()
+        mainHandler.post {
+            if (player === exo) {
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+                    .build()
+            }
+        }
+    }
+
+    /**
+     * Stremio's link to the next episode's streams, the same kind the home screen's Continue uses.
+     * Stremio hands over one episode at a time, so this is as close to autoplay as it gets. Other
+     * apps have no such link, so they get no offer.
+     */
+    private fun nextEpisodeIntent(details: MetaDetails): Intent? {
+        val pkg = sourcePackage?.takeIf { it.contains("stremio") } ?: return null
+        val id = details.imdbId ?: return null
+        val next = details.nextEpisode ?: return null
+        return Intent(Intent.ACTION_VIEW, Uri.parse("stremio:///detail/series/$id/$id:${next.season}:${next.episode}")).setPackage(pkg)
+    }
+
+    /** This episode counts as watched, Stremio opens the next one, and the player steps aside. */
+    private fun openNextEpisode() {
+        val next = metaDetails?.let(::nextEpisodeIntent) ?: return
+        completed = true
+        // The result goes back first, so Stremio marks this episode watched before the next one opens.
+        finish()
+        try {
+            startActivity(next)
+        } catch (e: ActivityNotFoundException) {
+            Log.i(RESUME_TAG, "no app for the next episode link")
+        }
+    }
+
+    /** Whether the screen takes HDR at all; a projector fed SDR doesn't. */
+    private fun screenShowsHdr(): Boolean {
+        val screen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else @Suppress("DEPRECATION") windowManager.defaultDisplay
+        return screen?.hdrCapabilities?.supportedHdrTypes?.isNotEmpty() == true
+    }
+
     private fun releasePlayer() {
         val exo = player ?: return
         capturePosition(exo)
@@ -627,6 +813,13 @@ class PlayerActivity : Activity() {
     /** Tries the next fallback for [error], or shows the error card when none is left. */
     private fun handleFailure(error: PlaybackException) {
         val exo = player ?: return
+        // A GPU that can't run the tone mapping hands HDR back to the TV box, as before.
+        if (toneMapping && error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED) {
+            Log.w(PICTURE_TAG, "tone mapping failed", error)
+            toneMapFailed = true
+            rebuildPlayer(getString(R.string.fallback_tone_map))
+            return
+        }
         val failingFormat = (error as? ExoPlaybackException)?.rendererFormat
         val isDolbyVision = failingFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION ||
             exo.videoFormat?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION
@@ -709,6 +902,7 @@ class PlayerActivity : Activity() {
 
     private fun retryFromScratch() {
         tried = FallbackPolicy.Tried()
+        toneMapFailed = false
         releasePlayer()
         controller.showLoading()
         initializePlayer()
@@ -899,10 +1093,12 @@ class PlayerActivity : Activity() {
     private val listener = object : Player.Listener {
         override fun onTracksChanged(tracks: Tracks) {
             player?.let {
+                applyChoices(it, tracks)
                 selectPendingSubtitle(it, tracks)
                 preferFullSubtitles(it, tracks)
             }
             if (!awaitingDisplayMatch || tracks.isEmpty) return
+            player?.let { maybeToneMap(it, tracks) }
             val video = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
             val frameRate = video?.let { group ->
                 (0 until group.length).firstOrNull { group.isTrackSelected(it) }?.let { group.getTrackFormat(it).frameRate }
@@ -941,6 +1137,7 @@ class PlayerActivity : Activity() {
 
     private companion object {
         const val STATE_POSITION = "position"
+        val USER_AGENT = "Player/${BuildConfig.VERSION_NAME} (Android TV)"
 
         // Key repeats arrive about every 50 ms after a 500 ms delay; one repeat marks a long press.
         const val LONG_PRESS_REPEATS = 1
@@ -950,6 +1147,7 @@ class PlayerActivity : Activity() {
         const val CHIP_DELAY_MS = 700L
         const val DOUBLE_OK_MS = 600L
         const val RESUME_TAG = "Resume"
+        const val PICTURE_TAG = "Picture"
 
         const val MEASURE_SPEED = 2f
         const val MEASURE_TIMEOUT_MS = 6_000L

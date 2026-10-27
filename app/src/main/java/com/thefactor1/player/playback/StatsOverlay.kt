@@ -39,6 +39,9 @@ class StatsOverlay(
     /** Fallbacks in use for this stream, shown so it's clear why the output differs. */
     var fallbackNote: String? = null
 
+    /** Who turns HDR into SDR for this screen, when the stream is HDR and the screen isn't. */
+    var toneMapNote: String? = null
+
     /** Frame rate measured from frame times, for streams that don't declare one: 0 while measuring, -1 when not measured. */
     var measuredFrameRate: Float = -1f
 
@@ -127,6 +130,7 @@ class StatsOverlay(
             }
             rows += "Frame" to "${video.width}×${video.height}$fps"
             rows += "HDR" to hdrName(video)
+            toneMapNote?.let { rows += "To SDR" to it }
         }
         rows += "Display" to "${mode.physicalWidth}×${mode.physicalHeight} @ ${rate(mode.refreshRate)} Hz"
         if (audio != null) {

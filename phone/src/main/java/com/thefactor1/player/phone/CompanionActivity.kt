@@ -2,11 +2,14 @@ package com.thefactor1.player.phone
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
@@ -27,7 +30,19 @@ class CompanionActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             setBackgroundColor(getColor(R.color.ground))
-            webViewClient = WebViewClient()
+            webViewClient = object : WebViewClient() {
+                // The TV's own page stays here; links out (a music app, a search) open where they belong.
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val page = Uri.parse(view.url ?: return false)
+                    if (request.url.host == page.host && request.url.port == page.port) return false
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                    } catch (e: ActivityNotFoundException) {
+                        return false
+                    }
+                    return true
+                }
+            }
             // Fade in once the page has drawn, rather than flashing white first.
             alpha = 0f
             visibility = View.INVISIBLE
@@ -39,6 +54,7 @@ class CompanionActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         if (::web.isInitialized) open()
     }
 
@@ -49,13 +65,16 @@ class CompanionActivity : Activity() {
     }
 
     private fun open() {
+        // From the soundtrack notification: straight to the Music tab.
+        val music = intent.getBooleanExtra(EXTRA_MUSIC, false)
+        val onTab = { url: String -> if (!music) url else url + (if ('#' in url) "&music" else "#music") }
         Thread {
-            val url = Locate.current(this, store)?.pageUrl
+            val url = Locate.current(this, store)?.pageUrl?.let(onTab)
             main.post {
                 if (isDestroyed) return@post
                 if (url == null) {
                     // TV off or out of reach: show the page's address anyway so it loads when the TV is back.
-                    store.api()?.let { web.loadUrl(it.pageUrl) }
+                    store.api()?.let { web.loadUrl(onTab(it.pageUrl)) }
                 } else {
                     web.loadUrl(url)
                 }
@@ -70,8 +89,9 @@ class CompanionActivity : Activity() {
         finish()
     }
 
-    private companion object {
-        const val FADE_DELAY_MS = 150L
-        const val FADE_MS = 240L
+    companion object {
+        const val EXTRA_MUSIC = "music"
+        private const val FADE_DELAY_MS = 150L
+        private const val FADE_MS = 240L
     }
 }
