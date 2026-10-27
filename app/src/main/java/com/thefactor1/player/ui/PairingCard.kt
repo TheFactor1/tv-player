@@ -252,4 +252,62 @@ object PairingCard {
         card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(Motion.enter).start()
         handler.postDelayed({ close(approved = false) }, ASK_TIMEOUT_MS)
     }
+
+    /**
+     * A phone paired by pointing its camera at the picture: a small note in the corner that comes
+     * and goes by itself, never taking the remote.
+     */
+    fun connected(context: Context, fonts: Fonts, device: String) {
+        val density = context.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+        val dialog = Dialog(context, android.R.style.Theme_Translucent_NoTitleBar)
+        val words = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(context).apply {
+                text = context.getString(R.string.pair_connected, device)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setTextColor(ContextCompat.getColor(context, R.color.ink))
+                typeface = fonts.bold
+            })
+            addView(TextView(context).apply {
+                text = context.getString(R.string.pair_connected_detail)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(ContextCompat.getColor(context, R.color.ink_secondary))
+                typeface = fonts.medium
+                setPadding(0, dp(2), 0, 0)
+            })
+        }
+        val card = LinearLayout(context).apply {
+            setPadding(dp(16), dp(12), dp(18), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(ContextCompat.getColor(context, R.color.panel_ground))
+                setStroke(dp(1), ContextCompat.getColor(context, R.color.hairline))
+            }
+            addView(words)
+            alpha = 0f
+            translationY = RISE_DP * density
+        }
+        val root = FrameLayout(context).apply {
+            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
+                setMargins(dp(EDGE_DP), dp(EDGE_DP), dp(EDGE_DP), dp(EDGE_DP))
+            })
+        }
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+            setWindowAnimations(0)
+        }
+        dialog.show()
+        card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(Motion.enter).start()
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!dialog.isShowing) return@postDelayed
+            card.animate().alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)
+                .withEndAction { if (dialog.isShowing) dialog.dismiss() }.start()
+        }, CONNECTED_NOTE_MS)
+    }
+
+    private const val CONNECTED_NOTE_MS = 3_200L
 }

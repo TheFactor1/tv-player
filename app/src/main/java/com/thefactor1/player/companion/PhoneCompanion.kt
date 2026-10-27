@@ -28,6 +28,15 @@ interface CompanionHost {
     fun companionControl(action: String, ms: Long)
 }
 
+/** Whatever screen can put the invisible pairing code over the picture. Calls arrive on the main thread. */
+interface BeaconScreen {
+    /** Shows [cells] for [seconds]; the display's refresh rate, negative when too slow to hide it, or null with no screen. */
+    fun showBeacon(cells: BooleanArray, strength: Int, seconds: Int): Float?
+    fun hideBeacon()
+    /** A phone just paired by reading the code: a small note, so the room knows. */
+    fun phoneConnected(name: String)
+}
+
 /** A cast member as the phone shows them, with a full photo URL. */
 data class CompanionPerson(val name: String, val character: String?, val photoUrl: String?)
 
@@ -47,12 +56,24 @@ object PhoneCompanion {
         }
     @Volatile private var transcriptVersion = 0
     @Volatile var cast: List<CompanionPerson> = emptyList()
+        set(value) {
+            field = value
+            castVersion++
+        }
+    // Counted per change, not per size: two shows with eight people each are still different casts.
+    @Volatile private var castVersion = 0
 
     /**
      * Asks whoever is on screen whether a phone may connect; null while no screen can ask. Called on
      * the main thread; [answer] takes the viewer's choice.
      */
     @Volatile var approver: ((device: String, answer: (Boolean) -> Unit) -> Unit)? = null
+
+    /** Puts the invisible code on screen; set by the screen that's showing. */
+    @Volatile var beaconScreen: BeaconScreen? = null
+    /** The code the beacon is showing, kept until it stops so the phone can read it across renewals. */
+    @Volatile private var beaconCode: Int? = null
+    private val beaconGuard = BeaconGuard()
 
     private val requests = PairRequests()
     private var nsd: NsdManager.RegistrationListener? = null
@@ -253,6 +274,10 @@ object PhoneCompanion {
         if (path == "/api/pair" && request.method == "POST") return pair(request)
         if (path == "/api/hello" && request.method == "POST") return hello(request)
         if (path == "/api/hello" && request.method == "GET") return helloAnswer(request)
+        // Pairing by camera starts before the phone has a token: anyone can ask for the code, only what
+        // can see the screen can answer it.
+        if (path == "/api/beacon") return beacon(request, authorised(request.headers["x-token"]))
+        if (path == "/api/beacon/pair" && request.method == "POST") return beaconPair(request)
         if (!authorised(request.headers["x-token"])) return json(401, JSONObject().put("error", "pair"))
         return when (path) {
             "/api/state" -> json(200, state())
@@ -260,6 +285,7 @@ object PhoneCompanion {
             "/api/transcript" -> json(200, transcriptJson())
             "/api/cast" -> json(200, castJson())
             "/api/control" -> control(request)
+            "/api/unpair" -> unpair(request)
             else -> Http.Response(404, "text/plain", "Not found".toByteArray())
         }
     }
@@ -272,11 +298,12 @@ object PhoneCompanion {
 
     @Synchronized
     private fun pair(request: Http.Request): Http.Response {
-        val guess = try {
-            JSONObject(request.body).optString("code")
+        val body = try {
+            JSONObject(request.body)
         } catch (e: Exception) {
-            ""
+            JSONObject()
         }
+        val guess = body.optString("code")
         if (guess != code) {
             if (++wrongGuesses >= MAX_WRONG_GUESSES) {
                 code = newCode()
@@ -286,16 +313,46 @@ object PhoneCompanion {
         }
         wrongGuesses = 0
         code = newCode()
-        return json(200, JSONObject().put("token", issueToken()))
+        return json(200, JSONObject().put("token", issueToken(deviceName(body, "A browser"))))
     }
 
-    private fun issueToken(): String {
+    private fun deviceName(body: JSONObject, fallback: String) =
+        body.optString("device").take(MAX_DEVICE_NAME).ifBlank { fallback }
+
+    private fun issueToken(name: String): String {
         val token = ByteArray(16).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
-        prefs()?.let { prefs ->
-            val tokens = prefs.getStringSet(KEY_TOKENS, emptySet()).orEmpty() + token
-            prefs.edit().putStringSet(KEY_TOKENS, tokens.toList().takeLast(MAX_PHONES).toSet()).apply()
+        synchronized(this) {
+            savePhones(PairedPhones.add(phones(), PairedPhone(token, name, System.currentTimeMillis())))
         }
         return token
+    }
+
+    /** The phones allowed in, oldest first, as the TV's settings list them. */
+    @Synchronized
+    fun phones(): List<PairedPhone> {
+        val prefs = prefs() ?: return emptyList()
+        // Tokens kept before phones had names carry over once, as unnamed phones.
+        prefs.getStringSet(KEY_TOKENS, null)?.let { old ->
+            val merged = PairedPhones.fromTokens(old) + PairedPhones.parse(prefs.getString(KEY_PHONES, null))
+            prefs.edit().remove(KEY_TOKENS).putString(KEY_PHONES, PairedPhones.format(merged)).apply()
+        }
+        return PairedPhones.parse(prefs.getString(KEY_PHONES, null))
+    }
+
+    /** Lets that phone in no more; it has to pair again. */
+    @Synchronized
+    fun forget(token: String) {
+        savePhones(phones().filter { it.token != token })
+    }
+
+    private fun savePhones(phones: List<PairedPhone>) {
+        prefs()?.edit()?.putString(KEY_PHONES, PairedPhones.format(phones))?.apply()
+    }
+
+    private fun unpair(request: Http.Request): Http.Response {
+        if (request.method != "POST") return json(405, JSONObject())
+        request.headers["x-token"]?.let(::forget)
+        return json(200, JSONObject())
     }
 
     /** The phone app asks to connect; the TV puts the question on screen. */
@@ -308,7 +365,7 @@ object PhoneCompanion {
         val ask = approver ?: return json(503, JSONObject().put("error", "screen"))
         val id = ByteArray(8).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
         if (!requests.open(id)) return json(429, JSONObject().put("error", "busy"))
-        main.post { ask(device) { approved -> requests.answer(id, approved, if (approved) issueToken() else null) } }
+        main.post { ask(device) { approved -> requests.answer(id, approved, if (approved) issueToken(device) else null) } }
         return json(200, JSONObject().put("request", id))
     }
 
@@ -343,11 +400,11 @@ object PhoneCompanion {
             ?.let { java.net.URLDecoder.decode(it[1], "UTF-8") }
 
     private fun authorised(token: String?): Boolean =
-        !token.isNullOrEmpty() && prefs()?.getStringSet(KEY_TOKENS, emptySet()).orEmpty().contains(token)
+        !token.isNullOrEmpty() && phones().any { it.token == token }
 
     private fun state(): JSONObject {
         val state = onMain { host?.companionState() } ?: JSONObject().put("idle", true)
-        return state.put("transcriptVersion", transcriptVersion).put("transcriptStatus", transcriptStatus).put("castCount", cast.size)
+        return state.put("transcriptVersion", transcriptVersion).put("transcriptStatus", transcriptStatus).put("castCount", cast.size).put("castVersion", castVersion)
     }
 
     private fun transcriptJson(): JSONObject {
@@ -384,6 +441,65 @@ object PhoneCompanion {
         return json(200, state())
     }
 
+    /**
+     * Pairing by camera: the phone's scanner asks for the invisible code, reads it off the picture,
+     * and answers with it (beaconPair). Strength is how far each cell moves, in 8-bit levels.
+     */
+    private fun beacon(request: Http.Request, paired: Boolean): Http.Response {
+        if (request.method != "POST") return json(405, JSONObject())
+        val body = try {
+            JSONObject(request.body)
+        } catch (e: Exception) {
+            return json(400, JSONObject())
+        }
+        val seconds = body.optInt("seconds", BEACON_SECONDS).coerceAtMost(MAX_BEACON_SECONDS)
+        if (seconds <= 0) {
+            beaconCode = null
+            onMain { beaconScreen?.hideBeacon() }
+            return json(200, JSONObject().put("showing", false))
+        }
+        if (!paired && !synchronized(beaconGuard) { beaconGuard.canStart() }) return json(429, JSONObject().put("error", "wait"))
+        val code = beaconCode ?: random.nextInt(1 shl BeaconPattern.CODE_BITS).also { beaconCode = it }
+        val strength = body.optInt("strength", BEACON_STRENGTH)
+        val refresh = onMain { beaconScreen?.showBeacon(BeaconPattern.cells(code), strength, seconds) }
+            ?: return json(503, JSONObject().put("error", "screen"))
+        if (refresh < 0) {
+            beaconCode = null
+            return json(409, JSONObject().put("error", "refresh").put("refresh", -refresh))
+        }
+        return json(200, JSONObject().put("showing", true).put("refresh", refresh).put("strength", strength)
+            .put("cols", BeaconPattern.COLS).put("rows", BeaconPattern.ROWS))
+    }
+
+    /** The phone read the code: the right one lets it in, a few wrong ones end the code for a while. */
+    private fun beaconPair(request: Http.Request): Http.Response {
+        val body = try {
+            JSONObject(request.body)
+        } catch (e: Exception) {
+            return json(400, JSONObject())
+        }
+        val name = deviceName(body, PairedPhones.UNNAMED)
+        synchronized(beaconGuard) {
+            val showing = beaconCode ?: return json(409, JSONObject().put("error", "showing"))
+            if (body.optInt("code", -1) != showing) {
+                if (beaconGuard.miss()) {
+                    beaconCode = null
+                    onMain { beaconScreen?.hideBeacon() }
+                }
+                return json(403, JSONObject().put("error", "code"))
+            }
+            beaconGuard.reset()
+            beaconCode = null
+        }
+        val token = issueToken(name)
+        onMain {
+            beaconScreen?.hideBeacon()
+            beaconScreen?.phoneConnected(name)
+        }
+        Log.i(TAG, "Paired $name by camera")
+        return json(200, JSONObject().put("token", token).put("name", SERVICE_NAME))
+    }
+
     /** Runs [block] on the main thread, where the player lives, and waits briefly for its answer. */
     private fun <T> onMain(block: () -> T): T? {
         val task = FutureTask(block)
@@ -402,8 +518,9 @@ object PhoneCompanion {
 
     private fun newCode() = "%04d".format(SecureRandom().nextInt(10_000))
 
+    /** Before phones had names: a set of bare tokens. */
     private const val KEY_TOKENS = "tokens"
-    private const val MAX_PHONES = 8
+    private const val KEY_PHONES = "phones"
     private const val MAX_WRONG_GUESSES = 5
     private const val LIVE_REPEAT_MS = 10_000L
     private const val TAG = "PhoneCompanion"
@@ -412,5 +529,8 @@ object PhoneCompanion {
     private const val MAX_DEVICE_NAME = 40
     private const val WAIT_MS = 25_000L
     private const val WAIT_STEP_MS = 600L
+    private const val BEACON_SECONDS = 20
+    private const val MAX_BEACON_SECONDS = 60
+    private const val BEACON_STRENGTH = 4
     private val ACTIONS = setOf("play", "pause", "toggle", "seek", "skip")
 }
