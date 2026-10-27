@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.widget.TextView
@@ -40,6 +41,7 @@ import androidx.media3.ui.PlayerView
 import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
 import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.hub.Quality
 import com.thefactor1.player.launch.IntentContract
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
@@ -83,6 +85,8 @@ class PlayerActivity : Activity() {
     private var metaDetails: MetaDetails? = null
     private var sourcePackage: String? = null
     private var startChecked = false
+    /** When playback last started waiting for data after it had begun, or 0. */
+    private var bufferingSince = 0L
     private var chipShown = false
     private var chipTookOk = false
     private var chipOkAt = 0L
@@ -222,6 +226,7 @@ class PlayerActivity : Activity() {
     }
 
     override fun finish() {
+        noteStall()
         player?.let { capturePosition(it) }
         request?.let { req ->
             val duration = lastDurationMs.takeIf { it > 0 } ?: req.durationHintMs
@@ -229,6 +234,12 @@ class PlayerActivity : Activity() {
             setResult(RESULT_OK, PlaybackResult.build(req.uri, lastPositionMs, duration, completed))
         }
         super.finish()
+    }
+
+    /** A long wait for data mid-film means the link has changed; Home's Auto quality measures again next time. */
+    private fun noteStall() {
+        if (bufferingSince > 0 && SystemClock.elapsedRealtime() - bufferingSince > STALL_MS) Quality.forget()
+        bufferingSince = 0L
     }
 
     private fun loadRequest(intent: Intent): Boolean {
@@ -243,7 +254,7 @@ class PlayerActivity : Activity() {
         // Without a title extra the request falls back to the URL's last segment, which TitleKeys
         // already weighs as a file name.
         val title = req.title?.takeIf { it != req.uri.lastPathSegment }
-        titleKeys = TitleKeys.from(title, req.fileName, req.uri.toString(), req.textExtras)
+        titleKeys = TitleKeys.from(title, req.fileName, req.uri.toString(), req.textExtras, req.cut)
         savedEntry = resumeStore.find(titleKeys)
         val name = ReleaseName.parse(req.title)
         metaQuery = MetaQuery.from(name?.title, name?.detail)
@@ -911,6 +922,7 @@ class PlayerActivity : Activity() {
         }
 
         override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_BUFFERING && startChecked) bufferingSince = SystemClock.elapsedRealtime() else noteStall()
             // Some streams report no tracks before they are ready; never hold playback for them.
             if (state == Player.STATE_READY) {
                 player?.let { checkStart(it) }
@@ -953,5 +965,6 @@ class PlayerActivity : Activity() {
 
         const val MEASURE_SPEED = 2f
         const val MEASURE_TIMEOUT_MS = 6_000L
+        const val STALL_MS = 8_000L
     }
 }

@@ -4,11 +4,19 @@ import android.content.Context
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.thefactor1.player.R
 import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.hub.HubVault
+import com.thefactor1.player.hub.Quality
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.playback.PlayerPrefs.SubtitleMode
 
 /** The settings that apply to every video, and what this TV can do, as rows for the home screen's panel. */
-class DefaultSettings(private val context: Context, private val prefs: PlayerPrefs, private val thisTv: () -> List<ThisTv.Fact>) {
+class DefaultSettings(
+    private val context: Context,
+    private val prefs: PlayerPrefs,
+    private val thisTv: () -> List<ThisTv.Fact>,
+    /** Opens the hub address card on the home screen. */
+    private val editHub: () -> Unit,
+) {
 
     fun rows(): List<OptionList.RowSpec> = listOf(
         heading(R.string.settings_audio),
@@ -26,6 +34,9 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         item { pictureFit() },
         item { matchFrameRate() },
         item { filmColours() },
+        heading(R.string.settings_hub),
+        item { hubAddress() },
+        item { quality() },
         heading(R.string.settings_phone),
         item { phoneCompanion() },
         heading(R.string.settings_advanced),
@@ -137,6 +148,22 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
                 ?: context.getString(R.string.companion_offline_value),
             context.getString(if (address != null) R.string.pair_hint else R.string.companion_offline),
         ) { PairingCard.show(context, Fonts(context)) }
+    }
+
+    private fun hubAddress() = Option(
+        context.getString(R.string.hub_address),
+        HubVault(context).address.substringAfter("://").ifEmpty { context.getString(R.string.hub_address_none) },
+        context.getString(R.string.hub_address_hint),
+    ) { editHub() }
+
+    private fun quality(): Option {
+        val choices = Quality.CHOICES
+        return Option(
+            context.getString(R.string.quality),
+            Quality.label(prefs.quality),
+            context.getString(if (prefs.quality == Quality.AUTO) R.string.quality_auto_hint else R.string.quality_hint),
+            steps = Steps(choices.indexOf(prefs.quality), choices.size) { prefs.quality = choices[it] },
+        )
     }
 
     private fun audioOutput() = Option(

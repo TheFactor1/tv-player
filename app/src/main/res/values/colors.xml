@@ -20,4 +20,16 @@
     <color name="control_rest_fill">#1FFFFFFF</color>
     <color name="card_ground">#15171A</color>
     <color name="panel_scrim">#59000000</color>
+    <!-- Mercury, the Home's look: graphite and colourless glass. Blue only for the meniscus, focus and NEW; amber only for attention. -->
+    <color name="mercury_fg">#ECEEF1</color>
+    <color name="mercury_muted">#A3A8B0</color>
+    <color name="mercury_faint">#1FECEEF1</color>
+    <color name="mercury_blue">#9FB4FF</color>
+    <color name="mercury_amber">#E0A446</color>
+    <!-- The glass sheet's tint over its blur, and the plain panel where there is no blur. -->
+    <color name="mercury_glass">#A30B0C0E</color>
+    <color name="mercury_glass_plain">#990B0C0E</color>
+    <!-- The one chrome line along the top of glass. -->
+    <color name="mercury_chrome">#8CECEEF1</color>
+    <color name="mercury_hover">#0FECEEF1</color>
 </resources>

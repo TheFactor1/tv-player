@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bricolage Grotesque, the Mercury display face (SIL Open Font License, licence in assets/licenses), one instance of the variable font. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font android:font="@font/bricolage_grotesque" android:fontStyle="normal" android:fontWeight="600"
+        android:fontVariationSettings="'wght' 600, 'opsz' 96"
+        app:font="@font/bricolage_grotesque" app:fontStyle="normal" app:fontWeight="600"
+        app:fontVariationSettings="'wght' 600, 'opsz' 96" />
+</font-family>

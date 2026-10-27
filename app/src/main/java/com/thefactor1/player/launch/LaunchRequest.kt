@@ -30,6 +30,8 @@ data class LaunchRequest(
     val textExtras: List<String>,
     val headers: Map<String, String>,
     val subtitles: List<SubtitleTrack>,
+    /** The cut of the film, when the sender knows it. */
+    val cut: String? = null,
 ) {
     companion object {
         fun from(intent: Intent): LaunchRequest? {
@@ -61,6 +63,7 @@ data class LaunchRequest(
                 textExtras = textExtras,
                 headers = headers,
                 subtitles = subtitlesFrom(intent),
+                cut = intent.getStringExtra(IntentContract.EXTRA_CUT)?.trim()?.ifEmpty { null },
             )
         }
 

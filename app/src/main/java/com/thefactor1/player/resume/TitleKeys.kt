@@ -32,7 +32,7 @@ object TitleKeys {
     /** A name with what was found next to it. */
     data class Parsed(val name: String, val season: Int?, val episode: Int?, val year: Int?)
 
-    fun from(title: String?, fileName: String?, url: String?, textExtras: Collection<String> = emptyList()): List<String> {
+    fun from(title: String?, fileName: String?, url: String?, textExtras: Collection<String> = emptyList(), cut: String? = null): List<String> {
         val keys = LinkedHashSet<String>()
         streamKey(url)?.let { keys += it }
 
@@ -64,7 +64,10 @@ object TitleKeys {
                 }
             }
         }
-        return keys.toList()
+        // Another cut of the same film keeps its own place; the stream's own key is already its own.
+        val tag = cut?.let(::normalize)?.ifEmpty { null }
+        if (tag == null || isEpisode) return keys.toList()
+        return keys.map { if (it.startsWith("url:")) it else "$it:cut=$tag" }
     }
 
     /** Whether [keys] name an episode rather than a film. */

@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home screen: the last film played, full screen with its art, Recently played along the bottom,
-     and the settings for every video in a side panel like the player's. -->
+<!-- Home, the Programme layout: text tabs along the top, the list on the left over a long fade, the
+     focused title's backdrop on the right, Play and Details bottom-right. The title page, Search,
+     the Refine sheet and the hub setup card are drawn over it; settings and Other versions use the
+     side panel at the end. Rows and tabs are built in code. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/ground">
 
+    <!-- Two layers, so one title's art crossfades into the next. -->
     <ImageView
-        android:id="@+id/home_backdrop"
+        android:id="@+id/home_art_a"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop" />
+
+    <ImageView
+        android:id="@+id/home_art_b"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:alpha="0"
@@ -15,241 +26,270 @@
         android:scaleType="centerCrop" />
 
     <View
-        android:id="@+id/home_scrim"
+        android:id="@+id/home_fade"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/home_scrim" />
+        android:layout_height="match_parent" />
 
-    <!-- The film: kicker, logo or title, details, how far in, and what to do next. -->
-    <LinearLayout
-        android:id="@+id/home_hero"
-        android:layout_width="480dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="56dp"
-        android:layout_marginTop="48dp"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/home_kicker"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:letterSpacing="0.12"
-            android:textColor="@color/accent"
-            android:textSize="12sp" />
-
-        <ImageView
-            android:id="@+id/home_logo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:adjustViewBounds="true"
-            android:importantForAccessibility="no"
-            android:maxWidth="400dp"
-            android:maxHeight="104dp"
-            android:scaleType="fitStart"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/home_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:ellipsize="end"
-            android:lineSpacingMultiplier="0.95"
-            android:maxLines="2"
-            android:shadowColor="#73000000"
-            android:shadowRadius="24"
-            android:textColor="@color/ink"
-            android:textSize="46sp" />
-
-        <TextView
-            android:id="@+id/home_meta"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:maxLines="1"
-            android:textColor="@color/ink_secondary"
-            android:textSize="14sp" />
-
-        <TextView
-            android:id="@+id/home_plot"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:ellipsize="end"
-            android:lineSpacingMultiplier="1.2"
-            android:maxLines="2"
-            android:textColor="@color/ink_secondary"
-            android:textSize="14.5sp" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <FrameLayout
-                android:id="@+id/home_progress"
-                android:layout_width="@dimen/home_progress_width"
-                android:layout_height="3dp"
-                android:background="@drawable/home_progress_track">
-
-                <View
-                    android:id="@+id/home_progress_fill"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:background="@drawable/home_progress_fill" />
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/home_position"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="14dp"
-                android:fontFeatureSettings="tnum"
-                android:textColor="@color/ink_secondary"
-                android:textSize="13.5sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/home_continue"
-                android:layout_width="wrap_content"
-                android:layout_height="44dp"
-                android:layout_marginEnd="10dp"
-                android:background="@drawable/control_button_bg"
-                android:drawableStart="@drawable/ic_play"
-                android:drawablePadding="10dp"
-                android:drawableTint="@color/control_icon"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:paddingStart="18dp"
-                android:paddingEnd="22dp"
-                android:textColor="@color/control_text"
-                android:textSize="15sp" />
-
-            <TextView
-                android:id="@+id/home_settings"
-                android:layout_width="wrap_content"
-                android:layout_height="44dp"
-                android:background="@drawable/control_button_bg"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:paddingStart="22dp"
-                android:paddingEnd="22dp"
-                android:text="@string/home_settings"
-                android:textColor="@color/control_text"
-                android:textSize="15sp" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/home_shelf"
+    <FrameLayout
+        android:id="@+id/home_body"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="22dp"
-        android:orientation="vertical">
+        android:layout_height="match_parent">
 
         <TextView
-            android:id="@+id/home_recent"
-            android:layout_width="wrap_content"
+            android:id="@+id/home_message"
+            android:layout_width="400dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="56dp"
-            android:letterSpacing="0.12"
-            android:text="@string/home_recent"
-            android:textColor="@color/ink_secondary"
-            android:textSize="12sp" />
+            android:layout_marginStart="34dp"
+            android:layout_marginTop="116dp"
+            android:lineSpacingMultiplier="1.3"
+            android:textColor="@color/mercury_muted"
+            android:textSize="13sp" />
 
-        <!-- Padded so a focused card's frame and lift have room inside the scroller. -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:clipToPadding="false"
-            android:fadingEdge="none"
-            android:paddingStart="50dp"
-            android:paddingTop="4dp"
-            android:paddingEnd="50dp"
-            android:paddingBottom="6dp"
+        <!-- Width is 46 % of the screen, set in code. -->
+        <ScrollView
+            android:id="@+id/home_scroll"
+            android:layout_width="440dp"
+            android:layout_height="match_parent"
+            android:layout_marginTop="104dp"
+            android:fadingEdgeLength="24dp"
+            android:requiresFadingEdge="vertical"
             android:scrollbars="none">
 
             <LinearLayout
-                android:id="@+id/home_cards"
-                android:layout_width="wrap_content"
+                android:id="@+id/home_list"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:clipChildren="false"
-                android:orientation="horizontal"
-                android:padding="6dp" />
-        </HorizontalScrollView>
-    </LinearLayout>
+                android:orientation="vertical"
+                android:paddingStart="34dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="160dp" />
+        </ScrollView>
 
-    <!-- Before anything has been played. -->
-    <LinearLayout
-        android:id="@+id/home_empty"
-        android:layout_width="480dp"
+        <LinearLayout
+            android:id="@+id/home_pills"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="34dp"
+            android:layout_marginBottom="29dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/home_play"
+                style="@style/ControlButton"
+                android:layout_height="40dp"
+                android:layout_marginEnd="10dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:text="@string/home_play"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/home_details"
+                style="@style/ControlButton"
+                android:layout_height="40dp"
+                android:layout_marginEnd="0dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:text="@string/home_details"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/home_keep"
+                style="@style/ControlButton"
+                android:layout_height="40dp"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="0dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:text="@string/home_keep"
+                android:textSize="15sp" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- The title page (Details) and Search, built in code. -->
+    <FrameLayout
+        android:id="@+id/home_title_page"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="56dp"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:id="@+id/home_search"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="100dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/home_tabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="34dp"
+        android:layout_marginTop="34dp"
+        android:layout_marginEnd="34dp"
         android:gravity="center_vertical"
-        android:orientation="vertical"
+        android:orientation="horizontal" />
+
+    <!-- Browse: the hub's catalogs as a second row of tabs. -->
+    <HorizontalScrollView
+        android:id="@+id/home_catalogs_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="70dp"
+        android:clipToPadding="false"
+        android:paddingStart="34dp"
+        android:paddingEnd="34dp"
+        android:scrollbars="none"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/home_empty_kicker"
+        <LinearLayout
+            android:id="@+id/home_catalogs"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:letterSpacing="0.12"
-            android:text="@string/home_kicker"
-            android:textColor="@color/accent"
-            android:textSize="12sp" />
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
 
-        <TextView
-            android:id="@+id/home_empty_title"
+    <!-- No hub yet, or a new address: the field, and where the phone will help later. -->
+    <LinearLayout
+        android:id="@+id/home_setup"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/ground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="56dp"
+        android:paddingEnd="56dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="460dp"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/setup_kicker"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.22"
+                android:text="@string/setup_kicker"
+                android:textColor="@color/mercury_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/setup_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:letterSpacing="-0.03"
+                android:text="@string/setup_title"
+                android:textColor="@color/mercury_fg"
+                android:textSize="36sp" />
+
+            <TextView
+                android:id="@+id/setup_body"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:lineSpacingMultiplier="1.3"
+                android:text="@string/setup_body"
+                android:textColor="@color/mercury_muted"
+                android:textSize="15sp" />
+
+            <EditText
+                android:id="@+id/setup_address"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="20dp"
+                android:backgroundTint="@color/mercury_muted"
+                android:hint="@string/hub_address"
+                android:imeOptions="actionNext"
+                android:importantForAutofill="no"
+                android:inputType="textUri"
+                android:singleLine="true"
+                android:textColor="@color/mercury_fg"
+                android:textColorHint="@color/ink_faint"
+                android:textSize="20sp" />
+
+            <EditText
+                android:id="@+id/setup_code"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/mercury_muted"
+                android:hint="@string/setup_code"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:inputType="textNoSuggestions|textVisiblePassword"
+                android:singleLine="true"
+                android:textColor="@color/mercury_fg"
+                android:textColorHint="@color/ink_faint"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/setup_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:minHeight="18dp"
+                android:textColor="@color/mercury_amber"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/setup_connect"
+                    style="@style/ControlButton"
+                    android:layout_height="44dp"
+                    android:text="@string/setup_connect"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/setup_settings"
+                    style="@style/ControlButton"
+                    android:layout_height="44dp"
+                    android:text="@string/home_settings"
+                    android:textSize="15sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- shortcut: an empty frame, and the address is typed, until hub discovery and the phone page exist; then a QR code to that page. -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/home_title"
-            android:textColor="@color/ink"
-            android:textSize="40sp" />
+            android:layout_marginStart="64dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/home_empty_body"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:lineSpacingMultiplier="1.2"
-            android:text="@string/home_body"
-            android:textColor="@color/ink_secondary"
-            android:textSize="16sp" />
+            <View
+                android:layout_width="128dp"
+                android:layout_height="128dp"
+                android:background="@drawable/mercury_chip" />
 
-        <TextView
-            android:id="@+id/home_empty_steps"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:lineSpacingMultiplier="1.5"
-            android:textColor="@color/ink_secondary"
-            android:textSize="14.5sp" />
-
-        <TextView
-            android:id="@+id/home_empty_settings"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:layout_marginTop="22dp"
-            android:background="@drawable/control_button_bg"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:paddingStart="22dp"
-            android:paddingEnd="22dp"
-            android:text="@string/home_settings"
-            android:textColor="@color/control_text"
-            android:textSize="15sp" />
+            <TextView
+                android:id="@+id/setup_qr"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:letterSpacing="0.2"
+                android:text="@string/setup_qr"
+                android:textColor="@color/mercury_muted"
+                android:textSize="11sp" />
+        </LinearLayout>
     </LinearLayout>
+
+    <!-- Refine: a glass sheet over the right of the screen; its width (38 %) is set in code. -->
+    <FrameLayout
+        android:id="@+id/home_refine"
+        android:layout_width="360dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:visibility="invisible" />
 
     <View
         android:id="@+id/panel_scrim"
@@ -258,7 +298,7 @@
         android:background="@color/panel_scrim"
         android:visibility="gone" />
 
-    <!-- Settings: the same one-line list as the player's menus, ending with what this TV can do. -->
+    <!-- Settings and Other versions: the same one-line list as the player's menus. -->
     <LinearLayout
         android:id="@+id/settings_panel"
         android:layout_width="470dp"
@@ -280,13 +320,15 @@
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
             android:text="@string/settings_kicker"
-            android:textColor="@color/accent"
+            android:textColor="@color/mercury_muted"
             android:textSize="12sp" />
 
         <TextView
             android:id="@+id/settings_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:paddingStart="16dp"
             android:paddingTop="4dp"
             android:paddingEnd="16dp"

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Instrument Sans semibold, for filled buttons (SIL Open Font License, licence in assets/licenses), one instance of the variable font. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font android:font="@font/instrument_sans" android:fontStyle="normal" android:fontWeight="600"
+        android:fontVariationSettings="'wght' 600"
+        app:font="@font/instrument_sans" app:fontStyle="normal" app:fontWeight="600"
+        app:fontVariationSettings="'wght' 600" />
+</font-family>

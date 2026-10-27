@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
+import com.thefactor1.player.hub.Quality
 
 /** The few choices a viewer makes once and expects to stick. */
 @OptIn(UnstableApi::class)
@@ -73,6 +74,11 @@ class PlayerPrefs(context: Context) {
     var subtitleLanguage: String
         get() = prefs.getString(KEY_SUB_LANG, "") ?: ""
         set(value) = prefs.edit { putString(KEY_SUB_LANG, value) }
+
+    /** One of Quality.CHOICES: a hub preset, or "auto" to measure the link. */
+    var quality: String
+        get() = prefs.getString(KEY_QUALITY, null)?.takeIf { it in Quality.CHOICES } ?: Quality.AUTO
+        set(value) = prefs.edit { putString(KEY_QUALITY, value) }
 
     data class SubtitleSize(val name: String, val fraction: Float)
 
@@ -146,5 +152,6 @@ class PlayerPrefs(context: Context) {
         private const val KEY_MATCH = "match_frame_rate"
         private const val KEY_SUB_SIZE = "subtitle_size"
         private const val KEY_RESIZE = "resize_mode"
+        private const val KEY_QUALITY = "quality"
     }
 }

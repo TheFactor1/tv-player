@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Geist Mono, the Mercury mono face (SIL Open Font License, licence in assets/licenses), one instance of the variable font. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font android:font="@font/geist_mono" android:fontStyle="normal" android:fontWeight="400"
+        android:fontVariationSettings="'wght' 400"
+        app:font="@font/geist_mono" app:fontStyle="normal" app:fontWeight="400"
+        app:fontVariationSettings="'wght' 400" />
+</font-family>

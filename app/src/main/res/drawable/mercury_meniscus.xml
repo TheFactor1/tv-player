@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The meniscus: a 2 dp mercury-blue line under the active tab. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:gravity="bottom|fill_horizontal" android:height="2dp">
+        <shape>
+            <solid android:color="@color/mercury_blue" />
+            <corners android:radius="1dp" />
+        </shape>
+    </item>
+</layer-list>

@@ -6,6 +6,7 @@ coreKtx = "1.16.0"
 junit = "4.13.2"
 ffmpegDecoder = "1.9.0+1"
 zxing = "3.5.3"
+json = "20240303"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -16,6 +17,7 @@ media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 media3-ffmpeg-decoder = { module = "org.jellyfin.media3:media3-ffmpeg-decoder", version.ref = "ffmpegDecoder" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 junit = { module = "junit:junit", version.ref = "junit" }
+json = { module = "org.json:json", version.ref = "json" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

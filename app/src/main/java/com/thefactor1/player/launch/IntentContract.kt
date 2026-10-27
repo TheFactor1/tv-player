@@ -19,6 +19,9 @@ object IntentContract {
     const val EXTRA_END_BY = "end_by"
     const val EXTRA_FILENAME = "filename"
 
+    /** Which cut of a film this is ("Director's Cut"), so its position isn't shared with another cut. Player's own Home sends it. */
+    const val EXTRA_CUT = "cut"
+
     /** VLC's "ignore any saved position" switch. */
     const val EXTRA_FROM_START = "from_start"
 

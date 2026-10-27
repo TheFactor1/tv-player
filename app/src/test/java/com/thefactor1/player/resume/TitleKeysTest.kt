@@ -24,6 +24,15 @@ class TitleKeysTest {
     }
 
     @Test
+    fun anotherCutKeepsItsOwnPlace() {
+        val theatrical = TitleKeys.from("Blade Runner", null, "https://a.example/1.mkv", listOf("tt0083658"))
+        val directors = TitleKeys.from("Blade Runner", null, "https://a.example/2.mkv", listOf("tt0083658"), cut = "Director's Cut")
+        assertTrue(theatrical.intersect(directors.toSet()).isEmpty())
+        assertTrue("imdb:tt0083658:cut=director s cut" in directors)
+        assertEquals("tt0083658", TitleKeys.imdbId(directors))
+    }
+
+    @Test
     fun differentEpisodesNeverShareAKey() {
         val one = TitleKeys.from("Crystal Lake S01E01", null, "https://a.example/1.mkv")
         val two = TitleKeys.from("Crystal Lake S01E02", null, "https://a.example/2.mkv")
