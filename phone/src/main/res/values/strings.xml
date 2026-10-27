@@ -59,4 +59,16 @@
     <string name="pairing_forget">Forget this TV</string>
     <string name="pairing_forget_detail">The TV forgets this phone too</string>
     <string name="pairing_shortcut">Pairing</string>
+    <string name="reach_title">Can\'t reach the TV</string>
+    <string name="reach_offline">Your phone isn\'t connected to a network.</string>
+    <string name="reach_mobile">Your phone is on mobile data. Connect it to the same Wi-Fi as the TV.</string>
+    <string name="reach_vpn">A VPN is on, and it can hide the TV from your phone. Turn it off, or allow local network devices in its settings.</string>
+    <string name="reach_other_wifi">Your phone is on a different Wi-Fi from the TV (%1$s). Switch to the TV\'s network.</string>
+    <string name="reach_tv">The TV may be asleep, or TV Player isn\'t open on it. Wake the TV and open TV Player, and this will connect by itself.</string>
+    <string name="reach_forgotten">The TV no longer knows this phone. It may have been removed from the TV\'s Connected phones.</string>
+    <string name="reach_forgotten_hint">Pair again to connect</string>
+    <string name="reach_try">Try again</string>
+    <string name="reach_pair">Pair again</string>
+    <string name="reach_trying">Looking for the TV…</string>
+    <string name="reach_retrying">Trying again every few seconds</string>
 </resources>

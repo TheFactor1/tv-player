@@ -69,10 +69,13 @@ class TvApi(val host: String, val port: Int, private val token: String?) {
     }
 
     /** True when the TV answers at this address with this token. */
-    fun reachable(): Boolean = try {
-        call("GET", "/api/state", null, PROBE_TIMEOUT_MS).first == 200
+    fun reachable(): Boolean = probe() == 200
+
+    /** The TV's answer to a quick look (401: it no longer knows this phone), or -1 when nothing answered. */
+    fun probe(): Int = try {
+        call("GET", "/api/state", null, PROBE_TIMEOUT_MS).first
     } catch (e: Exception) {
-        false
+        -1
     }
 
     private fun call(method: String, path: String, body: JSONObject?, timeoutMs: Int): Pair<Int, JSONObject> {
