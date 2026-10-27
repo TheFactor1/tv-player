@@ -70,6 +70,16 @@ class HubJsonTest {
     }
 
     @Test
+    fun readsTheLiveHubsListBadgesAndSourceObject() {
+        val stream = HubJson.stream(org.json.JSONObject("""{"url":"https://a/1.mkv","headers":{},
+            "badges":{"res":"2160p","hdr":["DV"],"audio":["DTS-HD","DD+"],"source":"remux","sizeGb":60.0,"cached":true},
+            "source":{"addon":"aiostreams.example","name":"4K"}}"""))!!
+        assertEquals(Badges("2160p", "DV", "DTS-HD / DD+"), stream.badges)
+        assertEquals("aiostreams.example", stream.source)
+        assertNull(HubJson.stream(org.json.JSONObject("""{"url":"u","badges":{"hdr":[]}}"""))!!.badges.hdr)
+    }
+
+    @Test
     fun readsPresetsEitherWayAndCutAndBitrate() {
         val keyed = HubJson.presets("""{"slow":{"max_mbps":8,"max_res":"1080p"},"max":{"max_mbps":null,"max_res":null}}""")
         assertEquals(8.0, keyed.getValue("slow").maxMbps!!, 0.0)

@@ -93,12 +93,14 @@ object HubJson {
     fun stream(json: JSONObject): HubStream? {
         val url = json.text("url") ?: return null
         val badges = badges(json.optJSONObject("badges"))
-        val name = json.text("name") ?: json.text("title") ?: badges.all().joinToString(" · ").ifEmpty { json.text("source") ?: url }
-        return HubStream(url, name, badges, json.text("source"), headers(json.optJSONObject("headers")))
+        // The live hub sends source as {addon, name}; the addon's host is the readable part.
+        val source = json.optJSONObject("source")?.text("addon") ?: json.text("source")
+        val name = json.text("name") ?: json.text("title") ?: badges.all().joinToString(" · ").ifEmpty { source ?: url }
+        return HubStream(url, name, badges, source, headers(json.optJSONObject("headers")))
     }
 
     private fun badges(json: JSONObject?) = Badges(
-        json?.text("res"), json?.text("hdr"), json?.text("audio"), json?.text("cut"),
+        json?.label("res"), json?.label("hdr"), json?.label("audio"), json?.label("cut"),
         json?.opt("mbps").let { (it as? Number)?.toDouble() ?: (it as? String)?.toDoubleOrNull() },
     )
 
@@ -148,5 +150,10 @@ object HubJson {
     }
 
     private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).trim().ifEmpty { null }
+    /** A badge the hub sends as a string or as a list ("hdr":["DV","HDR10"]). */
+    private fun JSONObject.label(name: String): String? {
+        val array = optJSONArray(name) ?: return text(name)
+        return (0 until array.length()).mapNotNull { array.optString(it).trim().ifEmpty { null } }.joinToString(" / ").ifEmpty { null }
+    }
     private fun JSONObject.int(name: String): Int? = if (has(name) && !isNull(name) && opt(name) is Number) optInt(name) else null
 }

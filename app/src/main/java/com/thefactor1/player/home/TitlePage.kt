@@ -39,10 +39,13 @@ class TitlePage(
     var item: HubItem? = null
         private set
 
-    val isOpen: Boolean get() = root.visibility == View.VISIBLE
+    /** Set at once, not when the fade ends, so Home's keys follow a close straight away. */
+    var isOpen = false
+        private set
 
     fun open(item: HubItem) {
         if (root.childCount == 0) build()
+        isOpen = true
         logo.visibility = View.GONE
         name.visibility = View.VISIBLE
         show(item)
@@ -55,6 +58,7 @@ class TitlePage(
     }
 
     fun close() {
+        isOpen = false
         item = null
         root.animate().cancel()
         root.animate().alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)

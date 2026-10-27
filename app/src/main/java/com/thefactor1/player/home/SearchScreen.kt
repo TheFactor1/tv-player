@@ -40,10 +40,13 @@ class SearchScreen(
     private var lastKey: View? = null
     private val runSearch = Runnable { fetch() }
 
-    val isOpen: Boolean get() = root.visibility == View.VISIBLE
+    /** Set at once, not when the fade ends, so Home's tabs and keys follow a close straight away. */
+    var isOpen = false
+        private set
 
     fun open() {
         if (root.childCount == 0) build()
+        isOpen = true
         root.animate().cancel()
         root.visibility = View.VISIBLE
         root.alpha = 0f
@@ -52,6 +55,7 @@ class SearchScreen(
     }
 
     fun close() {
+        isOpen = false
         main.removeCallbacks(runSearch)
         root.animate().cancel()
         root.animate().alpha(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit)

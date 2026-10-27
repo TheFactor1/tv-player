@@ -91,8 +91,9 @@ class HubClient(baseUrl: String, private val token: String = "") {
         info.headers.forEach { (key, value) -> connection.setRequestProperty(key, value) }
         connection.setRequestProperty("Range", "bytes=0-${PROBE_BYTES - 1}")
         try {
-            val started = System.nanoTime()
             if (connection.responseCode !in 200..299) throw HubException("Probe HTTP ${connection.responseCode}")
+            // Timed from the first byte: connect, TLS and the debrid's redirects aren't the link's speed.
+            val started = System.nanoTime()
             var total = 0L
             val buffer = ByteArray(64 * 1024)
             connection.inputStream.use { input ->

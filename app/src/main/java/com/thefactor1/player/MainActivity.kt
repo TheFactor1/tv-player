@@ -221,7 +221,8 @@ class MainActivity : Activity() {
     // ---- The hub --------------------------------------------------------------------------------
 
     private fun start() {
-        client = HubClient(vault.address, vault.token).also { it.onUnauthorized = ::pairAgain }
+        // A late 401 from a client already replaced must not wipe the token just paired.
+        client = HubClient(vault.address, vault.token).also { hub -> hub.onUnauthorized = { if (client === hub) pairAgain() } }
         showSetup(false)
         all = emptyList()
         selectTab(tabIndex)
@@ -230,6 +231,12 @@ class MainActivity : Activity() {
 
     /** The setup card covers Home; what's under it is taken out of focus so the d-pad can't wander there. */
     private fun showSetup(show: Boolean = true) {
+        if (show) {
+            if (panelOpen) closePanel()
+            if (sheet.isOpen) sheet.close()
+            if (titlePage.isOpen) closeTitle()
+            if (search.isOpen) closeSearch(focusMagnifier = false)
+        }
         setup.visibility = if (show) View.VISIBLE else View.GONE
         listOf(body, tabsRow, catalogsScroll).forEach { (it as ViewGroup).descendantFocusability =
             if (show) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS }
@@ -246,9 +253,6 @@ class MainActivity : Activity() {
         if (setup.visibility == View.VISIBLE) return
         vault.token = ""
         client = null
-        if (panelOpen) closePanel()
-        if (sheet.isOpen) sheet.close()
-        if (titlePage.isOpen) closeTitle()
         showSetup()
         findViewById<TextView>(R.id.setup_status).setText(R.string.setup_repair)
     }
@@ -330,13 +334,15 @@ class MainActivity : Activity() {
     private fun loadCatalogs() {
         val hub = client ?: return
         message.setText(R.string.home_loading)
-        hub.run({ this.catalogs() }) { result ->
+        hub.run({ this.catalogs() }) done@{ result ->
             result.onSuccess {
                 catalogs = it
                 catalogIndex = catalogIndex.coerceIn(0, (it.size - 1).coerceAtLeast(0))
                 buildCatalogTabs()
-                if (it.isEmpty()) message.setText(R.string.home_empty) else load(reset = true)
-            }.onFailure(::unreachable)
+            }
+            // Left Browse while the list came: the tab on screen has its own load and message.
+            if (!TABS[tabIndex].isBrowse) return@done
+            result.onSuccess { if (it.isEmpty()) message.setText(R.string.home_empty) else load(reset = true) }.onFailure(::unreachable)
         }
     }
 
