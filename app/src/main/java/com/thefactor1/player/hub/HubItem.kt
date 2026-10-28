@@ -57,6 +57,17 @@ data class HubItem(
 
 data class Catalog(val type: String, val id: String, val name: String)
 
+/**
+ * One of Home's rows as the hub keeps it. [ref] is whatever the hub sent (a builtin's name, a
+ * catalog's {addon, type, id}, a collection id, a franchise number) and goes back to it unchanged.
+ */
+data class Shelf(val id: String, val kind: String, val ref: Any?, val title: String, val hidden: Boolean)
+
+data class HubCollection(val id: String, val title: String, val kind: String)
+
+/** A film series, its parts in release order; [collectionId] pins it to Home as a row. */
+data class Franchise(val collectionId: Int, val title: String, val parts: List<HubItem>)
+
 /** One copy of a title: where to fetch it and what it is. */
 data class HubStream(
     val url: String,
@@ -185,6 +196,26 @@ object HubJson {
         json?.label("res"), json?.label("hdr"), json?.label("audio"), json?.label("cut"),
         json?.opt("mbps").let { (it as? Number)?.toDouble() ?: (it as? String)?.toDoubleOrNull() },
     )
+
+    fun shelves(text: String): List<Shelf> = list(text, "shelves").mapNotNull { json ->
+        val id = json.text("id") ?: return@mapNotNull null
+        Shelf(id, json.text("kind") ?: return@mapNotNull null, json.opt("ref")?.takeIf { it != JSONObject.NULL },
+            json.text("title") ?: id, json.optBoolean("hidden"))
+    }
+
+    fun collections(text: String): List<HubCollection> = list(text, "collections").mapNotNull(::collection)
+
+    fun collection(json: JSONObject): HubCollection? {
+        val id = json.text("id") ?: return null
+        return HubCollection(id, json.text("title") ?: id, json.text("kind") ?: "manual")
+    }
+
+    fun franchise(text: String): Franchise? {
+        val json = JSONObject(text)
+        val id = json.int("collectionId") ?: return null
+        val parts = json.optJSONArray("parts")?.let { array -> (0 until array.length()).mapNotNull { array.optJSONObject(it)?.let(::item) } }.orEmpty()
+        return Franchise(id, json.text("title") ?: "", parts)
+    }
 
     /** GET /presets: an object keyed by preset name, or a list of presets with a "name". */
     fun presets(text: String): Map<String, Quality.Cap> {

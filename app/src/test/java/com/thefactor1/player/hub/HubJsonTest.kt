@@ -129,6 +129,20 @@ class HubJsonTest {
     }
 
     @Test
+    fun shelvesKeepTheirRefForTheTripBack() {
+        val shelves = HubJson.shelves("""{"shelves":[{"id":"builtin:continue","kind":"builtin","ref":"continue","title":"Continue","hidden":false},
+            {"id":"catalog:x","kind":"catalog","ref":{"addon":"v3-cinemeta.strem.io","type":"movie","id":"top"},"title":"Popular","hidden":true},
+            {"kind":"builtin"}]}""")
+        assertEquals(2, shelves.size)
+        assertEquals("continue", shelves[0].ref)
+        assertTrue(shelves[1].hidden)
+        assertEquals("top", (shelves[1].ref as org.json.JSONObject).getString("id"))
+        val franchise = HubJson.franchise("""{"collectionId":726871,"title":"Dune Collection","parts":[{"id":"tt1160419","title":"Dune","type":"movie"},{"id":"tt15239678","title":"Dune: Part Two"}]}""")!!
+        assertEquals(726871, franchise.collectionId)
+        assertEquals(listOf("tt1160419", "tt15239678"), franchise.parts.map { it.id })
+    }
+
+    @Test
     fun hubBeaconRepliesBecomeAddresses() {
         assertEquals(FoundHub("Living room", "http://192.168.50.10:8097"), HubDiscovery.parse("MEDIABOX 1 8097 Living room", "192.168.50.10"))
         assertEquals(FoundHub("10.0.0.2", "http://10.0.0.2:8097"), HubDiscovery.parse("MEDIABOX 1 8097\n", "10.0.0.2"))

@@ -18,6 +18,9 @@ open class HubException(message: String) : IOException(message)
 /** The hub answered 401: this box's token is missing, wrong or rotated, and it has to pair again. */
 class HubUnauthorized : HubException("Not paired")
 
+/** The hub doesn't have this (or, for /shelves, predates it). */
+class HubNotFound(message: String) : HubException(message)
+
 /** A pairing the hub is holding for this TV: the code to show, and the phone's setup page if it has one. */
 data class PairRequest(val id: String, val code: String, val setupUrl: String?)
 
@@ -170,6 +173,39 @@ class HubClient(baseUrl: String, private val token: String = "") {
         clearCache()
     }
 
+    /** Home's rows as the hub keeps them (shared by every paired box); throws [HubNotFound] on a hub from before shelves. */
+    fun shelves(): List<Shelf> = HubJson.shelves(get("/shelves", cached = false))
+
+    fun shelf(id: String, skip: Int) = HubJson.items(get("/shelf/${encode(id)}?skip=$skip"))
+
+    /** Saves the whole row list: its order, names and which are hidden. */
+    fun saveShelves(shelves: List<Shelf>): List<Shelf> {
+        val list = org.json.JSONArray()
+        shelves.forEach { list.put(JSONObject().put("kind", it.kind).put("ref", it.ref).put("title", it.title).put("hidden", it.hidden)) }
+        val saved = HubJson.shelves(send("PUT", "/shelves", JSONObject().put("shelves", list)))
+        clearCache()
+        return saved
+    }
+
+    /** The collections a title can be added to by hand (smart ones fill themselves). */
+    fun manualCollections() = HubJson.collections(get("/collections", cached = false)).filter { it.kind == "manual" }
+
+    fun createCollection(title: String): HubCollection =
+        HubJson.collection(JSONObject(send("POST", "/collections", JSONObject().put("title", title).put("kind", "manual"))))
+            ?: throw HubException("No collection")
+
+    fun addToCollection(collection: HubCollection, item: HubItem) {
+        send("POST", "/collections/${encode(collection.id)}/items", JSONObject().put("id", item.id).put("type", item.type))
+        clearCache()
+    }
+
+    /** The film series [item] belongs to, in order, or null when it isn't part of one (or the hub has no TMDB key). */
+    fun franchise(item: HubItem): Franchise? = try {
+        HubJson.franchise(get("/franchise/${item.id}"))
+    } catch (e: HubNotFound) {
+        null
+    }
+
     fun keep(item: HubItem): HubItem {
         val text = send("POST", "/keep", JSONObject().put("id", item.id).put("type", item.type))
         clearCache()
@@ -213,6 +249,7 @@ class HubClient(baseUrl: String, private val token: String = "") {
         try {
             val code = connection.responseCode
             if (code == HttpURLConnection.HTTP_UNAUTHORIZED) throw HubUnauthorized()
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) throw HubNotFound("HTTP 404")
             if (code !in 200..299) {
                 val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 val reason = runCatching { JSONObject(error).optString("reason") }.getOrNull()?.ifEmpty { null }

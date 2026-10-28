@@ -37,6 +37,8 @@ import com.thefactor1.player.home.TopAlignedLayoutManager
 import com.thefactor1.player.home.VersionsSheet
 import com.thefactor1.player.hub.Catalog
 import com.thefactor1.player.hub.FoundHub
+import com.thefactor1.player.hub.Franchise
+import com.thefactor1.player.hub.HubCollection
 import com.thefactor1.player.hub.HubClient
 import com.thefactor1.player.hub.HubImages
 import com.thefactor1.player.hub.HubItem
@@ -46,12 +48,14 @@ import com.thefactor1.player.hub.HubVault
 import com.thefactor1.player.hub.NextEpisode
 import com.thefactor1.player.hub.PlayInfo
 import com.thefactor1.player.hub.Quality
+import com.thefactor1.player.hub.Shelf
 import com.thefactor1.player.launch.IntentContract
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
 import com.thefactor1.player.ui.Motion
+import com.thefactor1.player.ui.Option
 import com.thefactor1.player.ui.OptionList
 import com.thefactor1.player.ui.PairingCard
 import com.thefactor1.player.ui.ThisTv
@@ -72,7 +76,15 @@ class MainActivity : Activity() {
     }
 
     /** One of Home's rows before and after it loads: where its titles come from, and the row once it has any. */
-    private class Slot(val label: String, val paged: Boolean, val fetch: HubClient.(Int) -> List<HubItem>) {
+    private class Slot(
+        val label: String,
+        val paged: Boolean,
+        /** The hub's row this is, when the hub keeps Home's rows (null on an older hub). */
+        val shelf: Shelf? = null,
+        /** Continue and Next Up: reloaded after a film or time away. */
+        val refreshes: Boolean = false,
+        val fetch: HubClient.(Int) -> List<HubItem>,
+    ) {
         var row: ShelfRow? = null
         var loading = false
         var exhausted = false
@@ -202,7 +214,7 @@ class MainActivity : Activity() {
         }, ::openSettings)
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
         titlePage = TitlePage(findViewById(R.id.home_title_page), fonts, { item, episode, pressed -> startPlay(item, null, episode, pressed) },
-            ::showVersions, ::keep) { item, episode ->
+            ::showVersions, ::keep, ::addToCollection) { item, episode ->
             ResumeStore(this).find(listOf(HomePlay.localKey(item, episode, null)))?.let { HubResume(it.positionMs, it.durationMs, it.savedAt) }
         }
         versions = VersionsSheet(findViewById(R.id.home_versions), fonts, { stream, pressed ->
@@ -348,7 +360,7 @@ class MainActivity : Activity() {
 
     /** Continue and Next Up (and the grid on screen) again, after a film or a while away. */
     private fun refresh() {
-        if (home) slots.filter { !it.paged }.forEach { fillSlot(it) } else load(reset = true)
+        if (home) slots.filter { it.refreshes }.forEach { fillSlot(it) } else load(reset = true)
     }
 
     // ---- Tabs -----------------------------------------------------------------------------------
@@ -439,9 +451,26 @@ class MainActivity : Activity() {
         homeFocusPlaced = false
         rows.rows.clear()
         rows.notifyDataSetChanged()
+        hub.run({ healthy() }) { result -> header.setAttention(result.getOrNull() != true) }
+        hub.run({ shelves() }) { result ->
+            val list = result.getOrNull()
+            // A hub from before shelves (or one that can't say): the built-in rows still work.
+            if (list == null) return@run builtInHome()
+            shelves = list
+            slots = list.filter { !it.hidden }.map { shelf ->
+                val refreshes = shelf.kind == "builtin" && (shelf.ref == "continue" || shelf.ref == "next")
+                Slot(shelf.title, paged = true, shelf = shelf, refreshes = refreshes) { skip -> shelf(shelf.id, skip) }
+            }
+            slots.forEach(::fillSlot)
+            if (slots.isEmpty()) message.setText(R.string.home_empty)
+        }
+    }
+
+    /** Continue, Next Up, New, then each catalog: Home's rows when the hub doesn't keep its own. */
+    private fun builtInHome() {
         val fixed = listOf(
-            Slot(getString(R.string.home_tab_continue), paged = false) { library("continue").sortedByDescending { it.resume?.updatedAt ?: 0L } },
-            Slot(getString(R.string.home_tab_next), paged = false) { library("next") },
+            Slot(getString(R.string.home_tab_continue), paged = false, refreshes = true) { library("continue").sortedByDescending { it.resume?.updatedAt ?: 0L } },
+            Slot(getString(R.string.home_tab_next), paged = false, refreshes = true) { library("next") },
             Slot(getString(R.string.home_tab_new), paged = true) { skip -> newReleases(skip) },
         )
         slots = fixed
@@ -453,7 +482,60 @@ class MainActivity : Activity() {
             slots = fixed + more
             more.forEach(::fillSlot)
         }
-        hub.run({ healthy() }) { result -> header.setAttention(result.getOrNull() != true) }
+    }
+
+    // ---- Home's rows, as the hub keeps them: move, hide, rename (long-press OK on a row) ---------
+
+    /** The hub's whole row list, hidden ones included, as last read; saved back whole. */
+    private var shelves: List<Shelf> = emptyList()
+
+    private fun rowMenu(slot: Slot) {
+        val shelf = slot.shelf ?: return
+        val visible = shelves.filter { !it.hidden }
+        val at = visible.indexOfFirst { it.id == shelf.id }
+        val options = mutableListOf<OptionList.RowSpec>()
+        fun item(label: Int, hint: Int?, action: () -> Unit) {
+            options += OptionList.RowSpec.Item { Option(getString(label), hint = hint?.let(::getString)) { closePanel(); action() } }
+        }
+        if (at > 0) item(R.string.row_move_up, R.string.row_shared_hint) { saveShelves(swap(shelf, visible[at - 1])) }
+        if (at in 0 until visible.size - 1) item(R.string.row_move_down, R.string.row_shared_hint) { saveShelves(swap(shelf, visible[at + 1])) }
+        item(R.string.row_hide, R.string.row_hide_hint) { saveShelves(shelves.map { if (it.id == shelf.id) it.copy(hidden = true) else it }) }
+        item(R.string.row_rename, R.string.row_shared_hint) {
+            askName(shelf.title) { name -> saveShelves(shelves.map { if (it.id == shelf.id) it.copy(title = name) else it }) }
+        }
+        openPanel(OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts) { options },
+            getString(R.string.row_kicker), slot.label)
+    }
+
+    /** The full list with [a] and [b] trading places (hidden rows between them stay where they are). */
+    private fun swap(a: Shelf, b: Shelf): List<Shelf> = shelves.map { if (it.id == a.id) b else if (it.id == b.id) a else it }
+
+    private fun saveShelves(list: List<Shelf>) {
+        val hub = client ?: return
+        hub.run({ saveShelves(list) }) { result ->
+            result.onSuccess { loadHome() }
+                .onFailure { Toast.makeText(this, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    /** A name from the on-screen keyboard (or a phone remote app): a row's, or a new collection's. */
+    private fun askName(current: String?, done: (String) -> Unit) {
+        val field = android.widget.EditText(this).apply {
+            setText(current)
+            setSelection(text.length)
+            setSingleLine(true)
+            hint = getString(R.string.home_new_collection_hint)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setView(android.widget.FrameLayout(this).apply {
+                val pad = Mercury.dp(body, 24f)
+                setPadding(pad, pad, pad, 0)
+                addView(field)
+            })
+            .setPositiveButton(R.string.row_ok) { _, _ -> field.text.toString().trim().takeIf { it.isNotEmpty() }?.let(done) }
+            .setNegativeButton(R.string.row_cancel, null)
+            .show()
+        field.requestFocus()
     }
 
     /** Loads [slot]'s first page; the row appears (in its place among the others) once it has titles, and goes if it has none. */
@@ -570,8 +652,10 @@ class MainActivity : Activity() {
 
     private fun firstRowCard(): View? = (rowsView.findViewHolderForAdapterPosition(0) as? RowsAdapter.Holder)?.strip?.getChildAt(0)
 
+    /** Back down into the rows: the poster last chosen if it's still on screen, else the first one showing. */
     private fun focusRows() {
-        (lastRowCard?.takeIf { it.isAttachedToWindow && isInside(it, rowsView) } ?: firstRowCard())?.requestFocus()
+        val shown = (rowsView.getChildAt(0)?.let { rowsView.getChildViewHolder(it) } as? RowsAdapter.Holder)?.strip?.getChildAt(0)
+        (lastRowCard?.takeIf { it.isAttachedToWindow && isInside(it, rowsView) } ?: shown)?.requestFocus()
     }
 
     private fun focusGrid() {
@@ -730,6 +814,11 @@ class MainActivity : Activity() {
         settleArt()
         // The full record (overview, episodes) and the ranked copies are fetched side by side.
         fetchStreams(item)
+        if (!item.isSeries) client?.run({ franchise(item) }) { result ->
+            result.getOrNull()?.let { series ->
+                titlePage.showFranchise(item, series.title, series.parts, ::openTitle) { pinFranchise(series) }
+            }
+        }
         client?.run({ meta(item) }) done@{ result ->
             val fresh = result.getOrNull() ?: return@done
             if (titlePage.item?.id != item.id) return@done
@@ -915,6 +1004,48 @@ class MainActivity : Activity() {
         if (cachedStreams(item) == null) fetchStreams(item)
     }
 
+    /** Add to collection: the hub's hand-made collections, and a new one named on the spot. */
+    private fun addToCollection(item: HubItem) {
+        val hub = client ?: return
+        hub.run({ manualCollections() }) { result ->
+            val list = result.getOrElse {
+                Toast.makeText(this, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
+                return@run
+            }
+            fun add(collection: HubCollection) = hub.run({ addToCollection(collection, item) }) { added ->
+                Toast.makeText(this, added.exceptionOrNull()?.message ?: getString(R.string.home_added_to, collection.title), Toast.LENGTH_SHORT).show()
+            }
+            val options = list.map { collection ->
+                OptionList.RowSpec.Item { Option(collection.title) { closePanel(); add(collection) } }
+            } + OptionList.RowSpec.Item {
+                Option(getString(R.string.home_new_collection)) {
+                    closePanel()
+                    askName(null) { name ->
+                        hub.run({ createCollection(name) }) { created ->
+                            created.onSuccess(::add).onFailure { Toast.makeText(this, it.message, Toast.LENGTH_LONG).show() }
+                        }
+                    }
+                }
+            }
+            openPanel(OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts) { options },
+                getString(R.string.home_collect_kicker), item.title)
+        }
+    }
+
+    /** Pin to Home: the film series becomes a row at the end of Home (on every box). */
+    private fun pinFranchise(series: Franchise) {
+        val hub = client ?: return
+        hub.run({
+            val current = shelves()
+            saveShelves(current + Shelf("", "franchise", series.collectionId, series.title, false))
+        }) { result ->
+            result.onSuccess {
+                Toast.makeText(this, R.string.home_pinned, Toast.LENGTH_SHORT).show()
+                slots = emptyList()
+            }.onFailure { Toast.makeText(this, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show() }
+        }
+    }
+
     private fun keep(item: HubItem) {
         val hub = client ?: return
         hub.run({ this.keep(item) }) { result ->
@@ -935,19 +1066,22 @@ class MainActivity : Activity() {
 
     // ---- Side panel: settings -------------------------------------------------------------------
 
-    private fun openSettings() {
-        findViewById<TextView>(R.id.settings_kicker).setText(R.string.settings_kicker)
-        findViewById<TextView>(R.id.settings_title).setText(R.string.settings_title)
+    private fun openSettings() = openPanel(settings, getString(R.string.settings_kicker), getString(R.string.settings_title))
+
+    /** The side panel with one of the app's one-line menus: settings, a row's menu, the collections. */
+    private fun openPanel(options: OptionList, kicker: String, title: String) {
+        findViewById<TextView>(R.id.settings_kicker).text = kicker
+        findViewById<TextView>(R.id.settings_title).text = title
         if (!panelOpen) beforePanel = currentFocus
         panelOpen = true
-        panelList = settings
+        panelList = options
         findViewById<View>(R.id.panel_scrim).visibility = View.VISIBLE
         panel.animate().cancel()
         panel.visibility = View.VISIBLE
         panel.translationX = panel.width * PANEL_SLIDE
         panel.alpha = 0f
         panel.animate().translationX(0f).alpha(1f).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
-        settings.show()
+        options.show()
     }
 
     private fun closePanel() {
@@ -968,11 +1102,34 @@ class MainActivity : Activity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // A play on its way: nothing moves until the player opens or the hub answers no.
         if (pending) return true
+        if (rowLongPress(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN && !panelOpen && !sheet.isOpen && !titlePage.isOpen && setup.visibility != View.VISIBLE) {
             if (search.isOpen && typeIntoSearch(event)) return true
             if (!search.isOpen && moveFocus(event.keyCode)) return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private var longPressed = false
+
+    /**
+     * Long-press OK on a poster in one of Home's rows opens that row's menu (Move, Hide, Rename). The
+     * rest of that press, its release included, is swallowed so it doesn't also open the title.
+     */
+    private fun rowLongPress(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER && event.keyCode != KeyEvent.KEYCODE_ENTER) return false
+        if (longPressed) {
+            if (event.action == KeyEvent.ACTION_UP) longPressed = false
+            return true
+        }
+        val card = currentFocus as? PosterCard ?: return false
+        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 1 || !isInside(card, rowsView)) return false
+        val row = rows.rows.getOrNull(rowOf(card)) ?: return false
+        val slot = slots.firstOrNull { it.row === row }?.takeIf { it.shelf != null } ?: return false
+        longPressed = true
+        card.isPressed = false
+        rowMenu(slot)
+        return true
     }
 
     /** Letters from a keyboard or a phone remote app go straight into Search. */
@@ -1011,6 +1168,8 @@ class MainActivity : Activity() {
                 inHeader -> Unit
                 inHero || inCatalogs -> header.focusActive()
                 rowCard && rowOf(focused) == 0 -> playButton.requestFocus()
+                // The row above may have scrolled off under the hero; bring it back rather than jump to the hero.
+                rowCard -> focusRow(rowOf(focused) - 1, focused)
                 gridCard && gridView.getChildAdapterPosition(focused) < GRID_COLUMNS -> catalogTab?.requestFocus() ?: header.focusActive()
                 else -> return false
             }
@@ -1033,6 +1192,20 @@ class MainActivity : Activity() {
             else -> return false
         }
         return true
+    }
+
+    /** Focuses the poster in row [index] nearest (across) to [from], scrolling the row into place first if need be. */
+    private fun focusRow(index: Int, from: View) {
+        val x = IntArray(2).also { from.getLocationOnScreen(it) }[0]
+        val pick = {
+            val strip = (rowsView.findViewHolderForAdapterPosition(index) as? RowsAdapter.Holder)?.strip
+            (0 until (strip?.childCount ?: 0)).map { strip!!.getChildAt(it) }
+                .minByOrNull { child -> kotlin.math.abs(IntArray(2).also { child.getLocationOnScreen(it) }[0] - x) }
+        }
+        pick()?.requestFocus() ?: run {
+            rowsView.scrollToPosition(index)
+            rowsView.post { pick()?.requestFocus() }
+        }
     }
 
     private fun positionInStrip(card: View) = (card.parent as RecyclerView).getChildAdapterPosition(card)

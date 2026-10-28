@@ -33,6 +33,8 @@ class TitlePage(
     private val play: (HubItem, NextEpisode?, TextView) -> Unit,
     private val versions: (HubItem) -> Unit,
     private val keep: (HubItem) -> Unit,
+    /** "Add to collection": the caller asks which one. */
+    private val collect: (HubItem) -> Unit,
     /** Where this box left an episode, from its own resume memory. */
     private val episodeResume: (HubItem, NextEpisode) -> HubResume?,
 ) {
@@ -47,6 +49,10 @@ class TitlePage(
     private lateinit var playButton: TextView
     private lateinit var keepButton: TextView
     private lateinit var owned: TextView
+    private lateinit var franchise: LinearLayout
+    private lateinit var franchiseLabel: TextView
+    private lateinit var franchiseParts: LinearLayout
+    private lateinit var pinButton: TextView
     private lateinit var episodesPanel: LinearLayout
     private lateinit var seasonTabs: LinearLayout
     private lateinit var episodes: LinearLayout
@@ -67,6 +73,7 @@ class TitlePage(
         isOpen = true
         season = -1
         streamShown = false
+        franchise.visibility = View.GONE
         logo.visibility = View.GONE
         name.visibility = View.VISIBLE
         seasonTabs.removeAllViews()
@@ -122,6 +129,39 @@ class TitlePage(
         streamShown = true
         showChips(listOfNotNull(best.badges.res, best.badges.hdr, best.badges.audio, best.origin,
             best.sizeGb?.let { String.format(Locale.US, "%.1f GB", it) }, best.badges.mbps?.let { "${it.roundToInt()} MBPS" }))
+    }
+
+    /**
+     * The series [item] belongs to: each part a small poster (OK opens it), this one marked, and
+     * Pin to Home to make the series a row.
+     */
+    fun showFranchise(item: HubItem, title: String, parts: List<HubItem>, open: (HubItem) -> Unit, pin: () -> Unit) {
+        if (this.item?.id != item.id || parts.size < 2) return
+        franchiseLabel.text = context.getString(R.string.home_franchise, title).uppercase()
+        franchiseParts.removeAllViews()
+        parts.forEach { part ->
+            val poster = PosterView(context).apply {
+                isFocusable = true
+                isClickable = true
+                bind(part, Mercury.dp(root, PART_W_DP * 2))
+                // This film wears the light edge; the others take it only while focused.
+                val edge = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = Mercury.dp(root, 8f).toFloat()
+                    setStroke(Mercury.dp(root, 2f), context.getColor(R.color.card_edge))
+                }
+                if (part.id == item.id) foreground = edge
+                setOnFocusChangeListener { v, has ->
+                    if (part.id != item.id) (v as PosterView).foreground = if (has) edge else null
+                    v.animate().scaleX(if (has) PART_LIFT else 1f).scaleY(if (has) PART_LIFT else 1f).setDuration(Motion.FOCUS_MS).setInterpolator(Motion.enter).start()
+                }
+                setOnClickListener { if (part.id != item.id) open(part) }
+            }
+            franchiseParts.addView(poster, LinearLayout.LayoutParams(Mercury.dp(root, PART_W_DP), Mercury.dp(root, PART_W_DP * 3 / 2)).apply {
+                marginEnd = Mercury.dp(root, 8f)
+            })
+        }
+        pinButton.setOnClickListener { pin() }
+        franchise.visibility = View.VISIBLE
     }
 
     fun showLogo(bitmap: Bitmap) {
@@ -246,18 +286,22 @@ class TitlePage(
 
     private fun build() {
         val screenWidth = root.resources.displayMetrics.widthPixels
+        // The poster beside the words, and the buttons under both, so four buttons fit beside a show's episodes.
         info = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.BOTTOM
-            setPadding(Mercury.dp(root, Mercury.SAFE_X), 0, Mercury.dp(root, 16f), Mercury.dp(root, 44f))
+            setPadding(Mercury.dp(root, Mercury.SAFE_X), 0, Mercury.dp(root, 16f), Mercury.dp(root, 40f))
         }
         root.addView(info, FrameLayout.LayoutParams((screenWidth * INFO_WIDTH).toInt(), ViewGroup.LayoutParams.MATCH_PARENT))
+        val top = LinearLayout(context).apply { gravity = Gravity.BOTTOM }
+        info.addView(top)
         poster = PosterView(context)
-        info.addView(poster, LinearLayout.LayoutParams(Mercury.dp(root, POSTER_W_DP), Mercury.dp(root, POSTER_W_DP * 3 / 2)).apply {
+        top.addView(poster, LinearLayout.LayoutParams(Mercury.dp(root, POSTER_W_DP), Mercury.dp(root, POSTER_W_DP * 3 / 2)).apply {
             marginEnd = Mercury.dp(root, 24f)
             bottomMargin = Mercury.dp(root, 4f)
         })
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        info.addView(column, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(column, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         logo = ImageView(context).apply {
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_START
@@ -280,15 +324,33 @@ class TitlePage(
             alpha = OVERVIEW_ALPHA
             setLineSpacing(0f, 1.4f)
         }
-        column.addView(overview, wrap(bottom = 18f))
+        column.addView(overview)
+
+        // A film's series, in order, with this one marked; under the overview, over the buttons.
+        franchise = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        column.addView(franchise, wrap(top = 14f))
+        franchiseLabel = Mercury.text(context, fonts.mercuryMono, 10f, R.color.mercury_muted, 0.2f)
+        franchise.addView(franchiseLabel, wrap(bottom = 8f))
+        val strip = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+        franchise.addView(strip)
+        franchiseParts = LinearLayout(context)
+        strip.addView(franchiseParts)
+        pinButton = button(R.string.home_pin) {}
+        pinButton.height = Mercury.dp(root, 34f)
+        strip.addView(pinButton, wrap().apply { marginStart = Mercury.dp(root, 8f) })
+        Mercury.liftRoom(strip, levels = 3)
 
         val buttons = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-        column.addView(buttons)
+        info.addView(buttons, wrap(top = 18f))
         playButton = button(R.string.home_play) { item?.let { play(it, null, playButton) } }
         buttons.addView(playButton, wrap(end = 10f))
         buttons.addView(button(R.string.home_versions) { item?.let(versions) }, wrap(end = 10f))
         keepButton = button(R.string.home_keep) { item?.let(keep) }
-        buttons.addView(keepButton)
+        buttons.addView(keepButton, wrap(end = 10f))
+        buttons.addView(button(R.string.home_collect) { item?.let(collect) })
 
         // A show's episodes: a quiet panel on the right, seasons as text tabs over the list.
         episodesPanel = LinearLayout(context).apply {
@@ -341,5 +403,7 @@ class TitlePage(
         const val THUMB_W_DP = 104f
         const val OVERVIEW_ALPHA = 0.8f
         const val EPISODE_REST = 0.72f
+        const val PART_W_DP = 52f
+        const val PART_LIFT = 1.06f
     }
 }
