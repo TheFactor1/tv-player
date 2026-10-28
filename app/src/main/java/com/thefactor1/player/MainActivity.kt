@@ -11,23 +11,29 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.edit
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.home.CardAdapter
+import com.thefactor1.player.home.Header
 import com.thefactor1.player.home.HomeArt
 import com.thefactor1.player.home.HomePlay
 import com.thefactor1.player.home.Mercury
 import com.thefactor1.player.home.PairingSetup
-import com.thefactor1.player.home.PosterView
+import com.thefactor1.player.home.PosterCard
 import com.thefactor1.player.home.Refine
 import com.thefactor1.player.home.RefineSheet
+import com.thefactor1.player.home.RowsAdapter
 import com.thefactor1.player.home.SearchScreen
+import com.thefactor1.player.home.ShelfRow
 import com.thefactor1.player.home.SpaceSky
-import com.thefactor1.player.home.StarLayer
 import com.thefactor1.player.home.SpinnerDrawable
+import com.thefactor1.player.home.StarLayer
 import com.thefactor1.player.home.TitlePage
+import com.thefactor1.player.home.TopAlignedLayoutManager
 import com.thefactor1.player.home.VersionsSheet
 import com.thefactor1.player.hub.Catalog
 import com.thefactor1.player.hub.FoundHub
@@ -51,17 +57,25 @@ import com.thefactor1.player.ui.PairingCard
 import com.thefactor1.player.ui.ThisTv
 
 /**
- * Home, the Programme layout over the hub: tabs for the collections, the list on the left, the
- * focused title's backdrop on the right, and Play and Details. Details, Search and Refine open over
- * it; the settings for every video stay in the side panel. Without a hub it asks for one.
+ * Home, the Shelf layout over the hub. Home itself is the focused title's hero over its backdrop
+ * with rows of posters under it (Continue, Next Up, New, then each catalog); every other tab is a
+ * grid of posters. Details, Search, Refine and Other versions open over it; the settings for every
+ * video stay in the side panel. Without a hub it asks for one.
  */
 class MainActivity : Activity() {
 
-    /** A tab: a library collection read whole, New (paged), or Browse (a paged catalog of the user's choosing). */
-    private class Tab(val label: Int, val collection: String?, val isNew: Boolean = false) {
-        val isBrowse: Boolean get() = collection == null && !isNew
+    private enum class Kind { HOME, LIBRARY, NEW, BROWSE }
+
+    private class Tab(val label: Int, val kind: Kind, val collection: String? = null) {
         /** Continue and Next Up are where you left things; filtering them would hide what you're in the middle of. */
-        val refinable: Boolean get() = collection != "continue" && collection != "next"
+        val refinable: Boolean get() = kind == Kind.NEW || kind == Kind.BROWSE || collection == "movies" || collection == "shows"
+    }
+
+    /** One of Home's rows before and after it loads: where its titles come from, and the row once it has any. */
+    private class Slot(val label: String, val paged: Boolean, val fetch: HubClient.(Int) -> List<HubItem>) {
+        var row: ShelfRow? = null
+        var loading = false
+        var exhausted = false
     }
 
     private lateinit var fonts: Fonts
@@ -74,18 +88,20 @@ class MainActivity : Activity() {
 
     private lateinit var artA: ImageView
     private lateinit var artB: ImageView
+    private lateinit var fade: View
     private lateinit var body: View
     private lateinit var message: TextView
-    private lateinit var scroll: ScrollView
-    private lateinit var list: LinearLayout
-    private lateinit var pills: View
-    private lateinit var playPill: TextView
-    private lateinit var keepPill: TextView
-    private lateinit var tabsRow: LinearLayout
+    private lateinit var hero: View
+    private lateinit var heroButtons: LinearLayout
+    private lateinit var playButton: TextView
+    private lateinit var rowsView: RecyclerView
+    private lateinit var gridBar: View
     private lateinit var catalogsScroll: View
     private lateinit var catalogsRow: LinearLayout
-    private lateinit var magnifier: ImageView
-    private lateinit var filterTab: TextView
+    private lateinit var whisper: TextView
+    private lateinit var gridView: RecyclerView
+    private lateinit var header: Header
+    private lateinit var headerRoot: View
     private lateinit var setup: View
     private lateinit var pairing: PairingSetup
     private lateinit var panel: View
@@ -95,25 +111,33 @@ class MainActivity : Activity() {
     private lateinit var sheet: RefineSheet
     private lateinit var versions: VersionsSheet
     private lateinit var dim: View
+    private lateinit var rows: RowsAdapter
+    private lateinit var grid: CardAdapter
 
     private var tabIndex = 0
     private var catalogs: List<Catalog> = emptyList()
     private var catalogIndex = 0
     private var refine = Refine()
-    /** Everything loaded for the current tab, and the part of it the filters let through. */
+    private var slots: List<Slot> = emptyList()
+    /** Everything loaded for the current grid tab, and the part of it the filters let through. */
     private var all: List<HubItem> = emptyList()
     private var shown: List<HubItem> = emptyList()
-    private var selectedId: String? = null
     private var loading = false
     private var exhausted = false
     /** Bumped on every new load, so an answer for a tab already left is dropped. */
     private var loadTicket = 0
+    private var heroItem: HubItem? = null
+    private var lastRowCard: View? = null
+    /** Home has put focus on its first poster once; after that, rows arriving never move it. */
+    private var homeFocusPlaced = false
+    private var lastGridCard: View? = null
     private var artId: String? = null
     private var frontIsB = false
     private var panelList: OptionList? = null
     private var panelOpen = false
     private var beforePanel: View? = null
     private var beforeTitle: View? = null
+    private var beforeVersions: View? = null
     /** Each title's ranked copies, fetched when its page opens and kept ten minutes, so Other versions opens at once. */
     private val streamCache = HashMap<String, Pair<Long, List<HubStream>>>()
     private val streamsAsked = HashSet<String>()
@@ -124,6 +148,8 @@ class MainActivity : Activity() {
     /** What the player is playing for us, so its position goes back to the hub. */
     private var playing: Pair<String, NextEpisode?>? = null
 
+    private val home get() = TABS[tabIndex].kind == Kind.HOME
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = PlayerPrefs(this)
@@ -133,29 +159,35 @@ class MainActivity : Activity() {
         vault = HubVault(this)
         artA = findViewById(R.id.home_art_a)
         artB = findViewById(R.id.home_art_b)
+        fade = findViewById(R.id.home_fade)
         body = findViewById(R.id.home_body)
         message = findViewById(R.id.home_message)
-        scroll = findViewById(R.id.home_scroll)
-        list = findViewById(R.id.home_list)
-        pills = findViewById(R.id.home_pills)
-        playPill = findViewById(R.id.home_play)
-        keepPill = findViewById(R.id.home_keep)
-        tabsRow = findViewById(R.id.home_tabs)
+        hero = findViewById(R.id.home_hero)
+        heroButtons = findViewById(R.id.home_hero_buttons)
+        playButton = findViewById(R.id.home_play)
+        rowsView = findViewById(R.id.home_rows)
+        gridBar = findViewById(R.id.home_grid_bar)
         catalogsScroll = findViewById(R.id.home_catalogs_scroll)
         catalogsRow = findViewById(R.id.home_catalogs)
+        whisper = findViewById(R.id.home_whisper)
+        gridView = findViewById(R.id.home_grid)
+        headerRoot = findViewById(R.id.home_header)
         setup = findViewById(R.id.home_setup)
         panel = findViewById(R.id.settings_panel)
-        val fade = findViewById<View>(R.id.home_fade)
-        fade.background = Mercury.backdropFade(this)
+        dim = findViewById(R.id.home_dim)
         if (Mercury.space) addSky(fade)
-        scroll.layoutParams.width = (resources.displayMetrics.widthPixels * LIST_WIDTH).toInt()
 
-        fonts.apply(fonts.ui, message, playPill, keepPill, findViewById(R.id.home_details), findViewById(R.id.home_hero_overview))
-        fonts.apply(fonts.mercuryMono, findViewById(R.id.home_hero_credits))
+        fonts.apply(fonts.ui, message, playButton, findViewById(R.id.home_details), findViewById(R.id.home_hero_overview))
+        fonts.apply(fonts.mercuryMono, findViewById(R.id.home_hero_credits), findViewById(R.id.home_hero_kicker), whisper)
+        fonts.apply(if (Mercury.space) fonts.spaceDisplay else fonts.display, findViewById(R.id.home_hero_title))
+        findViewById<TextView>(R.id.home_hero_title).letterSpacing = if (Mercury.space) 0.05f else -0.03f
+        listOf(R.id.home_hero_kicker).forEach { findViewById<TextView>(it).setTextColor(Mercury.color(this, R.color.mercury_blue)) }
         fonts.apply(fonts.bold, findViewById(R.id.settings_title))
         fonts.apply(fonts.semibold, findViewById(R.id.settings_kicker))
         fonts.apply(fonts.medium, findViewById(R.id.settings_hint))
+        Mercury.liftRoom(heroButtons, levels = 2)
 
+        header = Header(findViewById(R.id.home_header), fonts, TABS.map { it.label }, ::selectTab, ::openSearch, ::openRefine, ::openSettings)
         val defaults = DefaultSettings(this, prefs, { facts }) {
             closePanel()
             showSetup(rediscover = true)
@@ -165,7 +197,7 @@ class MainActivity : Activity() {
             vault.token = token
             HubClient.clearCache()
             catalogs = emptyList()
-            catalogsRow.removeAllViews()
+            slots = emptyList()
             start()
         }, ::openSettings)
         settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
@@ -180,20 +212,29 @@ class MainActivity : Activity() {
             findViewById<ViewGroup>(R.id.home_title_page).descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
             beforeVersions?.takeIf { it.isAttachedToWindow }?.requestFocus()
         }
-        dim = findViewById(R.id.home_dim)
-        Mercury.liftRoom(pills as ViewGroup)
         search = SearchScreen(findViewById(R.id.home_search), fonts,
             { query, done -> client?.run({ this.search(query) }, done) },
             { showArt(it) },
             ::openTitle)
-        sheet = RefineSheet(findViewById(R.id.home_refine), fonts, ::onRefine) {
-            body.animate().translationX(0f).setDuration(Motion.EXIT_MS).setInterpolator(Motion.exit).start()
-            filterTab.requestFocus()
-        }
+        sheet = RefineSheet(findViewById(R.id.home_refine), fonts, ::onRefine) { header.filter.requestFocus() }
 
-        playPill.setOnClickListener { selected()?.let { startPlay(it, null, null, playPill) } }
-        findViewById<View>(R.id.home_details).setOnClickListener { selected()?.let(::openTitle) }
-        keepPill.setOnClickListener { selected()?.let(::keep) }
+        playButton.setOnClickListener { heroItem?.let { startPlay(it, null, null, playButton) } }
+        findViewById<View>(R.id.home_details).setOnClickListener { heroItem?.let(::openTitle) }
+
+        rows = RowsAdapter(fonts)
+        rowsView.layoutManager = TopAlignedLayoutManager(this)
+        rowsView.adapter = rows
+        rowsView.itemAnimator = null
+        val gap = Mercury.dp(body, RowsAdapter.GAP_DP)
+        val gridCard = (resources.displayMetrics.widthPixels - 2 * Mercury.dp(body, Mercury.SAFE_X) - (GRID_COLUMNS - 1) * gap) / GRID_COLUMNS
+        grid = cards(gridCard) { if (!loading && !exhausted && !TABS[tabIndex].let { it.kind == Kind.LIBRARY }) load(reset = false) }
+        gridView.layoutManager = GridLayoutManager(this, GRID_COLUMNS)
+        gridView.adapter = grid
+        gridView.itemAnimator = null
+        val side = Mercury.dp(body, Mercury.SAFE_X) - gap / 2
+        gridView.setPadding(side, gap / 2, side, gridView.paddingBottom)
+        // A focused row's name brightens; the others rest.
+        window.decorView.viewTreeObserver.addOnGlobalFocusChangeListener { _, _ -> paintRowLabels() }
 
         refine = Refine.decode(homePrefs.getString(KEY_REFINE, null))
         tabIndex = homePrefs.getInt(KEY_TAB, 0).coerceIn(TABS.indices)
@@ -202,7 +243,6 @@ class MainActivity : Activity() {
             val season = savedInstanceState.getInt(STATE_PLAYING_SEASON, -1)
             playing = id to (if (season >= 0) NextEpisode(season, savedInstanceState.getInt(STATE_PLAYING_EPISODE), null) else null)
         }
-        buildTabs()
         if (vault.address.isEmpty() || vault.token.isEmpty()) showSetup() else start()
     }
 
@@ -234,7 +274,7 @@ class MainActivity : Activity() {
         // Back from another app after a while: Continue may have moved. Back from our own player, its result reloads instead.
         if (playing == null && client != null) {
             HubClient.clearCache()
-            load(reset = true)
+            refresh()
         }
     }
 
@@ -243,6 +283,11 @@ class MainActivity : Activity() {
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
         PhoneCompanion.stop()
         pairing.pause()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        header.stop()
     }
 
     // ---- The hub --------------------------------------------------------------------------------
@@ -254,6 +299,7 @@ class MainActivity : Activity() {
         all = emptyList()
         selectTab(tabIndex)
         client?.run({ presets() }) { result -> result.getOrNull()?.let { Quality.caps = it } }
+        client?.run({ healthy() }) { result -> header.setAttention(result.getOrNull() != true) }
     }
 
     /**
@@ -265,9 +311,9 @@ class MainActivity : Activity() {
             if (panelOpen) closePanel()
             if (sheet.isOpen) sheet.close()
             if (titlePage.isOpen) closeTitle()
-            if (search.isOpen) closeSearch(focusMagnifier = false)
+            if (search.isOpen) closeSearch(focusSearch = false)
         }
-        listOf(body, tabsRow, catalogsScroll).forEach { (it as ViewGroup).descendantFocusability =
+        listOf(body, headerRoot).forEach { (it as ViewGroup).descendantFocusability =
             if (show) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS }
         if (!show) return pairing.hide()
         val known = vault.address.takeIf { it.isNotEmpty() && !rediscover }?.let { FoundHub(it.substringAfter("://"), it) }
@@ -282,26 +328,281 @@ class MainActivity : Activity() {
         showSetup(note = R.string.setup_repair)
     }
 
-    /** Loads the current tab: from the start, or its next page. */
+    /** The catalogs, fetched once; Home's later rows and Browse's sub-tabs both come from them. */
+    private fun withCatalogs(then: () -> Unit) {
+        if (catalogs.isNotEmpty()) return then()
+        val hub = client ?: return
+        hub.run({ this.catalogs() }) { result ->
+            result.onSuccess {
+                catalogs = it
+                catalogIndex = catalogIndex.coerceIn(0, (it.size - 1).coerceAtLeast(0))
+                buildCatalogTabs()
+            }.onFailure { header.setAttention(true) }
+            then()
+        }
+    }
+
+    private fun unreachable(error: Throwable) {
+        message.text = getString(R.string.home_unreachable, vault.address.substringAfter("://"), error.message ?: error.javaClass.simpleName)
+    }
+
+    /** Continue and Next Up (and the grid on screen) again, after a film or a while away. */
+    private fun refresh() {
+        if (home) slots.filter { !it.paged }.forEach { fillSlot(it) } else load(reset = true)
+    }
+
+    // ---- Tabs -----------------------------------------------------------------------------------
+
+    private fun selectTab(index: Int) {
+        if (search.isOpen) closeSearch(focusSearch = false)
+        val changed = index != tabIndex || (if (TABS[index].kind == Kind.HOME) slots.isEmpty() else all.isEmpty())
+        tabIndex = index
+        homePrefs.edit { putInt(KEY_TAB, index) }
+        header.setActive(index)
+        header.setFilter(refine.count, TABS[index].refinable)
+        hero.visibility = if (home) View.VISIBLE else View.GONE
+        rowsView.visibility = if (home) View.VISIBLE else View.GONE
+        gridBar.visibility = if (home) View.GONE else View.VISIBLE
+        gridView.visibility = if (home) View.GONE else View.VISIBLE
+        catalogsScroll.visibility = if (TABS[index].kind == Kind.BROWSE) View.VISIBLE else View.GONE
+        fade.background = if (home) Mercury.backdropFade(this) else Mercury.bandFade(this, BAND_DP)
+        settleArt()
+        paintWhisper()
+        if (!changed) return
+        if (home) loadHome() else {
+            lastGridCard = null
+            all = emptyList()
+            shown = emptyList()
+            grid.submit(emptyList())
+            load(reset = true)
+        }
+    }
+
+    private fun buildCatalogTabs() {
+        catalogsRow.removeAllViews()
+        catalogs.forEachIndexed { index, catalog ->
+            val view = Mercury.text(this, fonts.mercuryMono, 11f, tracking = 0.2f).apply {
+                text = catalogName(catalog).uppercase()
+                setPadding(0, Mercury.dp(this, 4f), 0, Mercury.dp(this, 4f))
+                isFocusable = true
+                isClickable = true
+                setOnFocusChangeListener { _, _ -> paintCatalogs() }
+                setOnClickListener {
+                    catalogIndex = index
+                    homePrefs.edit { putInt(KEY_CATALOG, index) }
+                    paintCatalogs()
+                    lastGridCard = null
+                    load(reset = true)
+                }
+            }
+            catalogsRow.addView(view, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = Mercury.dp(body, 24f)
+            })
+        }
+        paintCatalogs()
+    }
+
+    /** Cinemeta names its film and show lists alike ("Popular"); the type tells them apart. */
+    private fun catalogName(catalog: Catalog): String {
+        val twin = catalogs.count { it.name == catalog.name } > 1
+        return if (twin) getString(if (catalog.type == "series") R.string.home_catalog_shows else R.string.home_catalog_movies, catalog.name) else catalog.name
+    }
+
+    /** Browse's catalogs: a quiet row, the chosen one in the accent. */
+    private fun paintCatalogs() {
+        for (i in 0 until catalogsRow.childCount) {
+            val view = catalogsRow.getChildAt(i) as TextView
+            val active = i == catalogIndex
+            view.alpha = if (active) 1f else if (view.isFocused) CATALOG_FOCUSED else CATALOG_REST
+            view.setTextColor(Mercury.color(this, if (active) R.color.mercury_blue else R.color.mercury_fg))
+        }
+    }
+
+    /** What the filters are doing, in one mono line: "ACTION · 1–2 H · 12 TITLES". */
+    private fun paintWhisper() {
+        val on = TABS[tabIndex].refinable && refine.count > 0
+        whisper.visibility = if (on) View.VISIBLE else View.GONE
+        if (!on) return
+        val choices = refine.genres + refine.lengths.map { Refine.LENGTHS[it].label } + refine.formats.map { Refine.FORMATS[it].label } +
+            listOfNotNull(Refine.SORTS.getOrNull(refine.sort)?.label)
+        val count = resources.getQuantityString(R.plurals.refine_count, shown.size, shown.size)
+        whisper.text = getString(R.string.home_whisper, choices.joinToString(" · ").uppercase(), count)
+    }
+
+    // ---- Home: hero and rows --------------------------------------------------------------------
+
+    private fun loadHome() {
+        val hub = client ?: return
+        message.setText(R.string.home_loading)
+        heroItem = null
+        lastRowCard = null
+        homeFocusPlaced = false
+        rows.rows.clear()
+        rows.notifyDataSetChanged()
+        val fixed = listOf(
+            Slot(getString(R.string.home_tab_continue), paged = false) { library("continue").sortedByDescending { it.resume?.updatedAt ?: 0L } },
+            Slot(getString(R.string.home_tab_next), paged = false) { library("next") },
+            Slot(getString(R.string.home_tab_new), paged = true) { skip -> newReleases(skip) },
+        )
+        slots = fixed
+        fixed.forEach(::fillSlot)
+        withCatalogs {
+            // Home was reloaded meanwhile: that load adds its own catalog rows.
+            if (slots !== fixed) return@withCatalogs
+            val more = catalogs.map { catalog -> Slot(catalogName(catalog), paged = true) { skip -> catalog(catalog, skip) } }
+            slots = fixed + more
+            more.forEach(::fillSlot)
+        }
+        hub.run({ healthy() }) { result -> header.setAttention(result.getOrNull() != true) }
+    }
+
+    /** Loads [slot]'s first page; the row appears (in its place among the others) once it has titles, and goes if it has none. */
+    private fun fillSlot(slot: Slot) {
+        val hub = client ?: return
+        slot.loading = true
+        hub.run({ slot.fetch(this, 0) }) done@{ result ->
+            slot.loading = false
+            if (slot !in slots) return@done
+            // One row that can't load just isn't there; the screen only says so when nothing loaded at all.
+            val items = result.getOrElse { error ->
+                if (rows.rows.isEmpty() && slots.none { it.loading }) unreachable(error)
+                return@done
+            }
+            val existing = slot.row
+            when {
+                items.isEmpty() && existing != null -> {
+                    val index = rows.rows.indexOf(existing)
+                    rows.rows.removeAt(index)
+                    rows.notifyItemRemoved(index)
+                    slot.row = null
+                }
+                items.isEmpty() -> Unit
+                existing != null -> existing.cards.submit(items)
+                else -> {
+                    lateinit var cards: CardAdapter
+                    cards = cards(Mercury.dp(body, ROW_CARD_DP)) { if (slot.paged) more(slot, cards) }
+                    cards.submit(items)
+                    val row = ShelfRow(slot.label, cards, null)
+                    slot.row = row
+                    val index = slots.takeWhile { it !== slot }.count { it.row != null }
+                    rows.rows.add(index, row)
+                    rows.notifyItemInserted(index)
+                    if (index == 0) rowsView.scrollToPosition(0)
+                }
+            }
+            message.text = if (rows.rows.isEmpty() && slots.none { it.loading }) getString(R.string.home_empty) else null
+            // Until a poster has been chosen, the hero (and focus) belong to the first title of the first row, whichever row loads first.
+            if (lastRowCard == null) rows.rows.firstOrNull()?.let { first ->
+                first.cards.items.firstOrNull()?.let { showHero(it, first.label) }
+                if (!homeFocusPlaced && !overlayOpen() && !header.contains(currentFocus)) {
+                    homeFocusPlaced = true
+                    rowsView.post { firstRowCard()?.requestFocus() }
+                }
+            }
+        }
+    }
+
+    /** The next page of a paged row, appended in place. */
+    private fun more(slot: Slot, cards: CardAdapter) {
+        val hub = client ?: return
+        if (slot.loading || slot.exhausted) return
+        slot.loading = true
+        val skip = cards.items.size
+        hub.run({ slot.fetch(this, skip) }) { result ->
+            slot.loading = false
+            val known = cards.items.map { it.id }.toSet()
+            val fresh = result.getOrNull().orEmpty().filter { it.id !in known }
+            if (fresh.isEmpty()) slot.exhausted = true else cards.append(fresh)
+        }
+    }
+
+    /** Cards that follow focus for the hero and backdrop, fill in missing art, and ask for more near their end. */
+    private fun cards(widthPx: Int, nearEnd: () -> Unit): CardAdapter {
+        lateinit var adapter: CardAdapter
+        adapter = CardAdapter(fonts, widthPx, Mercury.dp(body, RowsAdapter.GAP_DP), { item, _ -> onCardFocus(adapter, item) }, ::openTitle, nearEnd)
+        adapter.onBound = { item ->
+            client?.let { hub ->
+                // Posted: the record may already be cached, and an adapter can't change while it binds.
+                HomeArt.complete(hub, item) { fresh -> if (fresh != item) main.post { adapter.replace(fresh) } }
+            }
+        }
+        return adapter
+    }
+
+    private fun onCardFocus(adapter: CardAdapter, item: HubItem) {
+        val focused = currentFocus
+        showArt(item)
+        if (focused != null && isInside(focused, rowsView)) {
+            lastRowCard = focused
+            showHero(item, rows.rows.firstOrNull { it.cards === adapter }?.label)
+        } else if (focused != null && isInside(focused, gridView)) {
+            lastGridCard = focused
+        }
+    }
+
+    /** The hero: logo or title, the credits in mono, two lines of overview, and Resume or Play. */
+    private fun showHero(item: HubItem, kicker: String?) {
+        heroItem = item
+        showArt(item)
+        findViewById<TextView>(R.id.home_hero_kicker).text = kicker?.uppercase()
+        val logo = findViewById<ImageView>(R.id.home_hero_logo)
+        val title = findViewById<TextView>(R.id.home_hero_title)
+        title.text = item.title
+        title.visibility = View.VISIBLE
+        logo.visibility = View.GONE
+        HomeArt.into(logo, HomeArt.logo(item), Mercury.dp(logo, 340f)) {
+            logo.visibility = View.VISIBLE
+            title.visibility = View.GONE
+        }
+        findViewById<TextView>(R.id.home_hero_credits).text = Mercury.credits(item, showLibrary = false)
+        findViewById<TextView>(R.id.home_hero_overview).text = item.overview
+        if (!pending) playButton.setText(if (Mercury.progress(item) != null) R.string.home_resume else R.string.home_play)
+        // A show's seasons come from its full record; fetched once, the credits line fills in.
+        client?.let { hub -> HomeArt.fill(hub, item) { fresh -> if (heroItem?.id == fresh.id) showHero(fresh, kicker) } }
+    }
+
+    private fun paintRowLabels() {
+        for (i in 0 until rowsView.childCount) {
+            val row = rowsView.getChildAt(i) as? LinearLayout ?: continue
+            row.getChildAt(0).alpha = if (row.hasFocus()) 1f else Mercury.TAB_REST
+        }
+    }
+
+    private fun firstRowCard(): View? = (rowsView.findViewHolderForAdapterPosition(0) as? RowsAdapter.Holder)?.strip?.getChildAt(0)
+
+    private fun focusRows() {
+        (lastRowCard?.takeIf { it.isAttachedToWindow && isInside(it, rowsView) } ?: firstRowCard())?.requestFocus()
+    }
+
+    private fun focusGrid() {
+        (lastGridCard?.takeIf { it.isAttachedToWindow && isInside(it, gridView) } ?: gridView.getChildAt(0))?.requestFocus()
+            ?: header.focusActive()
+    }
+
+    // ---- Every other tab: the grid --------------------------------------------------------------
+
+    /** Loads the current grid tab: from the start, or its next page. */
     private fun load(reset: Boolean) {
         val hub = client ?: return
         val tab = TABS[tabIndex]
+        if (tab.kind == Kind.HOME) return
         // Browse needs the catalog list before it can load one.
-        if (tab.isBrowse && catalogs.isEmpty()) return loadCatalogs()
+        if (tab.kind == Kind.BROWSE && catalogs.isEmpty()) return withCatalogs { if (TABS[tabIndex].kind == Kind.BROWSE && catalogs.isNotEmpty()) load(reset) }
         val ticket = ++loadTicket
         if (reset) {
             exhausted = false
-            if (list.childCount == 0) message.setText(R.string.home_loading)
+            if (grid.itemCount == 0) message.setText(R.string.home_loading)
         }
         val skip = if (reset) 0 else all.size
         val source = catalogs.getOrNull(catalogIndex)
         loading = true
         hub.run({
-            when {
-                tab.collection != null -> library(tab.collection)
-                tab.isNew -> newReleases(skip)
-                source != null -> catalog(source, skip)
-                else -> emptyList()
+            when (tab.kind) {
+                Kind.LIBRARY -> library(tab.collection!!).let { items ->
+                    if (tab.collection == "continue") items.sortedByDescending { it.resume?.updatedAt ?: 0L } else items
+                }
+                Kind.NEW -> newReleases(skip)
+                else -> source?.let { catalog(it, skip) }.orEmpty()
             }
         }) done@{ result ->
             if (ticket != loadTicket) return@done
@@ -310,10 +611,8 @@ class MainActivity : Activity() {
                 val known = if (reset) emptySet() else all.map { it.id }.toSet()
                 val fresh = page.filter { it.id !in known }
                 // A library collection comes whole; a page that adds nothing new is the end of a catalog.
-                if (tab.collection != null || fresh.isEmpty()) exhausted = true
+                if (tab.kind == Kind.LIBRARY || fresh.isEmpty()) exhausted = true
                 all = (if (reset) emptyList() else all) + fresh
-                // Continue is "what was I watching": the latest-watched first, whatever order the hub sent.
-                if (tab.collection == "continue") all = all.sortedByDescending { it.resume?.updatedAt ?: 0L }
                 render()
             }.onFailure { error ->
                 exhausted = true
@@ -326,227 +625,29 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadCatalogs() {
-        val hub = client ?: return
-        message.setText(R.string.home_loading)
-        hub.run({ this.catalogs() }) done@{ result ->
-            result.onSuccess {
-                catalogs = it
-                catalogIndex = catalogIndex.coerceIn(0, (it.size - 1).coerceAtLeast(0))
-                buildCatalogTabs()
-            }
-            // Left Browse while the list came: the tab on screen has its own load and message.
-            if (!TABS[tabIndex].isBrowse) return@done
-            result.onSuccess { if (it.isEmpty()) message.setText(R.string.home_empty) else load(reset = true) }.onFailure(::unreachable)
-        }
-    }
-
-    private fun unreachable(error: Throwable) {
-        message.text = getString(R.string.home_unreachable, vault.address.substringAfter("://"), error.message ?: error.javaClass.simpleName)
-    }
-
-    // ---- Tabs -----------------------------------------------------------------------------------
-
-    private fun buildTabs() {
-        tabsRow.removeAllViews()
-        magnifier = ImageView(this).apply {
-            setImageResource(R.drawable.ic_search)
-            setColorFilter(getColor(R.color.mercury_fg))
-            contentDescription = getString(R.string.home_search)
-            setPadding(Mercury.dp(this, 4f), Mercury.dp(this, 6f), Mercury.dp(this, 4f), Mercury.dp(this, 9f))
-        }
-        tabsRow.addView(tabControl(magnifier) { openSearch() }, wrap(end = 26f))
-        TABS.forEachIndexed { index, tab ->
-            val view = Mercury.text(this, fonts.ui, 18f).apply {
-                setText(tab.label)
-                setPadding(0, Mercury.dp(this, 4f), 0, Mercury.dp(this, 6f))
-            }
-            tabsRow.addView(tabControl(view) { selectTab(index) }, wrap(end = 34f))
-        }
-        tabsRow.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
-        filterTab = Mercury.text(this, fonts.mercuryMono, 11f, tracking = 0.18f).apply {
-            setPadding(0, Mercury.dp(this, 4f), 0, Mercury.dp(this, 6f))
-        }
-        tabsRow.addView(tabControl(filterTab) { openRefine() }, wrap(end = 26f))
-        val settingsTab = Mercury.text(this, fonts.mercuryMono, 11f, tracking = 0.18f).apply {
-            setText(R.string.home_settings_short)
-            setPadding(0, Mercury.dp(this, 4f), 0, Mercury.dp(this, 6f))
-        }
-        tabsRow.addView(tabControl(settingsTab) { openSettings() })
-        paintTabs()
-    }
-
-    private fun tabControl(view: View, click: () -> Unit): View = view.apply {
-        isFocusable = true
-        isClickable = true
-        setOnClickListener { click() }
-        setOnFocusChangeListener { _, _ -> paintTabs() }
-    }
-
-    /** The active tab is white with the meniscus under it; the rest sit at 55 % until focused. */
-    private fun paintTabs() {
-        for (i in 0 until tabsRow.childCount) {
-            val view = tabsRow.getChildAt(i)
-            val active = when {
-                view === magnifier -> search.isOpen
-                view === filterTab -> refine.count > 0
-                else -> i - 1 == tabIndex && !search.isOpen
-            }
-            view.alpha = if (active || view.isFocused) 1f else Mercury.TAB_REST
-            if (view !== magnifier) view.background = if (active) Mercury.meniscus(this) else null
-        }
-        filterTab.text = if (refine.count > 0) getString(R.string.home_filter_on, refine.count) else getString(R.string.home_filter)
-        filterTab.visibility = if (TABS[tabIndex].refinable && !search.isOpen) View.VISIBLE else View.GONE
-        for (i in 0 until catalogsRow.childCount) {
-            val view = catalogsRow.getChildAt(i)
-            val active = i == catalogIndex
-            view.alpha = if (active || view.isFocused) 1f else Mercury.TAB_REST
-            view.background = if (active) Mercury.meniscus(this) else null
-        }
-    }
-
-    private fun buildCatalogTabs() {
-        catalogsRow.removeAllViews()
-        catalogs.forEachIndexed { index, catalog ->
-            // Cinemeta names its film and show lists alike ("Popular"); the type tells them apart.
-            val twin = catalogs.count { it.name == catalog.name } > 1
-            val view = Mercury.text(this, fonts.ui, 14f).apply {
-                text = if (twin) getString(if (catalog.type == "series") R.string.home_catalog_shows else R.string.home_catalog_movies, catalog.name) else catalog.name
-                setPadding(0, Mercury.dp(this, 3f), 0, Mercury.dp(this, 5f))
-            }
-            catalogsRow.addView(tabControl(view) {
-                catalogIndex = index
-                homePrefs.edit { putInt(KEY_CATALOG, index) }
-                paintTabs()
-                selectedId = null
-                list.removeAllViews()
-                load(reset = true)
-            }, wrap(end = 24f))
-        }
-        paintTabs()
-    }
-
-    private fun selectTab(index: Int) {
-        if (search.isOpen) closeSearch(focusMagnifier = false)
-        val changed = index != tabIndex || all.isEmpty()
-        tabIndex = index
-        homePrefs.edit { putInt(KEY_TAB, index) }
-        catalogsScroll.visibility = if (TABS[index].isBrowse) View.VISIBLE else View.GONE
-        paintTabs()
-        if (changed) {
-            selectedId = null
-            list.removeAllViews()
-            load(reset = true)
-        }
-    }
-
-    // ---- The list -------------------------------------------------------------------------------
-
     private fun render() {
         val filtered = if (TABS[tabIndex].refinable) refine.apply(all) else all
-        val ids = filtered.map { it.id }
         val showing = shown.map { it.id }
-        // A new page under the same filters only adds rows at the end; anything else rebuilds.
-        val appendOnly = shown.isNotEmpty() && list.childCount == shown.size && ids.size >= showing.size && ids.subList(0, showing.size) == showing
-        val listHadFocus = list.hasFocus() || currentFocus == null
+        // A new page under the same filters only adds cards at the end; anything else starts over.
+        val appendOnly = shown.isNotEmpty() && filtered.size >= shown.size && filtered.subList(0, shown.size).map { it.id } == showing
+        val hadFocus = gridView.hasFocus() || currentFocus == null
         shown = filtered
         if (appendOnly) {
-            filtered.drop(list.childCount).forEach { list.addView(row(it)) }
+            grid.append(filtered.drop(grid.itemCount))
         } else {
-            val keep = selectedId
-            list.removeAllViews()
-            filtered.forEach { list.addView(row(it)) }
-            scroll.scrollTo(0, 0)
-            selectedId = null
-            val index = shown.indexOfFirst { it.id == keep }.coerceAtLeast(0)
-            if (shown.isNotEmpty()) {
-                select(index)
-                if (listHadFocus && !sheet.isOpen && !titlePage.isOpen && !search.isOpen && !panelOpen) list.getChildAt(index).requestFocus()
-            }
+            grid.submit(filtered)
+            gridView.scrollToPosition(0)
+            lastGridCard = null
+            if (hadFocus && !overlayOpen() && filtered.isNotEmpty()) gridView.post { gridView.getChildAt(0)?.requestFocus() }
         }
+        filtered.firstOrNull()?.let { if (!gridView.hasFocus()) showArt(it) }
         message.text = when {
             all.isEmpty() && exhausted -> getString(R.string.home_empty)
             shown.isEmpty() && all.isNotEmpty() -> getString(R.string.home_nothing_matches)
             else -> null
         }
-        pills.visibility = if (shown.isEmpty()) View.INVISIBLE else View.VISIBLE
+        paintWhisper()
         sheet.update(all)
-    }
-
-    /** A row: the poster (with progress), the name, and the status line under it. */
-    private fun row(item: HubItem): View = LinearLayout(this).apply {
-        gravity = android.view.Gravity.CENTER_VERTICAL
-        isFocusable = true
-        isClickable = true
-        val posterGap = Mercury.dp(this, 16f)
-        addView(PosterView(this@MainActivity), LinearLayout.LayoutParams(Mercury.dp(this, POSTER_W_DP), Mercury.dp(this, POSTER_H_DP)).apply {
-            marginEnd = posterGap
-        })
-        val words = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
-        words.addView(Mercury.title(this@MainActivity, fonts, ROW_SIZE))
-        words.addView(Mercury.text(this@MainActivity, fonts.mercuryMono, 11f, R.color.mercury_muted, 0.14f), wrap(top = 6f))
-        addView(words, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        alpha = Mercury.ROW_REST
-        val gap = Mercury.dp(this, 12f)
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = gap }
-        setOnFocusChangeListener { v, has -> if (has) select(list.indexOfChild(v)) }
-        setOnClickListener { selected()?.let(::openTitle) }
-        bindRow(this, item)
-        client?.let { hub -> HomeArt.complete(hub, item, ::replaceItem) }
-    }
-
-    private fun bindRow(row: View, item: HubItem) {
-        val group = row as LinearLayout
-        (group.getChildAt(0) as PosterView).bind(item, Mercury.dp(row, POSTER_W_DP * 2))
-        val words = group.getChildAt(1) as LinearLayout
-        (words.getChildAt(0) as TextView).text = item.title
-        val status = words.getChildAt(1) as TextView
-        val library = if (TABS[tabIndex].collection == null && item.inLibrary) getString(R.string.home_in_library) else null
-        status.text = Mercury.status(item) ?: library ?: item.year?.toString()
-    }
-
-    /** A fuller record arrived for a title on screen (art, year): it replaces the old one in place. */
-    private fun replaceItem(fresh: HubItem) {
-        all = all.map { if (it.id == fresh.id) fresh else it }
-        val index = shown.indexOfFirst { it.id == fresh.id }
-        if (index < 0) return
-        shown = shown.toMutableList().also { it[index] = fresh }
-        list.getChildAt(index)?.let { bindRow(it, fresh) }
-        if (fresh.id == selectedId) showHero(fresh)
-    }
-
-    private fun selected(): HubItem? = shown.firstOrNull { it.id == selectedId }
-
-    /** Makes the row at [index] the large one, shows its art, and fetches more when near the end. */
-    private fun select(index: Int) {
-        val item = shown.getOrNull(index) ?: return
-        if (item.id != selectedId) {
-            list.getChildAt(shown.indexOfFirst { it.id == selectedId })?.let { style(it, false) }
-            selectedId = item.id
-            list.getChildAt(index)?.let { style(it, true) }
-            showArt(item)
-            showHero(item)
-        }
-        keepPill.visibility = if (item.inLibrary) View.GONE else View.VISIBLE
-        val row = list.getChildAt(index) ?: return
-        row.post { scroll.smoothScrollTo(0, (row.top - scroll.height / 4).coerceAtLeast(0)) }
-        if (TABS[tabIndex].collection == null && !exhausted && !loading && index >= shown.size - PAGE_AHEAD) load(reset = false)
-    }
-
-    private fun style(row: View, on: Boolean) {
-        val name = ((row as LinearLayout).getChildAt(1) as LinearLayout).getChildAt(0) as TextView
-        name.textSize = Mercury.displaySize(if (on) ROW_SIZE_ON else ROW_SIZE)
-        name.maxLines = if (on) 2 else 1
-        row.animate().alpha(if (on) 1f else Mercury.ROW_REST).setDuration(Motion.FOCUS_MS).setInterpolator(Motion.enter).start()
-    }
-
-    private fun focusList() {
-        val index = shown.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
-        (list.getChildAt(index) ?: tabsRow.getChildAt(tabIndex + 1))?.requestFocus()
-    }
-
-    private fun focusActiveTab() {
-        tabsRow.getChildAt(if (search.isOpen) 0 else tabIndex + 1)?.requestFocus()
     }
 
     // ---- Art ------------------------------------------------------------------------------------
@@ -554,7 +655,7 @@ class MainActivity : Activity() {
     private var pendingArt: HubItem? = null
     private val loadArt = Runnable { pendingArt?.let(::loadArtNow) }
 
-    /** Shows [item]'s backdrop; waits a moment first, so scrolling past titles doesn't fetch each one. */
+    /** Shows [item]'s backdrop; waits a moment first, so moving past titles doesn't fetch each one. */
     private fun showArt(item: HubItem) {
         pendingArt = item
         main.removeCallbacks(loadArt)
@@ -569,33 +670,30 @@ class MainActivity : Activity() {
         }
     }
 
-    /** The right-hand block over the backdrop: logo if there is one, the credits in mono, three lines of overview. */
-    private fun showHero(item: HubItem) {
-        val logo = findViewById<ImageView>(R.id.home_hero_logo)
-        logo.visibility = View.GONE
-        HomeArt.into(logo, HomeArt.logo(item), Mercury.dp(logo, 360f)) { logo.visibility = View.VISIBLE }
-        findViewById<TextView>(R.id.home_hero_credits).text = Mercury.credits(item, showLibrary = TABS[tabIndex].collection == null)
-        findViewById<TextView>(R.id.home_hero_overview).text = item.overview
-    }
-
     /**
      * Space: the sky goes under the film's art (which then sits a little back, so the planet's glow
-     * shows through) and two layers of stars drift over the fade, where the list is.
+     * shows through) and two layers of stars drift over the fade.
      */
     private fun addSky(fade: View) {
         val root = fade.parent as ViewGroup
         root.setBackgroundColor(Mercury.color(this, R.color.ground))
-        root.addView(SpaceSky(this, sky = true), 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val full = { ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
+        root.addView(SpaceSky(this, sky = true), 0, full())
         val above = root.indexOfChild(fade) + 1
-        root.addView(SpaceSky(this, sky = false), above, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(StarLayer(this, 160, 0.8f, 1.6f, 30f, 120_000L, 7), above + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(StarLayer(this, 50, 1.6f, 2.6f, 60f, 90_000L, 11), above + 2, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(SpaceSky(this, sky = false), above, full())
+        root.addView(StarLayer(this, 160, 0.8f, 1.6f, 30f, 120_000L, 7), above + 1, full())
+        root.addView(StarLayer(this, 50, 1.6f, 2.6f, 60f, 90_000L, 11), above + 2, full())
     }
 
-    /** How strongly the film's art shows: full in Mercury, held back in Space so the sky reads. */
-    private val artAlpha get() = (if (Mercury.space) SPACE_ART_ALPHA else 1f) * (if (search.isOpen) SEARCH_ART_ALPHA else 1f)
+    /** How strongly the film's art shows: set back in Space, and only as a faint band over a grid or under Search. */
+    private val artAlpha: Float
+        get() = when {
+            search.isOpen && !titlePage.isOpen -> SEARCH_ART_ALPHA
+            !home && !titlePage.isOpen -> GRID_ART_ALPHA
+            Mercury.space -> SPACE_ART_ALPHA
+            else -> 1f
+        }
 
-    /** Search sets the art back so the results read; closing it brings the art forward again. */
     private fun settleArt() {
         (if (frontIsB) artB else artA).takeIf { it.drawable != null }?.animate()?.alpha(artAlpha)
             ?.setDuration(Motion.ENTER_MS)?.setInterpolator(Motion.enter)?.start()
@@ -627,6 +725,9 @@ class MainActivity : Activity() {
             HubImages.load(url, Mercury.dp(body, 400f)) { bitmap -> if (bitmap != null && titlePage.item?.id == item.id) titlePage.showLogo(bitmap) }
         }
         hideChrome(true)
+        // A title page always shows its art in full, whichever tab it was opened from.
+        fade.background = Mercury.backdropFade(this)
+        settleArt()
         // The full record (overview, episodes) and the ranked copies are fetched side by side.
         fetchStreams(item)
         client?.run({ meta(item) }) done@{ result ->
@@ -664,14 +765,16 @@ class MainActivity : Activity() {
         if (versions.isOpen) versions.close()
         titlePage.close()
         hideChrome(false)
-        if (!search.isOpen) selected()?.let(::showArt)
-        beforeTitle?.takeIf { it.isAttachedToWindow && it.visibility == View.VISIBLE }?.requestFocus() ?: focusList()
+        fade.background = if (home) Mercury.backdropFade(this) else Mercury.bandFade(this, BAND_DP)
+        settleArt()
+        (if (home) heroItem else null)?.let(::showArt)
+        beforeTitle?.takeIf { it.isAttachedToWindow && it.visibility == View.VISIBLE }?.requestFocus() ?: header.focusActive()
         beforeTitle = null
     }
 
-    /** Fades the tabs, list and Search away behind the title page, and keeps focus out of them. */
+    /** Fades the header, Home and Search away behind the title page, and keeps focus out of them. */
     private fun hideChrome(hide: Boolean) {
-        listOf(body, tabsRow, catalogsScroll, findViewById(R.id.home_search)).forEach { view ->
+        listOf(body, headerRoot, findViewById(R.id.home_search)).forEach { view ->
             (view as ViewGroup).descendantFocusability = if (hide) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
             view.animate().alpha(if (hide) 0f else 1f).setDuration(if (hide) Motion.EXIT_MS else Motion.ENTER_MS)
                 .setInterpolator(if (hide) Motion.exit else Motion.enter).start()
@@ -681,28 +784,26 @@ class MainActivity : Activity() {
     private fun openSearch() {
         if (client == null) return
         search.open()
+        header.searchOpen = true
+        header.setFilter(refine.count, shown = false)
         settleArt()
         body.visibility = View.INVISIBLE
-        catalogsScroll.visibility = View.GONE
-        paintTabs()
     }
 
-    private fun closeSearch(focusMagnifier: Boolean) {
+    private fun closeSearch(focusSearch: Boolean) {
         search.close()
+        header.searchOpen = false
+        header.setFilter(refine.count, TABS[tabIndex].refinable)
         settleArt()
         body.visibility = View.VISIBLE
         body.alpha = 0f
         body.animate().alpha(1f).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
-        if (TABS[tabIndex].isBrowse) catalogsScroll.visibility = View.VISIBLE
-        selected()?.let(::showArt)
-        paintTabs()
-        if (focusMagnifier) magnifier.requestFocus()
+        if (focusSearch) header.search.requestFocus()
     }
 
     private fun openRefine() {
         if (client == null || !TABS[tabIndex].refinable) return
-        if (search.isOpen) closeSearch(focusMagnifier = false)
-        body.animate().translationX(-Mercury.dp(body, Motion.RISE_DP).toFloat()).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
+        if (search.isOpen) closeSearch(focusSearch = false)
         sheet.open(refine, all, (if (frontIsB) artB else artA).drawable)
     }
 
@@ -710,8 +811,10 @@ class MainActivity : Activity() {
         refine = next
         homePrefs.edit { putString(KEY_REFINE, next.encode()) }
         render()
-        paintTabs()
+        header.setFilter(refine.count, TABS[tabIndex].refinable)
     }
+
+    private fun overlayOpen() = panelOpen || sheet.isOpen || titlePage.isOpen || search.isOpen || versions.isOpen || setup.visibility == View.VISIBLE
 
     // ---- Play, Other versions, Add to library (a show is added whole) ---------------------------
 
@@ -798,13 +901,11 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK || position < 0) return
         // Whether or not the hub took it, Continue is reloaded so it shows where things stand.
         hub.run({ saveResume(id, episode, position, duration) }) {
-            load(reset = true)
+            refresh()
             // The episode list's progress marks come from the resume memory just written.
             titlePage.item?.let { titlePage.show(it) }
         }
     }
-
-    private var beforeVersions: View? = null
 
     /** Opens at once: the copies fetched when the page opened, or skeleton rows until they come. */
     private fun showVersions(item: HubItem) {
@@ -820,14 +921,10 @@ class MainActivity : Activity() {
             result.onSuccess { kept ->
                 all = all.map { if (it.id == kept.id) it.copy(inLibrary = true) else it }
                 shown = shown.map { if (it.id == kept.id) it.copy(inLibrary = true) else it }
-                val index = shown.indexOfFirst { it.id == kept.id }
-                list.getChildAt(index)?.let { bindRow(it, shown[index]) }
-                if (selectedId == kept.id) showHero(shown[index])
-                if (selectedId == kept.id) {
-                    val hadFocus = keepPill.isFocused
-                    keepPill.visibility = View.GONE
-                    if (hadFocus) playPill.requestFocus()
+                (rows.rows.map { it.cards } + grid).forEach { cards ->
+                    cards.items.firstOrNull { it.id == kept.id }?.let { cards.replace(it.copy(inLibrary = true)) }
                 }
+                heroItem?.takeIf { it.id == kept.id }?.let { showHero(it.copy(inLibrary = true), findViewById<TextView>(R.id.home_hero_kicker).text?.toString()) }
                 titlePage.item?.takeIf { it.id == kept.id }?.let { titlePage.show(it.copy(inLibrary = true)) }
                 Toast.makeText(this, R.string.home_kept, Toast.LENGTH_SHORT).show()
             }.onFailure { error ->
@@ -836,25 +933,21 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---- Side panel: settings and Other versions ------------------------------------------------
+    // ---- Side panel: settings -------------------------------------------------------------------
 
     private fun openSettings() {
-        openPanel(settings, getString(R.string.settings_kicker), getString(R.string.settings_title))
-    }
-
-    private fun openPanel(options: OptionList, kicker: String, title: String) {
-        findViewById<TextView>(R.id.settings_kicker).text = kicker
-        findViewById<TextView>(R.id.settings_title).text = title
+        findViewById<TextView>(R.id.settings_kicker).setText(R.string.settings_kicker)
+        findViewById<TextView>(R.id.settings_title).setText(R.string.settings_title)
         if (!panelOpen) beforePanel = currentFocus
         panelOpen = true
-        panelList = options
+        panelList = settings
         findViewById<View>(R.id.panel_scrim).visibility = View.VISIBLE
         panel.animate().cancel()
         panel.visibility = View.VISIBLE
         panel.translationX = panel.width * PANEL_SLIDE
         panel.alpha = 0f
         panel.animate().translationX(0f).alpha(1f).setDuration(Motion.ENTER_MS).setInterpolator(Motion.enter).start()
-        options.show()
+        settings.show()
     }
 
     private fun closePanel() {
@@ -877,7 +970,7 @@ class MainActivity : Activity() {
         if (pending) return true
         if (event.action == KeyEvent.ACTION_DOWN && !panelOpen && !sheet.isOpen && !titlePage.isOpen && setup.visibility != View.VISIBLE) {
             if (search.isOpen && typeIntoSearch(event)) return true
-            if (moveFocus(event.keyCode)) return true
+            if (!search.isOpen && moveFocus(event.keyCode)) return true
         }
         return super.dispatchKeyEvent(event)
     }
@@ -894,36 +987,70 @@ class MainActivity : Activity() {
         return true
     }
 
-    /** The moves the layout can't work out from positions alone. */
+    /**
+     * The moves positions alone get wrong: header → hero → rows on Home (and back up the same way),
+     * header → catalogs → grid elsewhere, and rows that stop at their ends instead of wrapping.
+     */
     private fun moveFocus(keyCode: Int): Boolean {
         val focused = currentFocus ?: return false
-        val inList = focused.parent === list
-        val inTabs = focused.parent === tabsRow
+        val inHeader = header.contains(focused)
+        val inHero = focused.parent === heroButtons
         val inCatalogs = focused.parent === catalogsRow
-        val inPills = focused.parent === pills
-        val catalogTab = if (catalogsScroll.visibility == View.VISIBLE) catalogsRow.getChildAt(catalogIndex) else null
+        val rowCard = focused is PosterCard && isInside(focused, rowsView)
+        val gridCard = focused is PosterCard && isInside(focused, gridView)
+        val catalogTab = catalogsRow.getChildAt(catalogIndex)?.takeIf { catalogsScroll.visibility == View.VISIBLE }
         when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP -> when {
-                inList && list.indexOfChild(focused) == 0 -> catalogTab?.requestFocus() ?: focusActiveTab()
-                inCatalogs || inPills -> focusActiveTab()
-                else -> return false
-            }
             KeyEvent.KEYCODE_DPAD_DOWN -> when {
-                inTabs && search.isOpen -> return false
-                inTabs && catalogTab != null -> catalogTab.requestFocus()
-                inTabs || inCatalogs -> focusList()
-                inPills -> Unit
+                inHeader && home -> playButton.requestFocus()
+                inHeader -> catalogTab?.requestFocus() ?: focusGrid()
+                inHero -> focusRows()
+                inCatalogs -> focusGrid()
                 else -> return false
             }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> if (inList) playPill.requestFocus() else return false
+            KeyEvent.KEYCODE_DPAD_UP -> when {
+                inHeader -> Unit
+                inHero || inCatalogs -> header.focusActive()
+                rowCard && rowOf(focused) == 0 -> playButton.requestFocus()
+                gridCard && gridView.getChildAdapterPosition(focused) < GRID_COLUMNS -> catalogTab?.requestFocus() ?: header.focusActive()
+                else -> return false
+            }
             KeyEvent.KEYCODE_DPAD_LEFT -> when {
-                inList -> Unit
-                inPills && focused === playPill -> focusList()
+                rowCard -> if (positionInStrip(focused) == 0) Unit else return false
+                gridCard -> if (gridView.getChildAdapterPosition(focused) % GRID_COLUMNS == 0) Unit else return false
+                else -> return false
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> when {
+                rowCard -> {
+                    val strip = focused.parent as RecyclerView
+                    if (positionInStrip(focused) == (strip.adapter?.itemCount ?: 0) - 1) Unit else return false
+                }
+                gridCard -> {
+                    val position = gridView.getChildAdapterPosition(focused)
+                    if (position % GRID_COLUMNS == GRID_COLUMNS - 1 || position == grid.itemCount - 1) Unit else return false
+                }
                 else -> return false
             }
             else -> return false
         }
         return true
+    }
+
+    private fun positionInStrip(card: View) = (card.parent as RecyclerView).getChildAdapterPosition(card)
+
+    /** Which of Home's rows [card] is in. */
+    private fun rowOf(card: View): Int {
+        var view: View = card
+        while (view.parent !== rowsView) view = view.parent as? View ?: return -1
+        return rowsView.getChildAdapterPosition(view)
+    }
+
+    private fun isInside(view: View, parent: View): Boolean {
+        var current: View? = view
+        while (current != null) {
+            if (current === parent) return true
+            current = current.parent as? View
+        }
+        return false
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -949,49 +1076,51 @@ class MainActivity : Activity() {
             versions.isOpen -> versions.close()
             sheet.isOpen -> sheet.close()
             titlePage.isOpen -> closeTitle()
-            search.isOpen -> if (!search.back()) closeSearch(focusMagnifier = true)
+            search.isOpen -> if (!search.back()) closeSearch(focusSearch = true)
             setup.visibility == View.VISIBLE && pairing.back() -> Unit
             setup.visibility == View.VISIBLE && client != null -> {
                 showSetup(false)
-                focusList()
+                header.focusActive()
             }
-            // From the tabs or the pills, Back returns to the list first; from the list it leaves as before.
-            setup.visibility != View.VISIBLE && focused != null && focused.parent !== list && shown.isNotEmpty() -> focusList()
-            else -> {
-                @Suppress("DEPRECATION")
-                super.onBackPressed()
+            setup.visibility == View.VISIBLE -> exit()
+            // From the posters, Back goes up to the header; from the header, back to Home; from Home's header, out.
+            focused == null || !header.contains(focused) -> header.focusActive()
+            !home -> {
+                selectTab(0)
+                header.tabs[0].requestFocus()
             }
+            else -> exit()
         }
     }
 
-    private fun wrap(top: Float = 0f, end: Float = 0f) =
-        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = Mercury.dp(body, top)
-            marginEnd = Mercury.dp(body, end)
-        }
+    private fun exit() {
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
+    }
 
     private companion object {
         val TABS = listOf(
-            Tab(R.string.home_tab_continue, "continue"),
-            Tab(R.string.home_tab_next, "next"),
+            Tab(R.string.home_tab_home, Kind.HOME),
+            Tab(R.string.home_tab_continue, Kind.LIBRARY, "continue"),
+            Tab(R.string.home_tab_next, Kind.LIBRARY, "next"),
             // New is new releases from the catalogs, paged like Browse (DATAFLOW.md, GET /new).
-            Tab(R.string.home_tab_new, null, isNew = true),
-            Tab(R.string.home_tab_movies, "movies"),
-            Tab(R.string.home_tab_shows, "shows"),
-            Tab(R.string.home_tab_browse, null),
+            Tab(R.string.home_tab_new, Kind.NEW),
+            Tab(R.string.home_tab_movies, Kind.LIBRARY, "movies"),
+            Tab(R.string.home_tab_shows, Kind.LIBRARY, "shows"),
+            Tab(R.string.home_tab_browse, Kind.BROWSE),
         )
-        const val LIST_WIDTH = 0.46f
-        const val ROW_SIZE = 19f
-        const val ROW_SIZE_ON = 30f
-        /** A row's poster, 2:3. */
-        const val POSTER_W_DP = 64f
-        const val POSTER_H_DP = 96f
-        /** How close to the end of a paged list the next page is fetched. */
-        const val PAGE_AHEAD = 6
+        const val GRID_COLUMNS = 6
+        /** A row's poster width; 2:3 makes it 150 dp tall. */
+        const val ROW_CARD_DP = 100f
+        /** How far down a grid's faint band of art reaches. */
+        const val BAND_DP = 130f
+        const val CATALOG_REST = 0.45f
+        const val CATALOG_FOCUSED = 0.85f
         const val ART_DELAY_MS = 140L
         const val PANEL_SLIDE = 0.08f
         const val STREAMS_TTL_MS = 10L * 60 * 1000
-        const val SPACE_ART_ALPHA = 0.62f
+        const val SPACE_ART_ALPHA = 0.6f
+        const val GRID_ART_ALPHA = 0.24f
         const val SEARCH_ART_ALPHA = 0.4f
         const val REQUEST_PLAY = 1
         const val KEY_REFINE = "refine"

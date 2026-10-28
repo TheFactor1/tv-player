@@ -56,9 +56,8 @@ object Mercury {
     /** Orbitron runs wide; this keeps titles at the same visual weight as Mercury's. */
     private const val SPACE_SCALE = 0.8f
 
-    /** Unfocused rows and tabs; the prototype's 55 % and 38 %. */
+    /** Tabs, row names and other quiet controls at rest. */
     const val TAB_REST = 0.55f
-    const val ROW_REST = 0.38f
     const val CONTROL_REST = 0.7f
     /** The TV safe area (res/values/dimens.xml): edges a projector or older TV may crop. */
     const val SAFE_X = 48f
@@ -187,14 +186,48 @@ object Mercury {
         )
     }
 
+    /**
+     * The grids' backdrop: only a faint band of the focused title's art behind the header, falling to
+     * the ground colour by [bandDp] down the screen.
+     */
+    fun bandFade(context: Context, bandDp: Float): Drawable {
+        val ground = color(context, R.color.ground)
+        val density = context.resources.displayMetrics.density
+        return PaintDrawable().apply {
+            shape = RectShape()
+            shaderFactory = object : ShapeDrawable.ShaderFactory() {
+                override fun resize(width: Int, height: Int): Shader {
+                    val end = (bandDp * density / height).coerceIn(0.05f, 1f)
+                    return LinearGradient(0f, 0f, 0f, height.toFloat(),
+                        intArrayOf(ColorUtils.setAlphaComponent(ground, 60), ground, ground), floatArrayOf(0f, end, 1f), Shader.TileMode.CLAMP)
+                }
+            }
+        }
+    }
+
     /** "2023 · 1 H 55 MIN · MUSICAL · 4K · ATMOS", plus "IN YOUR LIBRARY" where it applies. */
     fun credits(item: HubItem, showLibrary: Boolean): String {
-        val runtime = item.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60} H ${it % 60} MIN" else "$it MIN" }
         val library = if (showLibrary && item.inLibrary) "IN YOUR LIBRARY" else null
-        return listOfNotNull(item.year?.toString(), runtime, item.genres.firstOrNull(), *item.badges.all().toTypedArray(), library)
+        return listOfNotNull(item.year?.toString(), item.genres.firstOrNull(), length(item), status(item), *item.badges.all().toTypedArray(), library)
             .joinToString(" · ")
             .uppercase()
     }
+
+    /**
+     * How long a title is: "2 H 11 MIN" for a film; for a show its seasons ("3 SEASONS") when known,
+     * never an episode's runtime passed off as the show's.
+     */
+    fun length(item: HubItem): String? =
+        if (item.isSeries) seasons(item.videos.ifEmpty { HomeArt.videos(item) })
+        else item.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60} H ${it % 60} MIN" else "$it MIN" }
+
+    private fun seasons(videos: List<com.thefactor1.player.hub.Video>): String? =
+        videos.map { it.season }.filter { it > 0 }.distinct().size.takeIf { it > 0 }?.let { if (it == 1) "1 SEASON" else "$it SEASONS" }
+
+    /** A poster's one mono line: where you are in it, else its year and genre (or a show's seasons). */
+    fun cardLine(item: HubItem): String =
+        (status(item) ?: listOfNotNull(item.year?.toString(), if (item.isSeries) length(item) else item.genres.firstOrNull()).joinToString(" · "))
+            .uppercase()
 
     /**
      * Where you are in a title, the same words wherever it appears: "S02E03 · 42 MIN LEFT",

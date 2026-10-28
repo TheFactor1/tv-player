@@ -11,8 +11,8 @@ android {
         applicationId = "com.thefactor1.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 58
-        versionName = "0.9.46"
+        versionCode = 59
+        versionName = "0.9.47"
 
         // X-Ray's cast comes from TMDB; CI passes the key from the TMDB_API_KEY secret. Without one, X-Ray stays off.
         buildConfigField("String", "TMDB_API_KEY", "\"${System.getenv("TMDB_API_KEY").orEmpty().trim()}\"")
@@ -72,6 +72,7 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.ffmpeg.decoder)
     implementation(libs.zxing.core)
+    implementation(libs.androidx.recyclerview)
 
     testImplementation(libs.junit)
     // The JVM tests read hub JSON; Android's own org.json is only a stub off the device.

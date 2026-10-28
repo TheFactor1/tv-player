@@ -95,8 +95,8 @@ class TitlePage(
         info.layoutParams = info.layoutParams.apply { this.width = width }
         poster.bind(item, Mercury.dp(root, POSTER_W_DP * 2))
         name.text = item.title
-        val runtime = item.runtimeMin?.takeIf { it > 0 }?.let { if (it >= 60) "${it / 60} H ${it % 60} MIN" else "$it MIN" }
-        credits.text = listOfNotNull(item.year?.toString(), runtime, item.genres.take(3).joinToString(", ").ifEmpty { null }).joinToString(" · ").uppercase()
+        credits.text = listOfNotNull(item.year?.toString(), Mercury.length(item), item.genres.take(3).joinToString(", ").ifEmpty { null })
+            .joinToString(" · ").uppercase()
         if (!streamShown) showChips(item.badges.all() + listOfNotNull(item.badges.mbps?.let { "${it.roundToInt()} MBPS" }))
         overview.text = item.overview
         overview.visibility = if (item.overview.isNullOrEmpty()) View.GONE else View.VISIBLE

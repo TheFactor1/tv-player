@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home, the Programme layout: text tabs along the top, the list on the left over a long fade, the
-     focused title's backdrop on the right, Play and Details bottom-right. The title page, Search,
-     the Refine sheet and the hub setup card are drawn over it; settings and Other versions use the
-     side panel at the end. Rows and tabs are built in code. -->
+<!-- Home, the Shelf layout: one header band, then on Home the focused title's hero over its backdrop
+     with rows of posters under it, and on every other tab a grid of posters. The title page, Search,
+     the Refine and Other versions sheets and the first-run screen are drawn over it; settings use
+     the side panel at the end. Rows, cards and the header are built in code. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -35,63 +35,50 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <TextView
-            android:id="@+id/home_message"
-            android:layout_width="400dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/tv_safe_x"
-            android:layout_marginTop="116dp"
-            android:lineSpacingMultiplier="1.3"
-            android:textColor="@color/mercury_muted"
-            android:textSize="13sp" />
-
-        <!-- Width is 46 % of the screen, set in code. -->
-        <ScrollView
-            android:id="@+id/home_scroll"
-            android:layout_width="440dp"
-            android:layout_height="match_parent"
-            android:layout_marginTop="104dp"
-            android:fadingEdgeLength="24dp"
-            android:requiresFadingEdge="vertical"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:id="@+id/home_list"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="@dimen/tv_safe_x"
-                android:paddingTop="6dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="160dp" />
-        </ScrollView>
-
-        <!-- The focused title over its backdrop: logo, credits, three lines of overview. -->
+        <!-- Home: the focused title, over its backdrop. -->
         <LinearLayout
             android:id="@+id/home_hero"
-            android:layout_width="380dp"
+            android:layout_width="520dp"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="@dimen/tv_safe_x"
-            android:layout_marginBottom="88dp"
+            android:layout_marginStart="@dimen/tv_safe_x"
+            android:layout_marginTop="68dp"
             android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/home_hero_kicker"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.2"
+                android:textColor="@color/mercury_blue"
+                android:textSize="11sp" />
 
             <ImageView
                 android:id="@+id/home_hero_logo"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
+                android:layout_marginTop="8dp"
                 android:adjustViewBounds="true"
                 android:importantForAccessibility="no"
-                android:maxWidth="360dp"
-                android:maxHeight="100dp"
+                android:maxWidth="340dp"
+                android:maxHeight="56dp"
                 android:scaleType="fitStart"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/home_hero_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/mercury_fg"
+                android:textSize="34sp" />
 
             <TextView
                 android:id="@+id/home_hero_credits"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
                 android:ellipsize="end"
                 android:letterSpacing="0.14"
                 android:maxLines="1"
@@ -100,57 +87,112 @@
 
             <TextView
                 android:id="@+id/home_hero_overview"
-                android:layout_width="match_parent"
+                android:layout_width="440dp"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:alpha="0.8"
                 android:ellipsize="end"
-                android:lineSpacingMultiplier="1.35"
-                android:maxLines="3"
+                android:lineSpacingMultiplier="1.2"
+                android:maxLines="2"
+                android:minLines="2"
                 android:textColor="@color/mercury_fg"
                 android:textSize="14sp" />
+
+            <LinearLayout
+                android:id="@+id/home_hero_buttons"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/home_play"
+                    style="@style/ControlButton"
+                    android:layout_height="38dp"
+                    android:layout_marginEnd="10dp"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:text="@string/home_play"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/home_details"
+                    style="@style/ControlButton"
+                    android:layout_height="38dp"
+                    android:layout_marginEnd="0dp"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:text="@string/home_details"
+                    android:textSize="14sp" />
+            </LinearLayout>
         </LinearLayout>
 
+        <!-- Home: rows of posters; the focused row rises to sit just under the hero. -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/home_rows"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="284dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:paddingBottom="260dp"
+            android:scrollbars="none" />
+
+        <!-- Every other tab: Browse's catalogs and what the filters are doing, over a grid. -->
         <LinearLayout
-            android:id="@+id/home_pills"
-            android:layout_width="wrap_content"
+            android:id="@+id/home_grid_bar"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="@dimen/tv_safe_x"
-            android:layout_marginBottom="29dp"
-            android:orientation="horizontal">
+            android:layout_marginTop="68dp"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/tv_safe_x"
+            android:paddingEnd="@dimen/tv_safe_x"
+            android:visibility="gone">
+
+            <HorizontalScrollView
+                android:id="@+id/home_catalogs_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/home_catalogs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
 
             <TextView
-                android:id="@+id/home_play"
-                style="@style/ControlButton"
-                android:layout_height="40dp"
-                android:layout_marginEnd="10dp"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:text="@string/home_play"
-                android:textSize="15sp" />
-
-            <TextView
-                android:id="@+id/home_details"
-                style="@style/ControlButton"
-                android:layout_height="40dp"
-                android:layout_marginEnd="0dp"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:text="@string/home_details"
-                android:textSize="15sp" />
-
-            <TextView
-                android:id="@+id/home_keep"
-                style="@style/ControlButton"
-                android:layout_height="40dp"
-                android:layout_marginStart="10dp"
-                android:layout_marginEnd="0dp"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:text="@string/home_keep"
-                android:textSize="15sp" />
+                android:id="@+id/home_whisper"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:letterSpacing="0.16"
+                android:textColor="@color/mercury_muted"
+                android:textSize="11sp"
+                android:visibility="gone" />
         </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/home_grid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="96dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:paddingBottom="@dimen/tv_safe_y"
+            android:scrollbars="none"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/home_message"
+            android:layout_width="520dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/tv_safe_x"
+            android:layout_marginTop="300dp"
+            android:lineSpacingMultiplier="1.3"
+            android:textColor="@color/mercury_muted"
+            android:textSize="13sp" />
     </FrameLayout>
 
     <!-- The title page (Details) and Search, built in code. -->
@@ -164,37 +206,17 @@
         android:id="@+id/home_search"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="100dp"
+        android:layout_marginTop="76dp"
         android:visibility="gone" />
 
-    <LinearLayout
-        android:id="@+id/home_tabs"
+    <!-- The header band; built in code (Header). -->
+    <FrameLayout
+        android:id="@+id/home_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/tv_safe_x"
-        android:layout_marginTop="34dp"
-        android:layout_marginEnd="@dimen/tv_safe_x"
-        android:gravity="center_vertical"
-        android:orientation="horizontal" />
-
-    <!-- Browse: the hub's catalogs as a second row of tabs. -->
-    <HorizontalScrollView
-        android:id="@+id/home_catalogs_scroll"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="70dp"
-        android:clipToPadding="false"
-        android:paddingStart="@dimen/tv_safe_x"
-        android:paddingEnd="@dimen/tv_safe_x"
-        android:scrollbars="none"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:id="@+id/home_catalogs"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal" />
-    </HorizontalScrollView>
+        android:layout_marginTop="@dimen/tv_safe_y"
+        android:layout_marginEnd="@dimen/tv_safe_x" />
 
     <!-- First run: finding the hub and pairing with a code, built in code (PairingSetup). -->
     <FrameLayout

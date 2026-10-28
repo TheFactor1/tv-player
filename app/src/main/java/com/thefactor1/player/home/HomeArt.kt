@@ -27,6 +27,21 @@ object HomeArt {
     fun episode(item: HubItem, season: Int, episode: Int, thumbnail: String?): String? =
         thumbnail ?: if (IMDB_ID.matches(item.id)) "https://episodes.metahub.space/${item.id}/$season/$episode/w780.jpg" else backdrop(item)
 
+    /** A show's episodes, once its full record has been fetched (see [fill]). */
+    fun videos(item: HubItem) = fuller[item.id]?.videos.orEmpty()
+
+    /** Fetches a show's full record once, for its seasons; [done] gets the merged item. */
+    fun fill(hub: HubClient, item: HubItem, done: (HubItem) -> Unit) {
+        if (!item.isSeries || item.videos.isNotEmpty() || fuller[item.id]?.videos?.isNotEmpty() == true) return
+        if (!asked.add(item.id + ":videos")) return
+        hub.run({ meta(item) }) { result ->
+            result.getOrNull()?.let {
+                fuller[item.id] = it
+                done(merged(item))
+            }
+        }
+    }
+
     /** [item] with whatever the fuller record adds (art, year, runtime, genres, overview). */
     fun merged(item: HubItem): HubItem {
         val more = fuller[item.id] ?: return item
@@ -38,6 +53,7 @@ object HomeArt {
             logo = item.logo ?: more.logo,
             poster = item.poster ?: more.poster,
             backdrop = item.backdrop ?: more.backdrop,
+            videos = item.videos.ifEmpty { more.videos },
         )
     }
 

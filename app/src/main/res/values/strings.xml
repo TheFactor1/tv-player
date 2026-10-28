@@ -181,7 +181,11 @@
     <string name="pair_ask_title">Connect “%1$s”?</string>
     <string name="pair_ask_detail">OK to allow · Back to ignore</string>
     <!-- Home (Programme layout over the hub). -->
+    <string name="home_tab_home">Home</string>
     <string name="home_tab_continue">Continue</string>
+    <string name="home_wordmark">player</string>
+    <string name="home_attention">ATTENTION</string>
+    <string name="home_whisper">%1$s · %2$s</string>
     <string name="home_tab_next">Next Up</string>
     <string name="home_tab_new">New</string>
     <string name="home_tab_movies">Movies</string>

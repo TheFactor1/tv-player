@@ -92,6 +92,14 @@ class HubClient(baseUrl: String, private val token: String = "") {
         }
     }
 
+    /** Whether the hub and every addon it relies on answer; false is Home's ATTENTION. */
+    fun healthy(): Boolean {
+        val json = JSONObject(get("/health", cached = false, auth = false))
+        val addons = json.optJSONArray("addons")
+        return json.optBoolean("ok", true) &&
+            (0 until (addons?.length() ?: 0)).all { addons!!.optJSONObject(it)?.optBoolean("reachable", true) != false }
+    }
+
     /** Throws unless a hub answers at this address; a hub whose addons are down still counts. */
     fun health() {
         get("/health", cached = false, auth = false)
@@ -193,7 +201,8 @@ class HubClient(baseUrl: String, private val token: String = "") {
     /** [auth] sends the token; it never goes anywhere but the hub. */
     private fun open(url: String, auth: Boolean) = (URL(url).openConnection() as HttpURLConnection).apply {
         connectTimeout = TIMEOUT_MS
-        readTimeout = TIMEOUT_MS
+        // The hub may be asking its addons on our behalf (a catalog, the day's new releases): give it time.
+        readTimeout = READ_TIMEOUT_MS
         // A redirect would carry the token along to wherever it points; streams (no token) may follow theirs.
         instanceFollowRedirects = !auth
         setRequestProperty("Accept", "application/json")
@@ -219,6 +228,7 @@ class HubClient(baseUrl: String, private val token: String = "") {
 
     companion object {
         private const val TIMEOUT_MS = 8_000
+        private const val READ_TIMEOUT_MS = 25_000
         private const val CACHE_MS = 60_000L
         private const val PROBE_BYTES = 10L * 1024 * 1024
         private const val MIN_PROBE_BYTES = 512L * 1024
