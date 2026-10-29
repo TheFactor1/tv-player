@@ -37,7 +37,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import com.thefactor1.player.BuildConfig
 import com.thefactor1.player.R
 import com.thefactor1.player.companion.PhoneCompanion
 import com.thefactor1.player.companion.CompanionHost
@@ -237,7 +236,7 @@ class CinemaController(
     private var launchDetail: String? = null
     private var pauseScreenShown = false
     private val extras = OnlineExtras()
-    private val cast = CastLoader(activity, BuildConfig.TMDB_API_KEY)
+    private val cast = CastLoader(activity)
     private val metaCast = CastRow(activity.findViewById(R.id.meta_cast), fonts, faceDp = 48, nameSp = 15f, maxPeople = 5)
     private val metaCastView: View = activity.findViewById(R.id.meta_cast)
     private var castShown: List<CastMember> = emptyList()
@@ -560,7 +559,7 @@ class CinemaController(
         cast.load(imdbId, query.season, query.episode, object : CastLoader.Listener {
             override fun onCast(people: List<CastMember>) {
                 castShown = people
-                PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoPath?.let { path -> TMDB_PHOTOS + path }) }
+                PhoneCompanion.cast = people.map { CompanionPerson(it.name, it.character, it.photoUrl) }
                 metaCast.show(people)
                 showDetails()
                 // Cast found while the pause screen is up still arrives face by face.
@@ -2044,7 +2043,7 @@ class CinemaController(
     private fun moreItems(): List<Item> = listOf(
         Item(
             activity.getString(R.string.companion_title),
-            PhoneCompanion.address()?.let { activity.getString(R.string.companion_value, it, PhoneCompanion.code) }
+            PhoneCompanion.address()
                 ?: activity.getString(R.string.companion_offline_value),
             checked = false,
             hint = activity.getString(R.string.pair_hint),
@@ -2225,7 +2224,6 @@ class CinemaController(
         const val STALL_TOAST_MS = 3_500L
         const val STALLS_BEFORE_HINT = 2
         const val SEEK_SETTLE_MS = 1_500L
-        const val TMDB_PHOTOS = "https://image.tmdb.org/t/p/w185"
         const val HIDE_MS = 220L
         const val SKIP_IN_MS = 180L
         const val SKIP_OUT_MS = 200L

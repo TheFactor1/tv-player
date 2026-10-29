@@ -2,11 +2,14 @@ package com.thefactor1.player.phone
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
@@ -27,7 +30,19 @@ class CompanionActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             setBackgroundColor(getColor(R.color.ground))
-            webViewClient = WebViewClient()
+            webViewClient = object : WebViewClient() {
+                // Only the paired TV's own page stays in here; any other link opens in the phone's browser.
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val url = request.url
+                    if (isPairedTv(url)) return false
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, url))
+                    } catch (e: ActivityNotFoundException) {
+                        // Nothing on the phone can open it: it just doesn't open.
+                    }
+                    return true
+                }
+            }
             // Fade in once the page has drawn, rather than flashing white first.
             alpha = 0f
             visibility = View.INVISIBLE
@@ -65,6 +80,12 @@ class CompanionActivity : Activity() {
         }.start()
     }
 
+    /** Scheme, host and port all match the TV this phone is paired with (read now: the TV may have moved). */
+    private fun isPairedTv(url: Uri): Boolean {
+        val port = if (url.port == -1) DEFAULT_HTTP_PORT else url.port
+        return url.scheme == "http" && url.host != null && url.host == store.host && port == store.port
+    }
+
     private fun pairAgain() {
         startActivity(Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_PAIR_AGAIN, true))
         finish()
@@ -73,5 +94,6 @@ class CompanionActivity : Activity() {
     private companion object {
         const val FADE_DELAY_MS = 150L
         const val FADE_MS = 240L
+        const val DEFAULT_HTTP_PORT = 80
     }
 }

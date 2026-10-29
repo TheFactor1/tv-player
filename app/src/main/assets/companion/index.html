@@ -6,7 +6,6 @@
 <meta name="theme-color" content="#0B0C0E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Player</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 :root {
   --ground: #0B0C0E; --card: #15171B; --card-2: #1D2025;
@@ -75,8 +74,8 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
 
 <section id="pair" hidden>
   <h1>Connect to your TV</h1>
-  <p>Enter the 4-digit code shown in the player's settings on the TV.</p>
-  <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" aria-label="Code from the TV">
+  <p>On the TV, open Settings › Phone companion and enter the 6-digit code it shows.</p>
+  <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-label="Code from the TV">
   <button class="big" id="connect">Connect</button>
   <p id="pairError" role="status"></p>
   <p>You only do this once. After that this page opens straight to whatever's playing.</p>
@@ -134,10 +133,11 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
 
   $('connect').onclick = async () => {
     const code = $('code').value.trim();
-    if (!/^\d{4}$/.test(code)) { $('pairError').textContent = 'Enter the 4 digits from the TV.'; return; }
+    if (!/^\d{6}$/.test(code)) { $('pairError').textContent = 'Enter the 6 digits from the TV.'; return; }
     try {
       const res = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
-      if (!res.ok) { $('pairError').textContent = 'That code didn’t match. Check the TV and try again.'; return; }
+      if (res.status === 429) { $('pairError').textContent = 'Too many tries. Wait a moment and try again.'; return; }
+      if (!res.ok) { $('pairError').textContent = 'That code didn’t match, or the code on the TV has closed. Open it again on the TV.'; return; }
       token = (await res.json()).token;
       try { localStorage.setItem('token', token); } catch (e) {}
       $('pairError').textContent = '';
@@ -212,12 +212,18 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   async function loadCast() {
     const data = await api('/api/cast');
     const pane = $('cast');
-    if (!data.cast.length) { pane.innerHTML = '<div class="empty">The cast shows here when the TV has a TMDB key and recognises the film.</div>'; return; }
-    pane.innerHTML = data.cast.map(p => {
+    if (!data.cast.length) { pane.innerHTML = '<div class="empty">The cast shows here when the hub has a TMDB key and the TV recognises the film.</div>'; return; }
+    // Only TMDB's own image server, and set as a property: nothing from the TV goes into markup unescaped.
+    const photo = p => typeof p.photo === 'string' && p.photo.startsWith('https://image.tmdb.org/');
+    pane.innerHTML = data.cast.map((p, i) => {
       const initials = p.name.split(' ').map(w => w[0]).slice(0, 2).join('');
-      const face = p.photo ? '<span class="face" style="background-image:url(\'' + encodeURI(p.photo) + '\')"></span>' : '<span class="face">' + esc(initials) + '</span>';
+      const face = '<span class="face" data-i="' + i + '">' + (photo(p) ? '' : esc(initials)) + '</span>';
       return '<div class="person">' + face + '<div><b>' + esc(p.name) + '</b><span>' + esc(p.character) + '</span></div></div>';
     }).join('');
+    pane.querySelectorAll('.face[data-i]').forEach(el => {
+      const p = data.cast[el.dataset.i];
+      if (photo(p)) el.style.backgroundImage = 'url(' + JSON.stringify(p.photo) + ')';
+    });
   }
 
   function render() {
@@ -258,8 +264,8 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
     timer = setTimeout(poll, document.hidden ? 4000 : 1000);
   }
 
-  // The TV's QR code carries the pairing code (#pair=1234): pair straight away, even over an old token.
-  const scanned = (location.hash.match(/pair=(\d{4})/) || [])[1];
+  // The TV's QR code carries the pairing code (#pair=123456): pair straight away, even over an old token.
+  const scanned = (location.hash.match(/pair=(\d{6})/) || [])[1];
   // The phone app opens this page with its own token, so it never needs the code.
   const handed = (location.hash.match(/token=([0-9a-f]+)/) || [])[1];
   if (handed) {

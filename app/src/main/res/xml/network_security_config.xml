@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Debrid links, local servers and addons often use plain http, so cleartext is allowed. -->
+<!-- Cleartext stays allowed everywhere, on purpose: streams handed over by Stremio, Nuvio and the
+     hub's addons are often plain http (debrid links, usenet servers and AIOStreams on the LAN), and
+     the paired hub's address is only known at runtime, so it can't be listed here. The hub client
+     keeps its token to the hub's own host and won't follow redirects with it. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

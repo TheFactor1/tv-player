@@ -261,12 +261,14 @@ class PlayerActivity : Activity() {
         metaDetails = null
         sourcePackage = launchingPackage()
         start = ResumePolicy.start(req.startPositionMs, req.fromStart, savedEntry, System.currentTimeMillis())
-        // `adb logcat -s Resume` shows why a stream started where it did.
-        Log.i(
-            RESUME_TAG,
-            "launch app=${req.startPositionMs}ms fromStart=${req.fromStart} title=${req.title} file=${req.fileName} " +
-                "keys=${loggable(titleKeys)} saved=$savedEntry -> $start",
-        )
+        // `adb logcat -s Resume` shows why a stream started where it did. Debug builds only: titles are what someone watched.
+        if (BuildConfig.DEBUG) {
+            Log.i(
+                RESUME_TAG,
+                "launch app=${req.startPositionMs}ms fromStart=${req.fromStart} title=${req.title} file=${req.fileName} " +
+                    "keys=${loggable(titleKeys)} saved=$savedEntry -> $start",
+            )
+        }
         startChecked = false
         chipShown = false
         return true
@@ -353,7 +355,7 @@ class PlayerActivity : Activity() {
         val wrongStream = start.source == ResumePolicy.Source.LOCAL && saved != null &&
             (!ResumePolicy.sameLength(saved.durationMs, duration) || ResumePolicy.isWatched(start.positionMs, duration))
         if (pastEnd || wrongStream) {
-            Log.i(RESUME_TAG, "start over: pastEnd=$pastEnd wrongStream=$wrongStream saved=$saved length=$duration")
+            if (BuildConfig.DEBUG) Log.i(RESUME_TAG, "start over: pastEnd=$pastEnd wrongStream=$wrongStream saved=$saved length=$duration")
             startOverInstead(exo)
         }
     }
@@ -372,7 +374,7 @@ class PlayerActivity : Activity() {
         val fits = ResumePolicy.lastWatchedFits(
             last, TitleKeys.isEpisode(lastKeys), TitleKeys.isEpisode(titleKeys), exo.duration, System.currentTimeMillis(),
         )
-        Log.i(RESUME_TAG, "last watched $last keys=${loggable(lastKeys)} length=${exo.duration} fits=$fits")
+        if (BuildConfig.DEBUG) Log.i(RESUME_TAG, "last watched $last keys=${loggable(lastKeys)} length=${exo.duration} fits=$fits")
         if (!fits) return
         savedEntry = last
         start = ResumePolicy.Start(last.positionMs, ResumePolicy.Source.LOCAL)

@@ -25,7 +25,8 @@ import com.thefactor1.player.companion.QrCode
 /**
  * Scan-to-pair: a small card in the corner, over the film rather than instead of it, with a QR code
  * that opens the phone page with the code filled in, plus the address and code to type by hand. The
- * code changes once a phone pairs, so the card notices, says so, and slips away.
+ * code works only while this card is up: once a phone pairs the card says so and slips away, and
+ * closing it (or too many wrong guesses) ends the code.
  */
 object PairingCard {
     private const val QR_DP = 132
@@ -58,9 +59,10 @@ object PairingCard {
     }
 
     fun show(context: Context, fonts: Fonts) {
+        val code = PhoneCompanion.openPairing()
+        val paired = PhoneCompanion.pairings
         val url = PhoneCompanion.pairUrl()
         val address = PhoneCompanion.address()
-        val code = PhoneCompanion.code
         val density = context.resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
         fun text(sp: Float, color: Int, typeface: Typeface, value: String) = TextView(context).apply {
@@ -139,10 +141,14 @@ object PairingCard {
                 .withEndAction { if (dialog.isShowing) dialog.dismiss() }.start()
         }
 
-        // A new code means a phone just paired with the one on screen.
+        // A phone paired with the code on screen; or the code closed (too many wrong guesses) and the card goes.
         val watch = object : Runnable {
             override fun run() {
-                if (PhoneCompanion.code != code) {
+                if (PhoneCompanion.pairings == paired && PhoneCompanion.code != code) {
+                    close()
+                    return
+                }
+                if (PhoneCompanion.pairings != paired) {
                     // The line crossfades to its news rather than jumping.
                     status.animate().alpha(0f).setDuration(STATUS_SWAP_MS).setInterpolator(Motion.exit).withEndAction {
                         status.text = context.getString(R.string.pair_done)
@@ -168,7 +174,11 @@ object PairingCard {
             if (handled && keys.completes(event)) close()
             handled
         }
-        dialog.setOnDismissListener { handler.removeCallbacksAndMessages(null) }
+        dialog.setOnDismissListener {
+            handler.removeCallbacksAndMessages(null)
+            // The code dies with its card.
+            if (PhoneCompanion.code == code) PhoneCompanion.closePairing()
+        }
         dialog.show()
         root.requestFocus()
         card.animate().alpha(1f).translationY(0f).setDuration(IN_MS).setInterpolator(Motion.enter).start()

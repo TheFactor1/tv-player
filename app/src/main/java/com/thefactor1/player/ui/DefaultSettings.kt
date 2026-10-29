@@ -140,12 +140,13 @@ class DefaultSettings(
         checked = prefs.filmColours,
     ) { prefs.filmColours = !prefs.filmColours }
 
-    /** Where the phone page lives and the code to pair a new phone; OK shows the QR code. */
+    /** Where the phone page lives; OK shows the pairing card, with the QR and the only valid code. */
     private fun phoneCompanion(): Option {
         val address = PhoneCompanion.address()
         return Option(
             context.getString(R.string.companion_title),
-            address?.let { context.getString(R.string.companion_value, it, PhoneCompanion.code) }
+            // The code shows on the pairing card only (it works only while that's up).
+            address
                 ?: context.getString(R.string.companion_offline_value),
             context.getString(if (address != null) R.string.pair_hint else R.string.companion_offline),
         ) { PairingCard.show(context, Fonts(context)) }

@@ -31,7 +31,7 @@ sealed class PairStatus {
 }
 
 /**
- * Talks to the hub (DATAFLOW.md, "Hub API"). Every call but `/health` carries the pairing token.
+ * Talks to the hub (DATAFLOW.md, "Hub API"). Every call but pairing and the reachability check carries the pairing token.
  * Every call runs on a background thread and answers on the main thread; GETs are kept for a minute
  * so tab switches and Back don't refetch.
  */
@@ -95,9 +95,9 @@ class HubClient(baseUrl: String, private val token: String = "") {
         }
     }
 
-    /** Whether the hub and every addon it relies on answer; false is Home's ATTENTION. */
+    /** Whether the hub and every addon it relies on answer; false is Home's ATTENTION. The addon list needs the token. */
     fun healthy(): Boolean {
-        val json = JSONObject(get("/health", cached = false, auth = false))
+        val json = JSONObject(get("/health", cached = false))
         val addons = json.optJSONArray("addons")
         return json.optBoolean("ok", true) &&
             (0 until (addons?.length() ?: 0)).all { addons!!.optJSONObject(it)?.optBoolean("reachable", true) != false }
@@ -115,6 +115,9 @@ class HubClient(baseUrl: String, private val token: String = "") {
     fun meta(item: HubItem): HubItem? = JSONObject(get("/browse/meta/${item.type}/${item.id}")).let { HubJson.item(it.optJSONObject("meta") ?: it) }
     fun streams(item: HubItem, episode: NextEpisode?) = HubJson.streams(get("/browse/streams/${item.type}/${item.id}${path(episode)}", cached = false))
     fun search(query: String) = HubJson.items(get("/search?q=${encode(query)}"))
+
+    /** X-Ray's cast, from the hub's TMDB key: `{"cast": [{name, character, photo}]}`, empty when it has none. */
+    fun cast(type: String, id: String): String = get("/browse/cast/$type/${encode(id)}")
 
     fun presets() = HubJson.presets(get("/presets"))
 

@@ -53,3 +53,10 @@ android {
 kotlin {
     jvmToolchain(17)
 }
+
+// Every dependency, direct or not, is pinned in gradle.lockfile (and its checksum in
+// gradle/verification-metadata.xml): a changed or substituted artifact fails the build.
+// After changing a dependency: gradlew :<module>:dependencies --write-locks, then the metadata step.
+dependencyLocking {
+    lockAllConfigurations()
+}

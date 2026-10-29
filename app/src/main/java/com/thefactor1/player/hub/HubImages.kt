@@ -17,6 +17,7 @@ import java.util.concurrent.Executors
 object HubImages {
     private const val CACHE_BYTES = 48 * 1024 * 1024
     private const val TIMEOUT_MS = 8_000
+    private const val MAX_BYTES = 10 * 1024 * 1024
 
     private val main = Handler(Looper.getMainLooper())
     private val cache = object : LruCache<String, Bitmap>(CACHE_BYTES) {
@@ -56,6 +57,18 @@ object HubImages {
 
     private fun key(url: String, width: Int) = "$width|$url"
 
+    /** The whole body, or null past [MAX_BYTES]: no picture is that big, and memory isn't spent finding out. */
+    private fun capped(input: java.io.InputStream): ByteArray? {
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) return out.toByteArray()
+            if (out.size() + read > MAX_BYTES) return null
+            out.write(buffer, 0, read)
+        }
+    }
+
     private fun fetch(url: String, width: Int): Bitmap? {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = TIMEOUT_MS
@@ -63,7 +76,7 @@ object HubImages {
         }
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
-            val bytes = connection.inputStream.use { it.readBytes() }
+            val bytes = connection.inputStream.use { capped(it) } ?: return null
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             if (bounds.outWidth <= 0) return null

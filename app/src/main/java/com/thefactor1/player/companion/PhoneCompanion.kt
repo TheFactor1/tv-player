@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.util.Log
+import com.thefactor1.player.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -33,8 +34,9 @@ data class CompanionPerson(val name: String, val character: String?, val photoUr
 
 /**
  * The phone companion: a small web server on the TV that serves one page and a JSON API, on the
- * home Wi-Fi only. A phone pairs once with a 4-digit code shown on the TV and keeps its token, so
- * it reconnects on its own after that. It runs while the home screen or the player is open.
+ * home Wi-Fi only. A phone pairs once with a 6-digit code shown on the TV (only while the pairing
+ * card is up) and keeps its token, so it reconnects on its own after that. It runs while the home
+ * screen or the player is open.
  */
 object PhoneCompanion {
     const val PORT = 8765
@@ -54,11 +56,21 @@ object PhoneCompanion {
      */
     @Volatile var approver: ((device: String, answer: (Boolean) -> Unit) -> Unit)? = null
 
+    private val gate = PairingGate { "%06d".format(SecureRandom().nextInt(1_000_000)) }
+
     private val requests = PairRequests()
     private var nsd: NsdManager.RegistrationListener? = null
 
-    /** The code a new phone types in; it changes after every pairing and after repeated wrong guesses. */
-    @Volatile var code: String = newCode()
+    /** The code a new phone types in, or null while the pairing card isn't on screen. */
+    val code: String? get() = gate.code
+
+    /** The pairing card came up: a fresh code that works until the card goes (or a phone uses it). */
+    fun openPairing(): String = gate.open()
+
+    fun closePairing() = gate.close()
+
+    /** Counts phones paired with a code, so the pairing card can tell one did. */
+    @Volatile var pairings = 0
         private set
 
     private val main = Handler(Looper.getMainLooper())
@@ -66,7 +78,6 @@ object PhoneCompanion {
     private var users = 0
     private var server: ServerSocket? = null
     private var appContext: Context? = null
-    private var wrongGuesses = 0
     // Each phone app holds one thread in a long poll, so room for a few phones plus page requests.
     private val workers = Executors.newFixedThreadPool(8) { runnable ->
         Thread({
@@ -114,7 +125,8 @@ object PhoneCompanion {
                 if (ticket != transcriptTicket) return@execute
                 val text = SubtitleFetch.text(url)
                 val cues = text?.let(Srt::parse).orEmpty()
-                Log.i(TAG, "Transcript ${url.take(80)}: ${if (text == null) "download failed" else "${cues.size} lines"}")
+                // Never the address: subtitle links can carry the provider's keys.
+                if (BuildConfig.DEBUG) Log.i(TAG, "Transcript: ${if (text == null) "download failed" else "${cues.size} lines"}")
                 if (cues.isEmpty()) continue
                 if (ticket == transcriptTicket) {
                     synchronized(sync) { sync.reset() }
@@ -217,7 +229,7 @@ object PhoneCompanion {
     }
 
     /** What the TV's QR code opens: the phone page with this pairing code filled in, so it pairs on arrival. */
-    fun pairUrl(): String? = address()?.let { "http://$it/#pair=$code" }
+    fun pairUrl(): String? = code?.let { code -> address()?.let { "http://$it/#pair=$code" } }
 
     private fun acceptLoop(socket: ServerSocket) {
         while (!socket.isClosed) {
@@ -234,7 +246,8 @@ object PhoneCompanion {
         client.use { socket ->
             try {
                 socket.soTimeout = 5_000
-                val request = Http.read(BufferedInputStream(socket.getInputStream())) ?: return
+                val remote = socket.inetAddress?.hostAddress.orEmpty()
+                val request = Http.read(BufferedInputStream(socket.getInputStream()), remote) ?: return
                 val response = route(request)
                 socket.getOutputStream().apply {
                     write(response.bytes())
@@ -264,36 +277,38 @@ object PhoneCompanion {
         }
     }
 
-    private fun page(): Http.Response {
-        val context = appContext ?: return Http.Response(503, "text/plain", ByteArray(0))
+    /** The page and its policy, read once: the policy allows only the page's own script, by hash. */
+    private val pageResponse: Http.Response? by lazy {
+        val context = appContext ?: return@lazy null
         val bytes = context.assets.open("companion/index.html").use { it.readBytes() }
-        return Http.Response(200, "text/html; charset=utf-8", bytes)
+        Http.Response(200, "text/html; charset=utf-8", bytes, mapOf("Content-Security-Policy" to Csp.forPage(String(bytes, Charsets.UTF_8))))
     }
 
-    @Synchronized
+    private fun page(): Http.Response = pageResponse ?: Http.Response(503, "text/plain", ByteArray(0))
+
     private fun pair(request: Http.Request): Http.Response {
         val guess = try {
             JSONObject(request.body).optString("code")
         } catch (e: Exception) {
             ""
         }
-        if (guess != code) {
-            if (++wrongGuesses >= MAX_WRONG_GUESSES) {
-                code = newCode()
-                wrongGuesses = 0
+        return when (gate.attempt(request.remote, guess)) {
+            PairingGate.Verdict.OK -> {
+                pairings++
+                json(200, JSONObject().put("token", issueToken()))
             }
-            return json(403, JSONObject().put("error", "code"))
+            PairingGate.Verdict.WAIT -> json(429, JSONObject().put("error", "wait"))
+            // A closed card answers just like a wrong code: nothing to tell a guesser apart.
+            else -> json(403, JSONObject().put("error", "code"))
         }
-        wrongGuesses = 0
-        code = newCode()
-        return json(200, JSONObject().put("token", issueToken()))
     }
 
+    @Synchronized
     private fun issueToken(): String {
         val token = ByteArray(16).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
         prefs()?.let { prefs ->
-            val tokens = prefs.getStringSet(KEY_TOKENS, emptySet()).orEmpty() + token
-            prefs.edit().putStringSet(KEY_TOKENS, tokens.toList().takeLast(MAX_PHONES).toSet()).apply()
+            val tokens = PhoneTokens.add(prefs.getStringSet(KEY_TOKENS, emptySet()).orEmpty(), token, System.currentTimeMillis(), MAX_PHONES)
+            prefs.edit().putStringSet(KEY_TOKENS, tokens).apply()
         }
         return token
     }
@@ -305,10 +320,19 @@ object PhoneCompanion {
         } catch (e: Exception) {
             ""
         }.take(MAX_DEVICE_NAME).ifBlank { "A phone" }
+        val ip = request.remote
         val ask = approver ?: return json(503, JSONObject().put("error", "screen"))
+        // A phone the TV turned down (or ignored) can't put the question straight back on screen.
+        if (!gate.mayAsk(ip)) return json(429, JSONObject().put("error", "wait"))
         val id = ByteArray(8).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
         if (!requests.open(id)) return json(429, JSONObject().put("error", "busy"))
-        main.post { ask(device) { approved -> requests.answer(id, approved, if (approved) issueToken() else null) } }
+        main.post {
+            // The address beside the name: a name is whatever the phone says it is.
+            ask("$device · $ip") { approved ->
+                if (!approved) gate.refused(ip)
+                requests.answer(id, approved, if (approved) issueToken() else null)
+            }
+        }
         return json(200, JSONObject().put("request", id))
     }
 
@@ -342,8 +366,7 @@ object PhoneCompanion {
             .firstOrNull { it.size == 2 && it[0] == name }
             ?.let { java.net.URLDecoder.decode(it[1], "UTF-8") }
 
-    private fun authorised(token: String?): Boolean =
-        !token.isNullOrEmpty() && prefs()?.getStringSet(KEY_TOKENS, emptySet()).orEmpty().contains(token)
+    private fun authorised(token: String?): Boolean = PhoneTokens.contains(prefs()?.getStringSet(KEY_TOKENS, emptySet()).orEmpty(), token)
 
     private fun state(): JSONObject {
         val state = onMain { host?.companionState() } ?: JSONObject().put("idle", true)
@@ -400,11 +423,8 @@ object PhoneCompanion {
 
     private fun prefs() = appContext?.getSharedPreferences("companion", Context.MODE_PRIVATE)
 
-    private fun newCode() = "%04d".format(SecureRandom().nextInt(10_000))
-
     private const val KEY_TOKENS = "tokens"
     private const val MAX_PHONES = 8
-    private const val MAX_WRONG_GUESSES = 5
     private const val LIVE_REPEAT_MS = 10_000L
     private const val TAG = "PhoneCompanion"
     private const val SERVICE_TYPE = "_tvplayer._tcp"

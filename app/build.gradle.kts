@@ -14,8 +14,6 @@ android {
         versionCode = 59
         versionName = "0.9.47"
 
-        // X-Ray's cast comes from TMDB; CI passes the key from the TMDB_API_KEY secret. Without one, X-Ray stays off.
-        buildConfigField("String", "TMDB_API_KEY", "\"${System.getenv("TMDB_API_KEY").orEmpty().trim()}\"")
 
         // TV boxes are ARM; x86_64 keeps the PC emulator working. Dropping 32-bit x86 trims the FFmpeg libraries.
         ndk {
@@ -62,6 +60,13 @@ android {
 
 kotlin {
     jvmToolchain(17)
+}
+
+// Every dependency, direct or not, is pinned in gradle.lockfile (and its checksum in
+// gradle/verification-metadata.xml): a changed or substituted artifact fails the build.
+// After changing a dependency: gradlew :<module>:dependencies --write-locks, then the metadata step.
+dependencyLocking {
+    lockAllConfigurations()
 }
 
 dependencies {

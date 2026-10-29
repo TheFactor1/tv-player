@@ -5,9 +5,10 @@ import java.io.InputStream
 
 /** Just enough HTTP/1.1 for one page and a JSON API: one request per connection, small bodies. */
 object Http {
-    class Request(val method: String, val path: String, val headers: Map<String, String>, val body: String)
+    /** [remote] is the phone's address, for per-phone limits. */
+    class Request(val method: String, val path: String, val headers: Map<String, String>, val body: String, val remote: String = "")
 
-    class Response(private val status: Int, private val type: String, private val body: ByteArray) {
+    class Response(private val status: Int, private val type: String, private val body: ByteArray, private val extra: Map<String, String> = emptyMap()) {
         fun bytes(): ByteArray {
             val reason = when (status) {
                 200 -> "OK"
@@ -16,18 +17,24 @@ object Http {
                 403 -> "Forbidden"
                 404 -> "Not Found"
                 405 -> "Method Not Allowed"
+                429 -> "Too Many Requests"
                 else -> "Service Unavailable"
             }
             val head = "HTTP/1.1 $status $reason\r\n" +
                 "Content-Type: $type\r\n" +
                 "Content-Length: ${body.size}\r\n" +
                 "Cache-Control: no-store\r\n" +
+                // On every answer: no type sniffing, no framing, no referrer leaking the TV's address.
+                "X-Content-Type-Options: nosniff\r\n" +
+                "X-Frame-Options: DENY\r\n" +
+                "Referrer-Policy: no-referrer\r\n" +
+                extra.entries.joinToString("") { "${it.key}: ${it.value}\r\n" } +
                 "Connection: close\r\n\r\n"
             return head.toByteArray() + body
         }
     }
 
-    fun read(input: InputStream): Request? {
+    fun read(input: InputStream, remote: String = ""): Request? {
         val requestLine = line(input) ?: return null
         val parts = requestLine.split(' ')
         if (parts.size < 2) return null
@@ -46,7 +53,7 @@ object Http {
             if (n < 0) break
             read += n
         }
-        return Request(parts[0], parts[1], headers, String(body, 0, read))
+        return Request(parts[0], parts[1], headers, String(body, 0, read), remote)
     }
 
     private fun line(input: InputStream): String? {
