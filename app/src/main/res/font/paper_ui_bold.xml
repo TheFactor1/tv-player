@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Source Serif 4, Broadsheet's text (bold) face (SIL Open Font License, licence in assets/licenses), one instance of the variable font. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font android:font="@font/source_serif" android:fontStyle="normal" android:fontWeight="600"
+        android:fontVariationSettings="'wght' 600, 'opsz' 16"
+        app:font="@font/source_serif" app:fontStyle="normal" app:fontWeight="600"
+        app:fontVariationSettings="'wght' 600, 'opsz' 16" />
+</font-family>

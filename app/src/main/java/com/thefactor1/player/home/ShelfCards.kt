@@ -40,7 +40,7 @@ class PosterCard(context: Context, fonts: Fonts, private val widthPx: Int) : Lin
             poster.outlineAmbientShadowColor = glow
         }
         val edge = GradientDrawable().apply {
-            cornerRadius = Mercury.dp(this@PosterCard, 8f).toFloat()
+            cornerRadius = if (Mercury.paper) 0f else Mercury.dp(this@PosterCard, 8f).toFloat()
             setStroke((1.5f * resources.displayMetrics.density).toInt().coerceAtLeast(2), context.getColor(R.color.card_edge))
         }
         setOnFocusChangeListener { _, has ->
@@ -158,9 +158,19 @@ class RowsAdapter(private val fonts: Fonts) : RecyclerView.Adapter<RowsAdapter.H
             clipChildren = false
             layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
-        val label = Mercury.text(context, fonts.ui, 15f).apply {
+        val label = (if (Mercury.paper) Mercury.text(context, fonts.mercuryMono, 12f, tracking = 0.12f).apply { isAllCaps = true }
+            else Mercury.text(context, fonts.ui, 15f)).apply {
             alpha = Mercury.TAB_REST
             setPadding(Mercury.dp(row, Mercury.SAFE_X), 0, 0, 0)
+        }
+        if (Mercury.paper) {
+            // Broadsheet: each row is a section of the paper, under its own ink rule.
+            row.addView(View(context).apply { setBackgroundColor(Mercury.color(context, R.color.mercury_fg)) },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Mercury.dp(row, 1f)).apply {
+                    marginStart = Mercury.dp(row, Mercury.SAFE_X)
+                    marginEnd = Mercury.dp(row, Mercury.SAFE_X)
+                    bottomMargin = Mercury.dp(row, 6f)
+                })
         }
         row.addView(label)
         val strip = RecyclerView(context).apply {

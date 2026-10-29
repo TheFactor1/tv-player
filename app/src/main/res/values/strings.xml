@@ -183,6 +183,8 @@
     <string name="home_tab_home">Home</string>
     <string name="home_tab_continue">Continue</string>
     <string name="home_wordmark">player</string>
+    <!-- Broadsheet's masthead, in place of the wordmark. -->
+    <string name="home_masthead">The Media Box Times</string>
     <string name="home_attention">ATTENTION</string>
     <string name="home_whisper">%1$s · %2$s</string>
     <string name="home_tab_next">Next Up</string>
@@ -286,6 +288,8 @@
     <string name="hub_address">Hub address</string>
     <string name="hub_address_none">Not set</string>
     <string name="theme">Theme</string>
+    <string name="theme_broadsheet">Broadsheet</string>
+    <string name="theme_broadsheet_hint">Paper and ink, like a newspaper front page. Applies when this panel closes</string>
     <string name="theme_mercury">Mercury</string>
     <string name="theme_space">Space</string>
     <string name="theme_mercury_hint">Graphite and colourless glass. Applies when this panel closes</string>

@@ -173,8 +173,16 @@ class DefaultSettings(
         val index = themes.indexOf(prefs.homeTheme)
         return Option(
             context.getString(R.string.theme),
-            context.getString(if (prefs.homeTheme == PlayerPrefs.THEME_SPACE) R.string.theme_space else R.string.theme_mercury),
-            context.getString(if (prefs.homeTheme == PlayerPrefs.THEME_SPACE) R.string.theme_space_hint else R.string.theme_mercury_hint),
+            context.getString(when (prefs.homeTheme) {
+                PlayerPrefs.THEME_SPACE -> R.string.theme_space
+                PlayerPrefs.THEME_MERCURY -> R.string.theme_mercury
+                else -> R.string.theme_broadsheet
+            }),
+            context.getString(when (prefs.homeTheme) {
+                PlayerPrefs.THEME_SPACE -> R.string.theme_space_hint
+                PlayerPrefs.THEME_MERCURY -> R.string.theme_mercury_hint
+                else -> R.string.theme_broadsheet_hint
+            }),
             steps = Steps(index, themes.size) { prefs.homeTheme = themes[it] },
         )
     }

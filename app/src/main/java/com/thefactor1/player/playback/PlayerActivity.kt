@@ -3,6 +3,7 @@ package com.thefactor1.player.playback
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -55,6 +56,7 @@ import com.thefactor1.player.resume.WatchHistory
 import com.thefactor1.player.ui.CinemaController
 import com.thefactor1.player.ui.FormatNames
 import com.thefactor1.player.ui.Fonts
+import com.thefactor1.player.ui.UiNight
 import com.thefactor1.player.ui.ResumeChip
 import java.util.Locale
 
@@ -64,6 +66,10 @@ import java.util.Locale
  */
 @OptIn(UnstableApi::class)
 class PlayerActivity : Activity() {
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(UiNight.force(base, night = true))
+    }
+
 
     private lateinit var playerView: PlayerView
     private lateinit var switcher: DisplayModeSwitcher

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Playfair Display, Broadsheet's display face (SIL Open Font License, licence in assets/licenses), one instance of the variable font. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font android:font="@font/playfair_display" android:fontStyle="normal" android:fontWeight="900"
+        android:fontVariationSettings="'wght' 900"
+        app:font="@font/playfair_display" app:fontStyle="normal" app:fontWeight="900"
+        app:fontVariationSettings="'wght' 900" />
+</font-family>

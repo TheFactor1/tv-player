@@ -1,14 +1,17 @@
 package com.thefactor1.player
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -54,6 +57,7 @@ import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
+import com.thefactor1.player.ui.UiNight
 import com.thefactor1.player.ui.Motion
 import com.thefactor1.player.ui.Option
 import com.thefactor1.player.ui.OptionList
@@ -162,10 +166,15 @@ class MainActivity : Activity() {
 
     private val home get() = TABS[tabIndex].kind == Kind.HOME
 
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(UiNight.force(base, night = PlayerPrefs(base).homeTheme != PlayerPrefs.THEME_BROADSHEET))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = PlayerPrefs(this)
         Mercury.space = prefs.homeTheme == PlayerPrefs.THEME_SPACE
+        Mercury.paper = prefs.homeTheme == PlayerPrefs.THEME_BROADSHEET
         setContentView(R.layout.activity_main)
         fonts = Fonts(this)
         vault = HubVault(this)
@@ -194,10 +203,11 @@ class MainActivity : Activity() {
         fonts.apply(if (Mercury.space) fonts.spaceDisplay else fonts.display, findViewById(R.id.home_hero_title))
         findViewById<TextView>(R.id.home_hero_title).letterSpacing = if (Mercury.space) 0.05f else -0.03f
         listOf(R.id.home_hero_kicker).forEach { findViewById<TextView>(it).setTextColor(Mercury.color(this, R.color.mercury_blue)) }
-        fonts.apply(fonts.bold, findViewById(R.id.settings_title))
-        fonts.apply(fonts.semibold, findViewById(R.id.settings_kicker))
-        fonts.apply(fonts.medium, findViewById(R.id.settings_hint))
+        fonts.apply(if (Mercury.paper) fonts.display else fonts.bold, findViewById(R.id.settings_title))
+        fonts.apply(if (Mercury.paper) fonts.mercuryMono else fonts.semibold, findViewById(R.id.settings_kicker))
+        fonts.apply(if (Mercury.paper) fonts.ui else fonts.medium, findViewById(R.id.settings_hint))
         Mercury.liftRoom(heroButtons, levels = 2)
+        if (Mercury.paper) frontPage()
 
         header = Header(findViewById(R.id.home_header), fonts, TABS.map { it.label }, ::selectTab, ::openSearch, ::openRefine, ::openSettings)
         val defaults = DefaultSettings(this, prefs, { facts }) {
@@ -645,8 +655,8 @@ class MainActivity : Activity() {
 
     private fun paintRowLabels() {
         for (i in 0 until rowsView.childCount) {
-            val row = rowsView.getChildAt(i) as? LinearLayout ?: continue
-            row.getChildAt(0).alpha = if (row.hasFocus()) 1f else Mercury.TAB_REST
+            val holder = rowsView.getChildViewHolder(rowsView.getChildAt(i)) as? RowsAdapter.Holder ?: continue
+            holder.label.alpha = if (holder.row.hasFocus()) 1f else Mercury.TAB_REST
         }
     }
 
@@ -739,6 +749,34 @@ class MainActivity : Activity() {
     private var pendingArt: HubItem? = null
     private val loadArt = Runnable { pendingArt?.let(::loadArtNow) }
 
+    /**
+     * Broadsheet lays Home out as a front page: no fade, the art framed top right as the lead
+     * picture, the headline beside it in Playfair, the overview as an italic standfirst.
+     */
+    private fun frontPage() {
+        fade.visibility = View.GONE
+        val screen = resources.displayMetrics.widthPixels
+        val side = Mercury.dp(body, Mercury.SAFE_X)
+        val picture = (screen * LEAD_PICTURE_WIDTH).toInt()
+        listOf(artA, artB).forEach {
+            it.layoutParams = FrameLayout.LayoutParams(picture, Mercury.dp(body, LEAD_PICTURE_H_DP), Gravity.TOP or Gravity.END).apply {
+                topMargin = Mercury.dp(body, LEAD_PICTURE_TOP_DP)
+                marginEnd = side
+            }
+        }
+        hero.layoutParams = hero.layoutParams.apply { width = screen - 2 * side - picture - Mercury.dp(body, 24f) }
+        findViewById<TextView>(R.id.home_hero_title).letterSpacing = 0f
+        findViewById<TextView>(R.id.home_hero_overview).apply {
+            setTypeface(fonts.ui, android.graphics.Typeface.ITALIC)
+            layoutParams = layoutParams.apply { width = ViewGroup.LayoutParams.MATCH_PARENT }
+            alpha = 1f
+        }
+        // Settings: a solid paper column (no fade to make room for), its kicker in red, the hint in italic.
+        panel.setPaddingRelative(Mercury.dp(body, 36f), panel.paddingTop, panel.paddingEnd, panel.paddingBottom)
+        findViewById<TextView>(R.id.settings_kicker).setTextColor(getColor(R.color.accent))
+        findViewById<TextView>(R.id.settings_hint).setTypeface(fonts.ui, android.graphics.Typeface.ITALIC)
+    }
+
     /** Shows [item]'s backdrop; waits a moment first, so moving past titles doesn't fetch each one. */
     private fun showArt(item: HubItem) {
         pendingArt = item
@@ -772,6 +810,13 @@ class MainActivity : Activity() {
     /** How strongly the film's art shows: set back in Space, and only as a faint band over a grid or under Search. */
     private val artAlpha: Float
         get() = when {
+            // Broadsheet's art is the front page's lead picture: there only, at full strength.
+            // A film's page shows it too, over the empty top; a show's episodes take the right side.
+            Mercury.paper -> when {
+                titlePage.isOpen -> if (titlePage.item?.isSeries == true) 0f else 1f
+                home && !search.isOpen -> 1f
+                else -> 0f
+            }
             search.isOpen && !titlePage.isOpen -> SEARCH_ART_ALPHA
             !home && !titlePage.isOpen -> GRID_ART_ALPHA
             Mercury.space -> SPACE_ART_ALPHA
@@ -1094,7 +1139,7 @@ class MainActivity : Activity() {
             .withEndAction { panel.visibility = View.INVISIBLE }.start()
         beforePanel?.takeIf { it.isShown }?.requestFocus()
         // The theme is chosen in Settings; it takes hold as the panel closes.
-        if (Mercury.space != (prefs.homeTheme == PlayerPrefs.THEME_SPACE)) recreate()
+        if (Mercury.space != (prefs.homeTheme == PlayerPrefs.THEME_SPACE) || Mercury.paper != (prefs.homeTheme == PlayerPrefs.THEME_BROADSHEET)) recreate()
     }
 
     // ---- Remote ---------------------------------------------------------------------------------
@@ -1293,6 +1338,10 @@ class MainActivity : Activity() {
         const val PANEL_SLIDE = 0.08f
         const val STREAMS_TTL_MS = 10L * 60 * 1000
         const val SPACE_ART_ALPHA = 0.6f
+        /** Broadsheet's lead picture: its share of the screen width, and where it sits above the rows. */
+        const val LEAD_PICTURE_WIDTH = 0.4f
+        const val LEAD_PICTURE_TOP_DP = 72f
+        const val LEAD_PICTURE_H_DP = 196f
         const val GRID_ART_ALPHA = 0.24f
         const val SEARCH_ART_ALPHA = 0.4f
         const val REQUEST_PLAY = 1

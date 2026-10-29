@@ -80,9 +80,9 @@ class PlayerPrefs(context: Context) {
         get() = prefs.getString(KEY_QUALITY, null)?.takeIf { it in Quality.CHOICES } ?: Quality.AUTO
         set(value) = prefs.edit { putString(KEY_QUALITY, value) }
 
-    /** Home's look: [THEME_MERCURY] or [THEME_SPACE]; the layout is the same in both. */
+    /** Home's look: [THEME_BROADSHEET] (the default), [THEME_MERCURY] or [THEME_SPACE]. */
     var homeTheme: String
-        get() = prefs.getString(KEY_THEME, null)?.takeIf { it in THEMES } ?: THEME_MERCURY
+        get() = prefs.getString(KEY_THEME, null)?.takeIf { it in THEMES } ?: THEME_BROADSHEET
         set(value) = prefs.edit { putString(KEY_THEME, value) }
 
     data class SubtitleSize(val name: String, val fraction: Float)
@@ -158,9 +158,11 @@ class PlayerPrefs(context: Context) {
         private const val KEY_SUB_SIZE = "subtitle_size"
         private const val KEY_RESIZE = "resize_mode"
         private const val KEY_QUALITY = "quality"
-        private const val KEY_THEME = "home_theme"
+        // v2: Broadsheet arrived as the new default, so a look picked before it starts over once.
+        private const val KEY_THEME = "home_theme_v2"
         const val THEME_MERCURY = "mercury"
         const val THEME_SPACE = "space"
-        val THEMES = listOf(THEME_MERCURY, THEME_SPACE)
+        const val THEME_BROADSHEET = "broadsheet"
+        val THEMES = listOf(THEME_BROADSHEET, THEME_MERCURY, THEME_SPACE)
     }
 }

@@ -21,7 +21,9 @@ object HomeArt {
 
     fun poster(item: HubItem): String? = item.poster ?: fuller[item.id]?.poster ?: metahub("poster", item.id)
     fun backdrop(item: HubItem): String? = item.backdrop ?: fuller[item.id]?.backdrop ?: metahub("background", item.id)
-    fun logo(item: HubItem): String? = item.logo ?: fuller[item.id]?.logo ?: metahub("logo", item.id)
+    /** None under Broadsheet: logos are drawn light for dark art, and the paper sets every title as a headline. */
+    fun logo(item: HubItem): String? =
+        if (Mercury.paper) null else item.logo ?: fuller[item.id]?.logo ?: metahub("logo", item.id)
 
     /** An episode's still: the hub's if it sent one, else Cinemeta's episode image by IMDb id, else the show's backdrop. */
     fun episode(item: HubItem, season: Int, episode: Int, thumbnail: String?): String? =

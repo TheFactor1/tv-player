@@ -25,11 +25,14 @@ import com.thefactor1.player.ui.Motion
 
 /**
  * The Home's look in code: its text styles, the backdrop's fade, and a title's credits line. Mercury
- * by default; [space] swaps in the Space theme's palette and display face (same layout).
+ * by default; [space] swaps in the Space theme's palette and display face (same layout); [paper] is
+ * Broadsheet, whose palette comes from res/values-notnight (Home runs "not night" under it).
  */
 object Mercury {
     /** The Space theme is on; set by Home before it builds anything. */
     var space = false
+    /** Broadsheet, the newspaper look: paper and ink, serif faces, the art framed as a lead picture. */
+    var paper = false
 
     /** A colour resource as the current theme draws it: Space is colder (star-white text, ice-blue accent). */
     fun color(context: Context, id: Int): Int = context.getColor(

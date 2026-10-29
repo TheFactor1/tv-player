@@ -58,9 +58,13 @@ class Header(
 
     init {
         root.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Mercury.dp(root, HEIGHT_DP)))
-        row.addView(Mercury.title(context, fonts, 12f, mercuryTracking = 0.08f).apply {
-            setText(R.string.home_wordmark)
-            alpha = WORDMARK_ALPHA
+        row.addView(if (Mercury.paper) {
+            Mercury.title(context, fonts, 16f, mercuryTracking = 0f).apply { setText(R.string.home_masthead) }
+        } else {
+            Mercury.title(context, fonts, 12f, mercuryTracking = 0.08f).apply {
+                setText(R.string.home_wordmark)
+                alpha = WORDMARK_ALPHA
+            }
         })
         row.addView(View(context).apply { setBackgroundColor(Mercury.color(context, R.color.mercury_faint)) },
             LinearLayout.LayoutParams(Mercury.dp(root, 1f), Mercury.dp(root, 20f)).apply {
@@ -76,15 +80,17 @@ class Header(
         }
         row.addView(control(search) { onSearch() }, wrap(end = 10f))
         tabs = labels.mapIndexed { index, label ->
-            Mercury.text(context, fonts.ui, 14f).apply {
+            Mercury.text(context, if (Mercury.paper) fonts.mercuryMono else fonts.ui, if (Mercury.paper) 11f else 14f,
+                tracking = if (Mercury.paper) 0.05f else 0f).apply {
                 setText(label)
+                isAllCaps = Mercury.paper
                 setPadding(0, Mercury.dp(root, 6f), 0, Mercury.dp(root, 6f))
-            }.also { row.addView(control(it) { onTab(index) }, wrap(end = TAB_GAP_DP)) }
+            }.also { row.addView(control(it) { onTab(index) }, wrap(end = if (Mercury.paper) PAPER_TAB_GAP_DP else TAB_GAP_DP)) }
         }
         filter = Mercury.text(context, fonts.mercuryMono, 11f, tracking = 0.18f).apply {
             setPadding(0, Mercury.dp(root, 6f), 0, Mercury.dp(root, 6f))
         }
-        row.addView(control(filter) { onFilter() }, wrap(start = 4f))
+        row.addView(control(filter) { onFilter() }, wrap(start = 4f, end = 16f))
         row.addView(View(context), LinearLayout.LayoutParams(0, 0, 1f))
         attention = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -106,6 +112,11 @@ class Header(
         clock = Mercury.text(context, fonts.mercuryMono, 12f, tracking = 0.12f).apply { alpha = WORDMARK_ALPHA }
         row.addView(clock)
 
+        if (Mercury.paper) {
+            // The masthead's double rule runs the full width under the band; the red meniscus rides on it.
+            root.addView(View(context).apply { setBackgroundResource(R.drawable.paper_double_rule) },
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Mercury.dp(root, 4f), Gravity.BOTTOM))
+        }
         meniscus.background = Mercury.meniscus(context)
         meniscus.pivotX = 0f
         meniscus.visibility = View.INVISIBLE
@@ -196,6 +207,8 @@ class Header(
     private companion object {
         const val HEIGHT_DP = 34f
         const val TAB_GAP_DP = 20f
+        /** Broadsheet's caps tabs share the band with a wide masthead. */
+        const val PAPER_TAB_GAP_DP = 12f
         const val MENISCUS_DP = 100f
         const val REST = 0.5f
         const val FOCUSED = 0.85f

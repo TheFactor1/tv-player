@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.thefactor1.player.R
+import com.thefactor1.player.home.Mercury
 
 /** One line of the home settings panel: a setting stepped in place, a switch, an action, or a fact. */
 class Option(
@@ -58,8 +59,8 @@ class OptionList(
                 is RowSpec.Heading -> container.addView(heading(spec.text, first = index == 0))
                 is RowSpec.Item -> {
                     val row = inflater.inflate(R.layout.item_menu_row, container, false)
-                    row.findViewById<TextView>(R.id.item_label).typeface = fonts.semibold
-                    row.findViewById<TextView>(R.id.item_value).typeface = fonts.semibold
+                    row.findViewById<TextView>(R.id.item_label).typeface = if (Mercury.paper) fonts.ui else fonts.semibold
+                    row.findViewById<TextView>(R.id.item_value).typeface = if (Mercury.paper) fonts.uiBold else fonts.semibold
                     row.setTag(R.id.item_label, spec)
                     row.setTag(R.id.item_value, index)
                     bind(row, spec.option())
@@ -120,10 +121,11 @@ class OptionList(
 
     private fun heading(text: String, first: Boolean) = TextView(context).apply {
         this.text = text.uppercase()
-        typeface = fonts.semibold
+        typeface = if (Mercury.paper) fonts.mercuryMono else fonts.semibold
         textSize = 12f
         letterSpacing = 0.12f
-        setTextColor(context.getColor(R.color.ink_secondary))
+        // Broadsheet's section heads are in the paper's red, like a section name over a column.
+        setTextColor(context.getColor(if (Mercury.paper) R.color.accent else R.color.ink_secondary))
         val side = (16 * density).toInt()
         setPadding(side, ((if (first) 2 else 18) * density).toInt(), side, (6 * density).toInt())
     }

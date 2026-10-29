@@ -1,0 +1,31 @@
+<resources>
+    <!-- Broadsheet: Home runs "not night" under it (MainActivity), so these replace the dark palette
+         there; playback always runs night and keeps the cinema palette. Paper #F4EFE4, ink #1A1714,
+         rules #B8AE9C, one red (#A3271C) for focus, the active tab and the kicker. -->
+    <color name="ink">#1A1714</color>
+    <color name="ink_soft">#D91A1714</color>
+    <color name="ink_secondary">#3A342D</color>
+    <color name="ink_dim">#B31A1714</color>
+    <color name="ink_faint">#611A1714</color>
+    <color name="ink_quiet">#5F584E</color>
+    <color name="accent">#A3271C</color>
+    <color name="ground">#F4EFE4</color>
+    <color name="panel_ground">#F7F4EFE4</color>
+    <color name="focus_fill">@color/ink</color>
+    <color name="on_focus">#F4EFE4</color>
+    <color name="on_focus_secondary">#D9D2C4</color>
+    <color name="hairline">#B8AE9C</color>
+    <color name="control_rest_fill">#1F1A1714</color>
+    <color name="card_ground">#E3DCCD</color>
+    <color name="panel_scrim">#331A1714</color>
+    <color name="mercury_fg">#1A1714</color>
+    <color name="mercury_muted">#4F4840</color>
+    <color name="mercury_faint">#B8AE9C</color>
+    <color name="mercury_blue">#A3271C</color>
+    <color name="mercury_amber">#8A4E00</color>
+    <color name="mercury_glass">#EBF4EFE4</color>
+    <color name="mercury_glass_plain">#F7F4EFE4</color>
+    <color name="mercury_chrome">#1A1714</color>
+    <color name="mercury_hover">#1A1A1714</color>
+    <color name="card_edge">#A3271C</color>
+</resources>
