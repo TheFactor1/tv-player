@@ -1,6 +1,7 @@
 // Turns Stremio catalogs, metadata and streams into the shapes the Xtream Codes API uses.
 
 import { AddonClient, HttpError } from './addon.js';
+import { imdbOf, metaYear, mismatch, parseEpisodeId } from './match.js';
 
 const unix = () => Math.floor(Date.now() / 1000);
 
@@ -81,6 +82,7 @@ export class Library {
     this.catalogCache = new Cache(config.catalogTtlMs);
     this.metaCache = new Cache(config.catalogTtlMs);
     this.streamCache = new Cache(config.streamTtlMs);
+    this.previews = new Map(); // stremio id -> catalog preview, for the year check at play time
   }
 
   // ---- categories -------------------------------------------------------------------------
@@ -159,7 +161,12 @@ export class Library {
     const now = unix();
     let num = 0;
     for (const { entry, metas } of results) {
-      metas.forEach((meta, index) => {
+      metas.forEach((preview, index) => {
+        // One id per title: the IMDb id when the catalog gives one, so the same film from a TMDB
+        // catalog and an IMDb catalog is listed once, and streams are looked up by the id every
+        // stream addon understands.
+        const meta = { ...preview, id: imdbOf(preview) || preview.id };
+        if (!this.previews.has(meta.id)) this.previews.set(meta.id, meta);
         const existing = byId.get(meta.id);
         if (existing) {
           existing.categories.push(entry.categoryId);
@@ -298,7 +305,7 @@ export class Library {
       const season = Number.isFinite(Number(v.season)) ? Number(v.season) : 1;
       counters[season] = (counters[season] || 0) + 1;
       const number = Number(v.episode ?? v.number) || counters[season];
-      const stremioId = v.id || `${id}:${season}:${number}`;
+      const stremioId = this.episodeStreamId(v, meta, id, season, number);
       const title = v.name || v.title || `Episode ${number}`;
       const runtime = minutes(v.runtime || meta.runtime);
       (episodes[season] ||= []).push({
@@ -343,18 +350,58 @@ export class Library {
     };
   }
 
+  /**
+   * The id stream addons expect for an episode: "tt…:season:episode". Metadata from addons that
+   * use other ids (TMDB, TVDB) is converted when the show's IMDb id is known, because that is what
+   * Torrentio, debrid addons and AIOStreams' own matching key on.
+   */
+  episodeStreamId(video, meta, seriesId, season, number) {
+    if (parseEpisodeId(video.id)) return video.id;
+    const imdb = imdbOf(meta) || imdbOf({ id: seriesId });
+    if (imdb) return `${imdb}:${season}:${number}`;
+    return video.id || `${seriesId}:${season}:${number}`;
+  }
+
   // ---- playback ---------------------------------------------------------------------------
 
-  /** The stream AIOStreams ranks first that a plain HTTP player can open. */
+  /** What a correct stream has to match, from the request id and the title's details. */
+  async expectation(type, id) {
+    if (type === 'series') {
+      const ep = parseEpisodeId(id);
+      return ep ? { type, season: ep.season, episode: ep.episode } : { type };
+    }
+    let meta = this.previews.get(id);
+    if (!metaYear(meta)) meta = (await this.meta('movie', id).catch(() => null)) || meta;
+    return { type, title: meta?.name, year: metaYear(meta), imdb: imdbOf(meta) };
+  }
+
+  /** The stream AIOStreams ranks highest that a plain HTTP player can open and that is for this title. */
   async resolve(kind, num) {
     const ns = kind === 'movie' ? 'movie' : 'episode';
     const id = this.ids.key(ns, num);
     if (!id) throw new HttpError(404, `Unknown ${ns} ${num}`);
     const type = kind === 'movie' ? 'movie' : 'series';
     return this.streamCache.get(`${type}:${id}`, async () => {
-      const streams = await this.aio.streams(type, id);
-      const pick = streams.find((s) => typeof s?.url === 'string' && /^https?:\/\//i.test(s.url));
-      if (!pick) throw new HttpError(404, `AIOStreams found no playable stream for ${id}`);
+      const want = await this.expectation(type, id);
+      // Ask by IMDb id where possible; fall back to the original id if that finds nothing.
+      const tries = [...new Set([want.imdb, id].filter(Boolean))];
+      let playable = [];
+      for (const streamId of tries) {
+        const streams = await this.aio.streams(type, streamId);
+        playable = streams.filter((s) => typeof s?.url === 'string' && /^https?:\/\//i.test(s.url));
+        if (playable.length) break;
+      }
+      if (!playable.length) throw new HttpError(404, `AIOStreams found no playable stream for ${id}`);
+
+      const rejected = [];
+      const pick = playable.find((s) => {
+        const reason = mismatch(s, want);
+        if (reason) rejected.push(reason);
+        return !reason;
+      });
+      if (rejected.length) console.log(`${id}: skipped ${rejected.length} stream(s) for the wrong title (${rejected.join('; ')})`);
+      if (!pick) throw new HttpError(404, `Every stream AIOStreams found for ${id} is for a different ${type === 'movie' ? 'film' : 'episode'}`);
+
       const headers = pick.behaviorHints?.proxyHeaders?.request;
       return { id, url: pick.url, headers: headers && Object.keys(headers).length ? headers : null };
     });

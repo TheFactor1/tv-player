@@ -28,6 +28,10 @@ const json = (res, body) => {
 
 before(async () => {
   video = http.createServer((req, res) => {
+    if (req.url === '/wrong') {
+      res.writeHead(404);
+      return res.end();
+    }
     if (req.url === '/needs-header' && req.headers['x-token'] !== 'secret') {
       res.writeHead(403);
       return res.end();
@@ -74,13 +78,17 @@ before(async () => {
       return json(res, { metas: [
         { id: 'tt0111161', type: 'movie', name: 'The Shawshank Redemption', poster: 'p1', imdbRating: '9.3' },
         { id: 'tmdb:550', type: 'movie', name: 'Fight Club', poster: 'p2' },
+        { id: 'tmdb:238', imdb_id: 'tt0068646', type: 'movie', name: 'The Godfather' },
       ] });
     }
-    if (url === '/cfg/catalog/movie/popular/skip=2.json') {
+    if (url === '/cfg/catalog/movie/popular/skip=3.json') {
       return json(res, { metas: [{ id: 'tt0068646', type: 'movie', name: 'The Godfather' }] });
     }
     if (url === '/cfg/catalog/movie/new.json') {
-      return json(res, { metas: [{ id: 'tt0111161', type: 'movie', name: 'The Shawshank Redemption' }] });
+      return json(res, { metas: [
+        { id: 'tt0111161', type: 'movie', name: 'The Shawshank Redemption' },
+        { id: 'tt1375666', type: 'movie', name: 'Inception', releaseInfo: '2010' },
+      ] });
     }
     if (url === '/cfg/catalog/series/shows.json') {
       return json(res, { metas: [{ id: 'tt0903747', type: 'series', name: 'Breaking Bad', poster: 'bb' }] });
@@ -89,8 +97,8 @@ before(async () => {
       return json(res, { meta: {
         id: 'tt0903747', type: 'series', name: 'Breaking Bad', runtime: '47 min',
         videos: [
-          { id: 'tt0903747:1:2', season: 1, episode: 2, name: "Cat's in the Bag..." },
-          { id: 'tt0903747:1:1', season: 1, episode: 1, name: 'Pilot', released: '2008-01-20T00:00:00.000Z' },
+          { id: 'tmdb:1396:1:2', season: 1, episode: 2, name: "Cat's in the Bag..." },
+          { id: 'tmdb:1396:1:1', season: 1, episode: 1, name: 'Pilot', released: '2008-01-20T00:00:00.000Z' },
           { id: 'tt0903747:0:1', season: 0, episode: 1, name: 'Special' },
           { id: 'tt0903747:2:1', season: 2, episode: 1, name: 'Seven Thirty-Seven' },
         ],
@@ -104,10 +112,18 @@ before(async () => {
         { name: '1080p', url: `${videoBase}/other.mkv` },
       ] });
     }
+    if (url === '/cfg/stream/movie/tt1375666.json') {
+      return json(res, { streams: [
+        { url: `${videoBase}/wrong`, behaviorHints: { filename: 'Inception.1999.1080p.mkv' } },
+        { url: `${videoBase}/inception.mkv`, behaviorHints: { filename: 'Inception.2010.2160p.mkv' } },
+      ] });
+    }
     if (url === '/cfg/stream/series/tt0903747:1:1.json') {
-      return json(res, { streams: [{
+      return json(res, { streams: [
+        { url: `${videoBase}/wrong`, behaviorHints: { filename: 'Breaking.Bad.S01E02.1080p.mkv' } },
+        {
         url: `${videoBase}/needs-header`,
-        behaviorHints: { proxyHeaders: { request: { 'x-token': 'secret' } } },
+        behaviorHints: { filename: 'Breaking.Bad.S01E01.Pilot.1080p.mkv', proxyHeaders: { request: { 'x-token': 'secret' } } },
       }] });
     }
     if (url.startsWith('/cfg/stream/')) return json(res, { streams: [] });
@@ -169,14 +185,15 @@ test('movie categories skip catalogs that need a search', async () => {
 test('movie list pages through catalogs and lists each movie once', async () => {
   const cats = await apiJson('&action=get_vod_categories');
   const movies = await apiJson('&action=get_vod_streams');
-  assert.deepEqual(movies.map((m) => m.name), ['The Shawshank Redemption', 'Fight Club', 'The Godfather']);
+  assert.deepEqual(movies.map((m) => m.name), ['The Shawshank Redemption', 'Fight Club', 'The Godfather', 'Inception']);
+  assert.equal(movies[2].stream_id, 68646, 'TMDB catalog items with an IMDb id use it, and are listed once');
   const shawshank = movies[0];
   assert.equal(shawshank.stream_id, 111161);
   assert.deepEqual(shawshank.category_ids, cats.map((c) => Number(c.category_id)));
   assert.ok(movies[1].stream_id >= 1_000_000_000, 'non-IMDb ids get a counter id');
 
   const newOnly = await apiJson(`&action=get_vod_streams&category_id=${cats[1].category_id}`);
-  assert.deepEqual(newOnly.map((m) => m.name), ['The Shawshank Redemption']);
+  assert.deepEqual(newOnly.map((m) => m.name), ['The Shawshank Redemption', 'Inception']);
   assert.equal(newOnly[0].category_id, cats[1].category_id);
 });
 
@@ -188,6 +205,12 @@ test('movie play redirects to the first stream with a URL, and caches it', async
     assert.match(res.headers.get('location'), /\/shawshank\.mkv$/);
   }
   assert.equal(streamCalls - before, 1);
+});
+
+test('a stream for a film from another year is skipped', async () => {
+  const res = await fetch(`${base}/movie/matt/${encodeURIComponent('p@ss word')}/1375666.mp4`, { redirect: 'manual' });
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get('location'), /\/inception\.mkv$/);
 });
 
 test('no stream gives a 404', async () => {
@@ -205,7 +228,7 @@ test('series info groups episodes by season with specials last', async () => {
   assert.equal(info.episodes['1'][0].info.duration_secs, 47 * 60);
 });
 
-test('episode play proxies when the stream needs headers, with range support', async () => {
+test('episode play skips a stream for the wrong episode, and proxies when headers are needed', async () => {
   const shows = await apiJson('&action=get_series');
   const info = await apiJson(`&action=get_series_info&series_id=${shows[0].series_id}`);
   const pilot = info.episodes['1'][0];
