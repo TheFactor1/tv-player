@@ -44,6 +44,9 @@ class SeekBarView @JvmOverloads constructor(
     private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x40FFFFFF }
+    // Chapter starts are small notches cut into the bar, darker than either side of it.
+    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x8C000000.toInt() }
+    private var marksMs = LongArray(0)
     private val rect = RectF()
     private val thumbReach = (THUMB_RADIUS_DP + HALO_DP) * density
 
@@ -59,6 +62,13 @@ class SeekBarView @JvmOverloads constructor(
     fun setProgressColor(color: Int) {
         if (progressPaint.color == color) return
         progressPaint.color = color
+        invalidate()
+    }
+
+    /** Where chapters start, in ms; the first, at 0, has no notch. */
+    fun setMarks(marksMs: LongArray) {
+        if (this.marksMs.contentEquals(marksMs)) return
+        this.marksMs = marksMs
         invalidate()
     }
 
@@ -167,6 +177,13 @@ class SeekBarView @JvmOverloads constructor(
         rect.set(left, cy - half, progressX, cy + half)
         canvas.drawRoundRect(rect, half, half, progressPaint)
 
+        val gap = MARK_GAP_DP * density / 2f
+        for (mark in marksMs) {
+            if (mark <= 0 || mark >= durationMs) continue
+            val x = left + span * (mark / durationMs.toFloat())
+            canvas.drawRect(x - gap, cy - half, x + gap, cy + half, markPaint)
+        }
+
         if (focusAmount > 0f) {
             val radius = THUMB_RADIUS_DP * density * focusAmount
             canvas.drawCircle(progressX, cy, radius + HALO_DP * density, haloPaint)
@@ -178,5 +195,6 @@ class SeekBarView @JvmOverloads constructor(
         const val THUMB_RADIUS_DP = 9f
         const val HALO_DP = 4f
         const val FOCUS_MS = 160f
+        const val MARK_GAP_DP = 2f
     }
 }

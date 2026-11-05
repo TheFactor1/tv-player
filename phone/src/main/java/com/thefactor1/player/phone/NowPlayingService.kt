@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import org.json.JSONObject
@@ -24,6 +25,8 @@ class NowPlayingService : Service() {
     @Volatile private var running = false
     private var worker: Thread? = null
     private var announced: String? = null
+    /** The soundtrack already put on the phone, so it's announced once per film. */
+    private var soundtrackShown: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,6 +109,44 @@ class NowPlayingService : Service() {
         announced = title
         val detail = getString(if (playing) R.string.note_playing else R.string.note_paused)
         notes.notify(NOTE_ID, build(title, detail, playing, alert))
+        state.optJSONObject("soundtrack")?.let(::showSoundtrack)
+    }
+
+    /**
+     * At the credits the TV marks the soundtrack as sent: one notification with the album, opening
+     * the companion's Music tab, and buttons straight into the music apps.
+     */
+    private fun showSoundtrack(album: JSONObject) {
+        val id = album.optString("id")
+        if (!album.optBoolean("sent") || id.isEmpty() || id == soundtrackShown) return
+        soundtrackShown = id
+        val name = album.optString("album")
+        val artist = album.optString("artist").ifEmpty { null }
+        val query = listOfNotNull(name, artist).joinToString(" ")
+        val open = PendingIntent.getActivity(
+            this, MUSIC_NOTE_ID,
+            Intent(this, CompanionActivity::class.java)
+                .putExtra(CompanionActivity.EXTRA_MUSIC, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val builder = Notification.Builder(this, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle(getString(R.string.note_soundtrack, name))
+            .setContentText(artist ?: getString(R.string.note_soundtrack_detail))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_RECOMMENDATION)
+            .setColor(getColor(R.color.ground))
+        MUSIC_APPS.forEachIndexed { i, (label, url) ->
+            val view = PendingIntent.getActivity(
+                this, MUSIC_NOTE_ID + 1 + i,
+                Intent(Intent.ACTION_VIEW, Uri.parse(url + Uri.encode(query))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            builder.addAction(Notification.Action.Builder(null as Icon?, getString(label), view).build())
+        }
+        notes.notify(MUSIC_NOTE_ID, builder.build())
     }
 
     private fun build(title: String, detail: String, playing: Boolean?, alert: Boolean): Notification {
@@ -154,6 +195,13 @@ class NowPlayingService : Service() {
     companion object {
         private const val CHANNEL = "now_playing"
         private const val NOTE_ID = 1
+        private const val MUSIC_NOTE_ID = 2
+        /** Search links each app opens itself when it's installed, or in the browser when it isn't. */
+        private val MUSIC_APPS = listOf(
+            R.string.music_spotify to "https://open.spotify.com/search/",
+            R.string.music_apple to "https://music.apple.com/search?term=",
+            R.string.music_youtube to "https://music.youtube.com/search?q=",
+        )
         private const val EXTRA_ACTION = "action"
         private const val RELOCATE_AFTER = 3
         private const val BACKOFF_MS = 5_000L
