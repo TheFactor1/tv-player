@@ -13,8 +13,8 @@ android {
         applicationId = "com.thefactor1.player.phone"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "1.4"
     }
 
     signingConfigs {
@@ -52,4 +52,8 @@ android {
 
 kotlin {
     jvmToolchain(17)
+}
+
+dependencies {
+    testImplementation(libs.junit)
 }

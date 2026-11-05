@@ -1,14 +1,21 @@
 package com.thefactor1.player.ui
 
 import android.content.Context
+import android.text.format.DateFormat
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.thefactor1.player.R
+import com.thefactor1.player.companion.PairedPhone
 import com.thefactor1.player.companion.PhoneCompanion
 import com.thefactor1.player.playback.PlayerPrefs
 import com.thefactor1.player.playback.PlayerPrefs.SubtitleMode
+import java.util.Date
 
 /** The settings that apply to every video, and what this TV can do, as rows for the home screen's panel. */
 class DefaultSettings(private val context: Context, private val prefs: PlayerPrefs, private val thisTv: () -> List<ThisTv.Fact>) {
+    /** Called when rows come or go (a phone removed), so the list can be built again. */
+    var onRowsChanged: () -> Unit = {}
+    /** The phone whose row asked "OK again to remove". */
+    private var confirming: String? = null
 
     fun rows(): List<OptionList.RowSpec> = listOf(
         heading(R.string.settings_audio),
@@ -28,10 +35,37 @@ class DefaultSettings(private val context: Context, private val prefs: PlayerPre
         item { filmColours() },
         heading(R.string.settings_phone),
         item { phoneCompanion() },
+    ) + phoneRows() + listOf(
         heading(R.string.settings_advanced),
         item { audioOutput() },
         heading(R.string.home_this_tv),
     ) + thisTv().map { fact -> item { Option(fact.label, fact.value, fact.note) } }
+
+    /** Each paired phone by the name it gave, removable with OK twice. */
+    private fun phoneRows(): List<OptionList.RowSpec> {
+        val phones = PhoneCompanion.phones()
+        if (phones.isEmpty()) return listOf(item { Option(context.getString(R.string.phones_title), context.getString(R.string.phones_none)) })
+        return listOf(heading(R.string.phones_title)) + phones.reversed().map { phone -> item { phoneRow(phone) } }
+    }
+
+    private fun phoneRow(phone: PairedPhone): Option {
+        val asking = confirming == phone.token
+        val since = if (phone.since > 0) DateFormat.getMediumDateFormat(context).format(Date(phone.since)) else null
+        return Option(
+            phone.name,
+            if (asking) context.getString(R.string.phone_confirm) else null,
+            if (asking) context.getString(R.string.phone_confirm_hint)
+            else since?.let { context.getString(R.string.phone_since, it) } ?: context.getString(R.string.phone_remove_hint),
+        ) {
+            if (asking) {
+                confirming = null
+                PhoneCompanion.forget(phone.token)
+                onRowsChanged()
+            } else {
+                confirming = phone.token
+            }
+        }
+    }
 
     private fun heading(text: Int) = OptionList.RowSpec.Heading(context.getString(text))
     private fun item(option: () -> Option) = OptionList.RowSpec.Item(option)

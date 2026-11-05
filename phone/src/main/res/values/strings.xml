@@ -22,4 +22,53 @@
     <string name="action_play">Play</string>
     <string name="action_pause">Pause</string>
     <string name="forget">Forget this TV</string>
+
+    <!-- Pairing by pointing the camera at the TV. -->
+    <string name="scan_shortcut">Point at the TV</string>
+    <string name="scan_aim">Point the camera at the TV. It doesn\'t need to fill the view</string>
+    <string name="scan_found">Found the TV. Hold steady</string>
+    <string name="scan_closer">Found the TV. A little closer will be quicker</string>
+    <string name="scan_hint">Keep the whole picture in view and hold still for a few seconds</string>
+    <string name="scan_reading">Reading the TV</string>
+    <string name="scan_steady">Almost. Hold steady</string>
+    <string name="scan_connected">Connected</string>
+    <string name="scan_other_ways">Other ways</string>
+    <string name="scan_refresh">The TV is running at %1$.0f Hz for this film, which would show the code. Use Other ways, or try from the TV\'s home screen.</string>
+    <string name="scan_open_tv">Open TV Player on the TV first</string>
+    <string name="scan_wait">The TV paused pairing for a moment. Try again in half a minute</string>
+    <string name="scan_no_tv">No TV Player found on this Wi-Fi yet</string>
+    <string name="scan_no_camera">The camera isn\'t available</string>
+    <string name="scan_no_manual">This phone\'s camera can\'t read the TV. Use Other ways to connect</string>
+
+    <!-- Other ways to pair, and managing the pairing. -->
+    <string name="find_point">Point at the TV</string>
+    <string name="find_point_detail">Hold your phone up to the picture. Nothing shows on screen.</string>
+    <string name="find_nearby">On this Wi-Fi</string>
+    <string name="find_manual">Enter address and code</string>
+    <string name="manual_title">Enter address and code</string>
+    <string name="manual_detail">Both are in the TV\'s settings, under Phone companion.</string>
+    <string name="manual_address">Address, e.g. 192.168.1.20</string>
+    <string name="manual_code">4-digit code</string>
+    <string name="manual_connect">Connect</string>
+    <string name="manual_wrong">That code didn\'t match. Check the TV\'s settings and try again.</string>
+    <string name="manual_unreachable">Couldn\'t reach a TV at that address.</string>
+    <string name="pairing_title">Pairing</string>
+    <string name="pairing_connected">Connected to %1$s</string>
+    <string name="pairing_again">Pair again</string>
+    <string name="pairing_again_detail">Connect afresh, or to a different TV</string>
+    <string name="pairing_forget">Forget this TV</string>
+    <string name="pairing_forget_detail">The TV forgets this phone too</string>
+    <string name="pairing_shortcut">Pairing</string>
+    <string name="reach_title">Can\'t reach the TV</string>
+    <string name="reach_offline">Your phone isn\'t connected to a network.</string>
+    <string name="reach_mobile">Your phone is on mobile data. Connect it to the same Wi-Fi as the TV.</string>
+    <string name="reach_vpn">A VPN is on, and it can hide the TV from your phone. Turn it off, or allow local network devices in its settings.</string>
+    <string name="reach_other_wifi">Your phone is on a different Wi-Fi from the TV (%1$s). Switch to the TV\'s network.</string>
+    <string name="reach_tv">The TV may be asleep, or TV Player isn\'t open on it. Wake the TV and open TV Player, and this will connect by itself.</string>
+    <string name="reach_forgotten">The TV no longer knows this phone. It may have been removed from the TV\'s Connected phones.</string>
+    <string name="reach_forgotten_hint">Pair again to connect</string>
+    <string name="reach_try">Try again</string>
+    <string name="reach_pair">Pair again</string>
+    <string name="reach_trying">Looking for the TV…</string>
+    <string name="reach_retrying">Trying again every few seconds</string>
 </resources>
