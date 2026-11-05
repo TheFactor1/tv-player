@@ -35,6 +35,12 @@ error card offers Try again and Open in another player (with the same headers, s
 | 3 | Cinema-style remote-first controls, track panels, subtitle styling (this) |
 | 4 | Buffer tuning for 4K remuxes, device testing, signed release |
 
+## Xtream bridge
+
+[`xtream-bridge/`](xtream-bridge/README.md) is a separate small Node server that serves an
+AIOStreams setup as an Xtream Codes login, so IPTV apps like TiviMate can browse and play it. It
+isn't part of the APK.
+
 ## Install
 
 Every push builds APKs in GitHub Actions. Open the latest **Build** run, download `player-release`,

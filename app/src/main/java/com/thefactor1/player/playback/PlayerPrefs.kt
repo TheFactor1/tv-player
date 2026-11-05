@@ -50,6 +50,11 @@ class PlayerPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_DIALOGUE_BOOST, false)
         set(value) = prefs.edit { putBoolean(KEY_DIALOGUE_BOOST, value) }
 
+    /** On a screen without HDR, the player tone maps HDR video itself instead of leaving it to the TV box. */
+    var hdrToSdr: Boolean
+        get() = prefs.getBoolean(KEY_HDR_TO_SDR, true)
+        set(value) = prefs.edit { putBoolean(KEY_HDR_TO_SDR, value) }
+
     /** Lets the film's own colour tint the seek bars. */
     var filmColours: Boolean
         get() = prefs.getBoolean(KEY_FILM_COLOURS, true)
@@ -139,6 +144,7 @@ class PlayerPrefs(context: Context) {
         private const val KEY_NIGHT_MODE = "night_mode"
         private const val KEY_DIALOGUE_BOOST = "dialogue_boost"
         private const val KEY_FILM_COLOURS = "film_colours"
+        private const val KEY_HDR_TO_SDR = "hdr_to_sdr"
         private const val KEY_SUB_STYLE = "subtitle_style"
         private const val KEY_SUB_POSITION = "subtitle_position"
         private const val KEY_SUB_MODE = "subtitle_mode"

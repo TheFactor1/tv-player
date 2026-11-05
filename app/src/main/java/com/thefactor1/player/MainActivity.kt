@@ -14,28 +14,36 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.thefactor1.player.companion.PhoneCompanion
+import com.thefactor1.player.launch.SavedStream
 import com.thefactor1.player.meta.ArtworkLoader
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.playback.PlayerPrefs
+import com.thefactor1.player.resume.ResumeStore
 import com.thefactor1.player.resume.WatchHistory
+import com.thefactor1.player.ui.Beacon
 import com.thefactor1.player.ui.DefaultSettings
 import com.thefactor1.player.ui.Fonts
+import com.thefactor1.player.ui.Motion
 import com.thefactor1.player.ui.OptionList
 import com.thefactor1.player.ui.PairingCard
+import com.thefactor1.player.ui.SettingsPreview
 import com.thefactor1.player.ui.ThisTv
 
 /**
- * The home screen: the last film played, full screen with its art and a way back into it, the
- * other titles played lately along the bottom, and the settings for every video in a side panel.
+ * The home screen: the last film played, full screen with its art and ways to play it again, the
+ * other titles played lately along the bottom, and the settings for every video over it, each
+ * shown working in a small preview.
  * Before anything has been played it says how to open a film in Player instead.
  */
 class MainActivity : Activity() {
 
     private lateinit var fonts: Fonts
     private lateinit var history: WatchHistory
+    private val resume by lazy { ResumeStore(this) }
     private lateinit var defaults: DefaultSettings
     private lateinit var settings: OptionList
+    private lateinit var preview: SettingsPreview
     private val heroArt by lazy { ArtworkLoader(this) }
     private val cardArt by lazy { ArtworkLoader(this) }
     private val facts by lazy { ThisTv.facts(this, PlayerPrefs(this)) }
@@ -43,6 +51,7 @@ class MainActivity : Activity() {
     private lateinit var backdrop: ImageView
     private lateinit var logo: ImageView
     private lateinit var title: TextView
+    private lateinit var playButton: TextView
     private lateinit var continueButton: TextView
     private lateinit var settingsButton: TextView
     private lateinit var cards: LinearLayout
@@ -64,6 +73,7 @@ class MainActivity : Activity() {
         backdrop = findViewById(R.id.home_backdrop)
         logo = findViewById(R.id.home_logo)
         title = findViewById(R.id.home_title)
+        playButton = findViewById(R.id.home_play)
         continueButton = findViewById(R.id.home_continue)
         settingsButton = findViewById(R.id.home_settings)
         cards = findViewById(R.id.home_cards)
@@ -71,14 +81,27 @@ class MainActivity : Activity() {
 
         fonts.apply(fonts.bold, title, findViewById(R.id.home_empty_title), findViewById(R.id.settings_title))
         fonts.apply(fonts.semibold, findViewById(R.id.home_kicker), findViewById(R.id.home_meta), findViewById(R.id.home_position),
-            continueButton, settingsButton, findViewById(R.id.home_recent), findViewById(R.id.home_empty_kicker),
-            findViewById(R.id.home_empty_steps), findViewById(R.id.home_empty_settings), findViewById(R.id.settings_kicker))
-        fonts.apply(fonts.medium, findViewById(R.id.home_plot), findViewById(R.id.home_empty_body), findViewById(R.id.settings_hint))
+            playButton, continueButton, settingsButton, findViewById(R.id.home_recent), findViewById(R.id.home_empty_kicker),
+            findViewById(R.id.home_empty_steps), findViewById(R.id.home_empty_settings), findViewById(R.id.settings_crumb))
+        fonts.apply(fonts.medium, findViewById(R.id.home_plot), findViewById(R.id.home_empty_body))
         findViewById<TextView>(R.id.home_empty_steps).text =
             "1    ${getString(R.string.home_step_open)}\n2    ${getString(R.string.home_step_choose)}"
 
-        defaults = DefaultSettings(this, PlayerPrefs(this)) { facts }
-        settings = OptionList(this, findViewById(R.id.settings_items), findViewById(R.id.settings_hint), fonts, defaults::rows)
+        val prefs = PlayerPrefs(this)
+        defaults = DefaultSettings(this, prefs) { facts }
+        preview = SettingsPreview(panel, prefs, fonts)
+        if (resources.configuration.screenWidthDp < PREVIEW_MIN_WIDTH_DP) findViewById<View>(R.id.settings_preview_column).visibility = View.GONE
+        val crumb = findViewById<TextView>(R.id.settings_crumb)
+        val pageTitle = findViewById<TextView>(R.id.settings_title)
+        // On a phone the way back can be tapped as well.
+        crumb.setOnClickListener { settings.back() }
+        settings = OptionList(this, findViewById(R.id.settings_items), fonts, defaults::rows, preview::show) { page ->
+            pageTitle.text = defaults.title(page)
+            crumb.text = defaults.parent(page)?.let { getString(R.string.settings_back, defaults.title(it)) }
+        }
+        // A phone removed takes its row with it; rebuilt after the press, keeping focus near where it was.
+        defaults.onRowsChanged = { window.decorView.post { settings.show(settings.focusedIndex()) } }
+        playButton.setOnClickListener { hero?.let(::playHere) }
         continueButton.setOnClickListener { hero?.let(::openInSource) }
         settingsButton.setOnClickListener { openPanel() }
         findViewById<View>(R.id.home_empty_settings).setOnClickListener { openPanel() }
@@ -95,8 +118,10 @@ class MainActivity : Activity() {
         super.onStart()
         PhoneCompanion.start(this)
         PhoneCompanion.approver = askToConnect
+        Beacon.attach(this)
+        PhoneCompanion.beaconScreen = Beacon
         // Back from a film: it's now the newest entry, so it takes the big spot.
-        entries = history.all()
+        entries = history.all().map(::withStream)
         hero = entries.firstOrNull()
         showHome()
         // The phone code may have changed since the list was built: a phone paired, or the network came up.
@@ -106,14 +131,19 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         if (PhoneCompanion.approver === askToConnect) PhoneCompanion.approver = null
+        Beacon.detach(this)
         PhoneCompanion.stop()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (panelOpen) {
             when (keyCode) {
-                // Left and Right step the focused setting; they never leave the panel.
-                KeyEvent.KEYCODE_DPAD_LEFT -> { settings.step(-1); return true }
+                // Left and Right step the focused setting; they never leave the list. Left on a row
+                // with nothing to step goes back a page, as on Apple TV.
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    if (!settings.step(-1)) settings.back()
+                    return true
+                }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> { settings.step(1); return true }
                 KeyEvent.KEYCODE_MENU -> { closePanel(); return true }
             }
@@ -127,7 +157,7 @@ class MainActivity : Activity() {
     @Deprecated("Still delivered on every Android version this app supports without opting in to predictive back.")
     override fun onBackPressed() {
         if (panelOpen) {
-            closePanel()
+            if (!settings.back()) closePanel()
             return
         }
         @Suppress("DEPRECATION")
@@ -149,10 +179,11 @@ class MainActivity : Activity() {
         }
         showHero(current)
         showCards(current)
-        if (!panelOpen) {
-            (if (continueButton.visibility == View.VISIBLE) continueButton else settingsButton).requestFocus()
-        }
+        if (!panelOpen) firstButton().requestFocus()
     }
+
+    /** The hero's first button: Resume when the stream was kept, else back to the app, else Settings. */
+    private fun firstButton(): View = listOf(playButton, continueButton).firstOrNull { it.visibility == View.VISIBLE } ?: settingsButton
 
     private fun showHero(entry: WatchHistory.Entry) {
         findViewById<TextView>(R.id.home_kicker).setText(if (entry.watched) R.string.home_watched_kicker else R.string.home_continue_kicker)
@@ -167,11 +198,21 @@ class MainActivity : Activity() {
             entry.watched -> getString(R.string.home_watched)
             else -> getString(R.string.home_position, clock(entry.positionMs), timeLeft(entry))
         }
+        val stream = entry.stream
+        playButton.visibility = if (stream != null) View.VISIBLE else View.GONE
+        playButton.setText(when {
+            entry.watched -> R.string.home_play_again
+            entry.positionMs > 0 -> R.string.home_resume
+            else -> R.string.home_play
+        })
         continueButton.visibility = if (app != null) View.VISIBLE else View.GONE
-        continueButton.text = app?.let { getString(if (entry.watched) R.string.home_open else R.string.home_continue, it) }
+        // With Resume in front, the app is the way to pick another stream: no second play mark.
+        continueButton.text = app?.let { getString(if (entry.watched || stream != null) R.string.home_open else R.string.home_continue, it) }
+        continueButton.setCompoundDrawablesRelativeWithIntrinsicBounds(if (stream != null) null else getDrawable(R.drawable.ic_play), null, null, null)
+        continueButton.setPaddingRelative(dp(if (stream != null) 22 else 18), 0, dp(22), 0)
 
         // Coming back to the same title keeps its art up instead of blanking it and fading it in again.
-        val artKey = listOf(entry.key, entry.imdbId, entry.season, entry.episode).joinToString("|")
+        val artKey = listOf(entry.key, entry.season, entry.episode).joinToString("|")
         if (artKey == shownArtKey && backdrop.drawable != null) return
         shownArtKey = artKey
         title.visibility = View.VISIBLE
@@ -181,11 +222,18 @@ class MainActivity : Activity() {
         backdrop.alpha = 0f
         backdrop.setImageDrawable(null)
         heroArt.cancel()
-        val query = MetaQuery(entry.searchName ?: entry.name, entry.year, entry.season, entry.episode)
-        heroArt.load(query, imdbHint = entry.imdbId, listener = object : ArtworkLoader.Listener {
+        heroArt.load(query(entry), imdbHint = entry.imdbId, listener = object : ArtworkLoader.Listener {
             override fun onDetails(details: MetaDetails) {
                 // Fills in what playback didn't get to: a title that was left before it was recognised.
                 if (entry.description == null) showDetails(details.episodeLine, details.kicker, details.description)
+                // And keeps it, so its card has art next time and the details don't wait on the network.
+                remember(entry, details.imdbId) {
+                    it.copy(
+                        kicker = it.kicker ?: details.kicker,
+                        episodeLine = it.episodeLine ?: details.episodeLine,
+                        description = it.description ?: details.description,
+                    )
+                }
             }
 
             override fun onBackdrop(bitmap: Bitmap) {
@@ -221,9 +269,9 @@ class MainActivity : Activity() {
         val widthPx = resources.getDimensionPixelSize(R.dimen.home_card_width)
         rest.forEach { entry ->
             val card = inflater.inflate(R.layout.item_home_card, cards, false)
-            card.clipToOutline = true
+            card.findViewById<View>(R.id.card_body).clipToOutline = true
             card.id = View.generateViewId()
-            card.nextFocusUpId = R.id.home_continue.takeIf { continueButton.visibility == View.VISIBLE } ?: R.id.home_settings
+            card.nextFocusUpId = firstButton().id
             val name = card.findViewById<TextView>(R.id.card_title)
             name.typeface = fonts.bold
             name.text = entry.name
@@ -232,11 +280,30 @@ class MainActivity : Activity() {
             val fill = card.findViewById<View>(R.id.card_progress_fill)
             fill.layoutParams = fill.layoutParams.apply { width = ((widthPx - 20 * resources.displayMetrics.density) * fraction(entry)).toInt() }
             val art = card.findViewById<ImageView>(R.id.card_art)
-            entry.imdbId?.let { id -> cardArt.backdrop(id, widthPx) { art.setImageBitmap(it) } }
-            card.setOnFocusChangeListener { v, hasFocus ->
-                v.animate().scaleX(if (hasFocus) CARD_LIFT else 1f).scaleY(if (hasFocus) CARD_LIFT else 1f).setDuration(CARD_LIFT_MS).start()
+            val id = entry.imdbId
+            if (id != null) {
+                cardArt.backdrop(id, widthPx) { art.setImageBitmap(it) }
+            } else {
+                // Never recognised while it played: look it up by name now, and keep what's found.
+                cardArt.identify(query(entry)) { found ->
+                    remember(entry, found)
+                    if (card.isAttachedToWindow) cardArt.backdrop(found, widthPx) { art.setImageBitmap(it) }
+                }
             }
-            // OK brings the card up as the big one, ready to continue.
+            // The ring fades in with the drawable's own timing; the card rises on the shared focus curve.
+            val body = card.findViewById<View>(R.id.card_body)
+            val raise = resources.getDimension(R.dimen.home_card_raise)
+            card.setOnFocusChangeListener { v, hasFocus ->
+                val scale = if (hasFocus) CARD_LIFT else 1f
+                val ease = if (hasFocus) Motion.enter else Motion.exit
+                val ms = if (hasFocus) Motion.FOCUS_MS else Motion.FOCUS_MS * 3 / 4
+                v.animate().scaleX(scale).scaleY(scale).setInterpolator(ease).setDuration(ms).start()
+                // Its shadow deepens as it rises, so it reads as lifted off the page, not just outlined.
+                body.animate().translationZ(if (hasFocus) raise else 0f).setInterpolator(ease).setDuration(ms).start()
+                // After focus has settled, so moving along the row doesn't flicker the cards in between.
+                cards.post(::dimShelf)
+            }
+            // OK brings the card up as the big one, with Resume focused; it never starts playing by itself.
             card.setOnClickListener {
                 hero = entry
                 showHome()
@@ -245,10 +312,59 @@ class MainActivity : Activity() {
         }
         // Down from the buttons lands on the first card, not the one under the cursor.
         cards.getChildAt(0)?.let { first ->
-            continueButton.nextFocusDownId = first.id
-            settingsButton.nextFocusDownId = first.id
+            listOf(playButton, continueButton, settingsButton).forEach { it.nextFocusDownId = first.id }
         }
     }
+
+    /** While a card has focus the others step back a little, so the ring isn't all that marks it. */
+    private fun dimShelf() {
+        val focused = cards.focusedChild
+        for (i in 0 until cards.childCount) {
+            val card = cards.getChildAt(i)
+            val target = if (focused == null || card === focused) 1f else CARD_DIM
+            if (card.alpha != target) card.animate().alpha(target).setDuration(Motion.FOCUS_MS).start()
+        }
+    }
+
+    /**
+     * A title played before streams were kept with the history gets the address its position was
+     * saved under, when there is one, so it can be resumed here too.
+     */
+    private fun withStream(entry: WatchHistory.Entry): WatchHistory.Entry {
+        if (entry.stream != null || entry.watched) return entry
+        val id = entry.imdbId ?: return entry
+        val keys = listOfNotNull(
+            if (entry.season != null && entry.episode != null) "imdb:$id:s${entry.season}e${entry.episode}" else null,
+            "imdb:$id".takeIf { entry.season == null },
+        )
+        val url = resume.streamUrl(keys) ?: return entry
+        return entry.copy(stream = SavedStream(url, null, entry.name, null, emptyMap(), emptyList()))
+    }
+
+    private fun query(entry: WatchHistory.Entry) = MetaQuery(entry.searchName ?: entry.name, entry.year, entry.season, entry.episode)
+
+    /** Saves what was found out about [entry] and puts the updated one in this screen's list. */
+    private fun remember(entry: WatchHistory.Entry, imdbId: String?, details: (WatchHistory.Entry) -> WatchHistory.Entry = { it }) {
+        val updated = history.learn(entry.key, imdbId, details)?.let(::withStream) ?: return
+        entries = entries.map { if (it.key == updated.key) updated else it }
+        if (hero?.key == updated.key) hero = updated
+    }
+
+    /**
+     * Starts the title's last stream in the player straight from here; the saved position does the
+     * rest. A link that has expired since shows the player's own error, and the source app's button
+     * is still here to pick a fresh stream.
+     */
+    private fun playHere(entry: WatchHistory.Entry) {
+        val stream = entry.stream ?: return
+        try {
+            startActivity(stream.intent(this, entry.imdbId))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.error_no_stream, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     /**
      * Back into the app the title was played from, which hands it to Player again; the saved
@@ -302,36 +418,40 @@ class MainActivity : Activity() {
         return if (minutes >= 60) getString(R.string.home_left_hm, minutes / 60, minutes % 60) else getString(R.string.home_left_m, minutes)
     }
 
-    // ---- Settings panel -------------------------------------------------------------------------
+    // ---- Settings ---------------------------------------------------------------------------------
 
-    private fun openPanel(focusIndex: Int = -1) {
+    /** Opens on the first page each time, with the film's art in the preview. */
+    private fun openPanel() {
         panelOpen = true
-        findViewById<View>(R.id.panel_scrim).visibility = View.VISIBLE
         panel.animate().cancel()
         panel.visibility = View.VISIBLE
-        panel.translationX = panel.width * PANEL_SLIDE
+        panel.translationY = PANEL_RISE_DP * resources.displayMetrics.density
         panel.alpha = 0f
-        panel.animate().translationX(0f).alpha(1f).setDuration(PANEL_MS).start()
-        settings.show(focusIndex)
+        panel.animate().translationY(0f).alpha(1f).setDuration(PANEL_MS).setInterpolator(Motion.enter).start()
+        preview.reset()
+        preview.setArt(backdrop.drawable.takeIf { hero != null })
+        settings.reset()
+        settings.show()
     }
 
     private fun closePanel() {
         panelOpen = false
-        findViewById<View>(R.id.panel_scrim).visibility = View.GONE
         // Out the way it came in, a touch quicker, rather than vanishing.
         panel.animate().cancel()
-        panel.animate().translationX(panel.width * PANEL_SLIDE).alpha(0f).setDuration(PANEL_OUT_MS)
-            .withEndAction { panel.visibility = View.INVISIBLE }.start()
+        panel.animate().translationY(PANEL_RISE_DP * resources.displayMetrics.density).alpha(0f).setDuration(PANEL_OUT_MS)
+            .setInterpolator(Motion.exit).withEndAction { panel.visibility = View.INVISIBLE }.start()
         (if (hero == null) findViewById<View>(R.id.home_empty_settings) else settingsButton).requestFocus()
     }
 
     private companion object {
         const val MAX_CARDS = 8
         const val ART_FADE_MS = 320L
-        const val PANEL_MS = 180L
-        const val PANEL_OUT_MS = 140L
-        const val PANEL_SLIDE = 0.08f
-        const val CARD_LIFT = 1.06f
-        const val CARD_LIFT_MS = 140L
+        const val PANEL_MS = 240L
+        const val PANEL_OUT_MS = 160L
+        const val PANEL_RISE_DP = 8f
+        /** Narrower than this (a phone held upright), the settings list goes without its preview. */
+        const val PREVIEW_MIN_WIDTH_DP = 600
+        const val CARD_LIFT = 1.03f
+        const val CARD_DIM = 0.7f
     }
 }

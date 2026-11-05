@@ -1,0 +1,12 @@
+services:
+  xtream-bridge:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - bridge-data:/data   # keeps id numbers stable across restarts and rebuilds
+
+volumes:
+  bridge-data:
