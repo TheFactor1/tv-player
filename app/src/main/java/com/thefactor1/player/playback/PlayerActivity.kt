@@ -44,6 +44,7 @@ import com.thefactor1.player.launch.IntentContract
 import com.thefactor1.player.launch.LaunchRequest
 import com.thefactor1.player.launch.PlaybackResult
 import com.thefactor1.player.launch.ReleaseName
+import com.thefactor1.player.launch.SavedStream
 import com.thefactor1.player.meta.MetaDetails
 import com.thefactor1.player.meta.MetaQuery
 import com.thefactor1.player.resume.ResumePolicy
@@ -308,6 +309,7 @@ class PlayerActivity : Activity() {
                 watched = watched,
                 sourcePackage = sourcePackage,
                 savedAt = System.currentTimeMillis(),
+                stream = request?.let(SavedStream::from),
             ),
         )
     }

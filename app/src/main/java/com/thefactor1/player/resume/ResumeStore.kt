@@ -48,6 +48,18 @@ class ResumeStore(context: Context) {
         return Entry.decode(value)?.let { it to keys }
     }
 
+    /**
+     * The web address of the stream last saved under the first of [keys] that has a position, for a
+     * title played before streams were kept with the history. The address is kept without its query
+     * string, so a link that needed one won't play; the player then shows its usual error.
+     */
+    fun streamUrl(keys: List<String>): String? {
+        val value = keys.firstNotNullOfOrNull { prefs.getString(it, null) } ?: return null
+        return prefs.all.entries
+            .firstOrNull { (key, saved) -> saved == value && (key.startsWith("url:https://") || key.startsWith("url:http://")) }
+            ?.key?.removePrefix("url:")
+    }
+
     fun save(keys: List<String>, positionMs: Long, durationMs: Long) {
         if (keys.isEmpty()) return
         val value = Entry(positionMs, durationMs, System.currentTimeMillis()).encode()
