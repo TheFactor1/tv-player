@@ -7,6 +7,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.util.Log
+import com.thefactor1.player.meta.Soundtrack
+import com.thefactor1.player.meta.SoundtrackLoader
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -62,6 +64,16 @@ object PhoneCompanion {
         }
     // Counted per change, not per size: two shows with eight people each are still different casts.
     @Volatile private var castVersion = 0
+    /** The film's soundtrack album, once found. */
+    @Volatile var soundtrack: Soundtrack? = null
+    /** The credits have started: the phone puts the soundtrack in front of the viewer. */
+    @Volatile var soundtrackSent = false
+
+    /** When a paired phone last asked for anything, so the TV can say "on your phone" only when one is listening. */
+    @Volatile private var phoneSeenAt = 0L
+
+    /** A paired phone has been in touch in the last couple of minutes. */
+    val phoneListening: Boolean get() = System.currentTimeMillis() - phoneSeenAt < PHONE_RECENT_MS
 
     /**
      * Asks whoever is on screen whether a phone may connect; null while no screen can ask. Called on
@@ -117,6 +129,8 @@ object PhoneCompanion {
         synchronized(sync) { sync.reset() }
         transcript = emptyList()
         cast = emptyList()
+        soundtrack = null
+        soundtrackSent = false
     }
 
     /**
@@ -279,11 +293,13 @@ object PhoneCompanion {
         if (path == "/api/beacon") return beacon(request, authorised(request.headers["x-token"]))
         if (path == "/api/beacon/pair" && request.method == "POST") return beaconPair(request)
         if (!authorised(request.headers["x-token"])) return json(401, JSONObject().put("error", "pair"))
+        phoneSeenAt = System.currentTimeMillis()
         return when (path) {
             "/api/state" -> json(200, state())
             "/api/wait" -> json(200, waitForChange(query(request, "key")))
             "/api/transcript" -> json(200, transcriptJson())
             "/api/cast" -> json(200, castJson())
+            "/api/soundtrack" -> json(200, soundtrackJson())
             "/api/control" -> control(request)
             "/api/unpair" -> unpair(request)
             else -> Http.Response(404, "text/plain", "Not found".toByteArray())
@@ -391,7 +407,7 @@ object PhoneCompanion {
     }
 
     private fun nowPlayingKey(state: JSONObject): String =
-        if (state.optBoolean("idle")) "idle" else "${state.optString("title")}|${state.optBoolean("playing")}"
+        if (state.optBoolean("idle")) "idle" else "${state.optString("title")}|${state.optBoolean("playing")}|${soundtrackSent}"
 
     private fun query(request: Http.Request, name: String): String? =
         request.path.substringAfter('?', "").split('&')
@@ -404,7 +420,27 @@ object PhoneCompanion {
 
     private fun state(): JSONObject {
         val state = onMain { host?.companionState() } ?: JSONObject().put("idle", true)
-        return state.put("transcriptVersion", transcriptVersion).put("transcriptStatus", transcriptStatus).put("castCount", cast.size).put("castVersion", castVersion)
+        state.put("transcriptVersion", transcriptVersion).put("transcriptStatus", transcriptStatus).put("castCount", cast.size).put("castVersion", castVersion)
+        // Enough for the phone's notification; the track list comes from /api/soundtrack.
+        soundtrack?.let { album ->
+            state.put("soundtrack", JSONObject().put("id", album.id).put("album", album.shortName).put("artist", album.artist ?: "").put("sent", soundtrackSent))
+        }
+        return state
+    }
+
+    private fun soundtrackJson(): JSONObject {
+        val album = soundtrack ?: return JSONObject()
+        val tracks = JSONArray()
+        album.tracks.forEach { tracks.put(JSONObject().put("title", it.title).put("ms", it.lengthMs ?: 0L)) }
+        return JSONObject()
+            .put("id", album.id)
+            .put("album", album.album)
+            .put("name", album.shortName)
+            .put("artist", album.artist ?: "")
+            .put("year", album.year ?: 0)
+            .put("cover", SoundtrackLoader.coverUrl(album.id))
+            .put("sent", soundtrackSent)
+            .put("tracks", tracks)
     }
 
     private fun transcriptJson(): JSONObject {
@@ -532,5 +568,6 @@ object PhoneCompanion {
     private const val BEACON_SECONDS = 20
     private const val MAX_BEACON_SECONDS = 60
     private const val BEACON_STRENGTH = 4
+    private const val PHONE_RECENT_MS = 120_000L
     private val ACTIONS = setOf("play", "pause", "toggle", "seek", "skip")
 }

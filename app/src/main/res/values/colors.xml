@@ -21,5 +21,8 @@
     <color name="card_ground">#15171A</color>
     <!-- The focus ring around a home card: the ink, a touch softer so it frames rather than shouts. -->
     <color name="home_card_ring">#D9F3F1EC</color>
-    <color name="panel_scrim">#59000000</color>
+    <!-- Over the home screen's art while the settings are up. -->
+    <color name="settings_veil">#E0080810</color>
+    <!-- Behind the sound bars in the settings preview. -->
+    <color name="sound_ground">#111216</color>
 </resources>

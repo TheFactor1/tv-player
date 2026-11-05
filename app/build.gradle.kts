@@ -70,6 +70,8 @@ dependencies {
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.ui)
+    // OpenGL tone mapping: HDR played on an SDR screen, converted by the player.
+    implementation(libs.media3.effect)
     implementation(libs.media3.ffmpeg.decoder)
     implementation(libs.zxing.core)
 

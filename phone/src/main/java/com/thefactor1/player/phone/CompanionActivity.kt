@@ -2,11 +2,13 @@ package com.thefactor1.player.phone
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -64,6 +66,18 @@ class CompanionActivity : Activity() {
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (!pageFailed && url != null && url != "about:blank") hideAway()
                 }
+
+                // The TV's own page stays here; links out (a music app, a search) open where they belong.
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val page = Uri.parse(view.url ?: return false)
+                    if (request.url.host == page.host && request.url.port == page.port) return false
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                    } catch (e: ActivityNotFoundException) {
+                        return false
+                    }
+                    return true
+                }
             }
             // The page shows a pairing button when it's opened here rather than in a browser.
             addJavascriptInterface(Bridge(), "TvCompanionApp")
@@ -101,6 +115,7 @@ class CompanionActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         if (::web.isInitialized) open()
     }
 
@@ -115,8 +130,11 @@ class CompanionActivity : Activity() {
         looking = true
         main.removeCallbacks(retry)
         if (away.visibility == View.VISIBLE) awayStatus.setText(R.string.reach_trying)
+        // From the soundtrack notification: straight to the Music tab.
+        val music = intent.getBooleanExtra(EXTRA_MUSIC, false)
+        val onTab = { url: String -> if (!music) url else url + (if ('#' in url) "&music" else "#music") }
         Thread {
-            val url = Locate.current(this, store)?.pageUrl
+            val url = Locate.current(this, store)?.pageUrl?.let(onTab)
             val why = when {
                 url != null -> null
                 store.api()?.probe() == HTTP_UNAUTHORIZED -> Unreachable.FORGOTTEN
@@ -229,10 +247,11 @@ class CompanionActivity : Activity() {
         finish()
     }
 
-    private companion object {
-        const val FADE_DELAY_MS = 150L
-        const val FADE_MS = 240L
-        const val RETRY_MS = 5_000L
-        const val HTTP_UNAUTHORIZED = 401
+    companion object {
+        const val EXTRA_MUSIC = "music"
+        private const val FADE_DELAY_MS = 150L
+        private const val FADE_MS = 240L
+        private const val RETRY_MS = 5_000L
+        private const val HTTP_UNAUTHORIZED = 401
     }
 }
